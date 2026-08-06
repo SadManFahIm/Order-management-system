@@ -1,29 +1,71 @@
 import axios from 'axios';
 
-/**
- * API client. The base URL comes from the environment:
- *  - dev:   Vite proxy forwards `/api` to the backend (no CORS pain)
- *  - prod:  same-origin `/api` via the nginx reverse proxy
- *  - custom: set VITE_API_URL in frontend/.env
- */
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
+  withCredentials: true, // send/receive the httpOnly refresh-token cookie
 });
 
-export function setAuthToken(token) {
-  if (token) api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-  else delete api.defaults.headers.common['Authorization'];
+const STORAGE_KEY = 'access_token';
+let accessToken = null;
+
+export function setAccessToken(token) {
+  accessToken = token;
+  if (token) {
+    api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    try {
+      window.localStorage.setItem(STORAGE_KEY, token);
+    } catch {
+      /* storage unavailable */
+    }
+  } else {
+    delete api.defaults.headers.common['Authorization'];
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* storage unavailable */
+    }
+  }
 }
 
-// If any request comes back 401 (expired/invalid token), clear the stored
-// session and send the user to the login page.
+export function getAccessToken() {
+  if (accessToken) return accessToken;
+  try {
+    return window.localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+const isAuthEndpoint = (url = '') =>
+  url.includes('/auth/login') ||
+  url.includes('/auth/refresh') ||
+  url.includes('/auth/2fa/verify-login');
+
+// If a request fails with 401 and the request was not itself an auth call,
+// try to refresh the session once (rotates the httpOnly refresh cookie), then
+// retry the original request. If refresh fails, clear the session.
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      window.localStorage.removeItem('token');
-      setAuthToken(null);
-      if (window.location.pathname !== '/login') {
+  async (error) => {
+    const { config, response } = error;
+    const url = config?.url || '';
+
+    if (response?.status === 401 && !isAuthEndpoint(url) && !config?._retry) {
+      config._retry = true;
+      try {
+        const res = await api.post('/auth/refresh');
+        const nextToken = res.data.accessToken;
+        setAccessToken(nextToken);
+        config.headers.Authorization = `Bearer ${nextToken}`;
+        return api(config);
+      } catch {
+        // Fall through to the logout path below.
+      }
+    }
+
+    if (response?.status === 401) {
+      setAccessToken(null);
+      if (!isAuthEndpoint(url) && window.location.pathname !== '/login') {
         window.location.assign('/login');
       }
     }

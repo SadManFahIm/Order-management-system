@@ -4,10 +4,15 @@ import PromotionSlab from '../models/PromotionSlab.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { requirePermission } from '../middleware/rbac.js';
+import { resolveTenant } from '../middleware/tenant.js';
 import { parsePagination } from '../utils/pagination.js';
 
 const router = express.Router();
-router.use(authMiddleware);
+router.use(authMiddleware, resolveTenant);
+
+// Promotion mutations require promotion management rights.
+const canManagePromotions = requirePermission('manage:promotions');
 
 /** GET /api/promotions?limit=&offset= — paginated list (returns an array + X-Total-Count). */
 router.get(
@@ -30,6 +35,7 @@ router.get(
 /** POST /api/promotions */
 router.post(
   '/',
+  canManagePromotions,
   asyncHandler(async (req, res) => {
     const {
       title,
@@ -80,6 +86,7 @@ router.post(
 /** PUT /api/promotions/:id — edit title, dates, enabled */
 router.put(
   '/:id',
+  canManagePromotions,
   asyncHandler(async (req, res) => {
     const promo = await Promotion.findByPk(req.params.id);
     if (!promo) throw new AppError(404, 'NOT_FOUND', 'Promotion not found');

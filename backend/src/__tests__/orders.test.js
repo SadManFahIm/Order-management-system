@@ -21,7 +21,7 @@ beforeAll(async () => {
   const login = await request(app)
     .post('/api/auth/login')
     .send({ email: 'cashier@example.com', password: 'supersecret1' });
-  token = login.body.token;
+  token = login.body.accessToken;
 
   await Product.create({
     name: 'Burger',

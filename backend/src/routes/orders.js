@@ -2,6 +2,8 @@ import express from 'express';
 import { authMiddleware } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { requirePermission } from '../middleware/rbac.js';
+import { resolveTenant } from '../middleware/tenant.js';
 import Product from '../models/Product.js';
 import Promotion from '../models/Promotion.js';
 import PromotionSlab from '../models/PromotionSlab.js';
@@ -12,11 +14,12 @@ import { parsePagination } from '../utils/pagination.js';
 import { createOrderSchema } from '../validators/order.js';
 
 const router = express.Router();
-router.use(authMiddleware);
+router.use(authMiddleware, resolveTenant);
 
 /** GET /api/orders?limit=&offset= — paginated list (backward-compatible: returns an array). */
 router.get(
   '/',
+  requirePermission('view:orders'),
   asyncHandler(async (req, res) => {
     const { limit, offset } = parsePagination(req.query);
 
@@ -41,6 +44,7 @@ router.get(
 /** POST /api/orders — create an order with server-side pricing and promotions. */
 router.post(
   '/',
+  requirePermission('place:orders'),
   asyncHandler(async (req, res) => {
     const { customer_name, customer_phone, customer_address, items } =
       createOrderSchema.parse(req.body);

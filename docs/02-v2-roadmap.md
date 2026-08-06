@@ -150,6 +150,8 @@ Core tables for V2 (migrations land phase by phase):
 
 ### Phase 2 — Authentication & RBAC
 
+> **Status: ✅ Shipped (PR #2 — `feat/phase2-auth-rbac` → `master`).** Backend: full auth service, refresh rotation + reuse detection, RBAC middleware, tenant-scoping middleware, TOTP 2FA, email-verification/password-reset token flows, auth audit logging, permission-guarded business routes, 53 passing tests. Frontend: token-refresh interceptor, register/verify/forgot/reset pages, 2FA login step, session bootstrap.
+
 **Objectives:** Secure, role-based, multi-workspace-ready auth.
 
 **Deliverables**

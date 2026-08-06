@@ -1,13 +1,14 @@
 import app from './app.js';
 import sequelize from './config/db.js';
 import { env } from './config/env.js';
+import { ensureSchemaColumns } from './config/schemaSync.js';
 
 async function start() {
   try {
-    // Creates tables if they are missing.
-    // NOTE: `sync` is a development convenience — production schema changes
-    // must be managed with migrations (Phase 1 follow-up).
+    // Create missing tables (safe: no alter). Columns added to pre-existing
+    // tables are handled idempotently by ensureSchemaColumns.
     await sequelize.sync();
+    await ensureSchemaColumns();
 
     const server = app.listen(env.PORT, () => {
       console.log(`Backend listening on port ${env.PORT} (${env.NODE_ENV})`);

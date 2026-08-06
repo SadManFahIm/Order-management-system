@@ -3,14 +3,20 @@ import Product from '../models/Product.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { requirePermission } from '../middleware/rbac.js';
+import { resolveTenant } from '../middleware/tenant.js';
 import { parsePagination } from '../utils/pagination.js';
 
 const router = express.Router();
-router.use(authMiddleware);
+router.use(authMiddleware, resolveTenant);
+
+// Product mutations require menu management rights (owner/manager/admin).
+const canManageMenu = requirePermission('manage:menu');
 
 /** GET /api/products?limit=&offset= — paginated list (returns an array + X-Total-Count). */
 router.get(
   '/',
+  requirePermission('view:menu'),
   asyncHandler(async (req, res) => {
     const { limit, offset } = parsePagination(req.query);
 
@@ -28,6 +34,7 @@ router.get(
 /** POST /api/products */
 router.post(
   '/',
+  canManageMenu,
   asyncHandler(async (req, res) => {
     const { name, description, price, weight_gm, enabled } = req.body;
 
@@ -55,6 +62,7 @@ router.post(
 /** PUT /api/products/:id */
 router.put(
   '/:id',
+  canManageMenu,
   asyncHandler(async (req, res) => {
     const p = await Product.findByPk(req.params.id);
     if (!p) throw new AppError(404, 'NOT_FOUND', 'Product not found');

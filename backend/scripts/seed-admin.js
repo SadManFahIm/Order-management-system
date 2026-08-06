@@ -11,8 +11,8 @@
 import { parseArgs } from 'node:util';
 import bcrypt from 'bcryptjs';
 import sequelize from '../src/config/db.js';
-import '../src/models/User.js';
-import User from '../src/models/User.js';
+import '../src/models/index.js';
+import { User, Tenant, UserTenant } from '../src/models/index.js';
 
 const { values } = parseArgs({
   options: {
@@ -57,20 +57,37 @@ try {
   await sequelize.sync();
 
   const existing = await User.findOne({ where: { email: values.email } });
+  let user = existing;
   if (existing) {
-    console.log(`Admin with email ${values.email} already exists — nothing to do.`);
-    await sequelize.close();
-    process.exit(0);
+    // Upgrade legacy users to platform admin on re-seed.
+    await existing.update({ platform_role: 'platform_admin' });
+    console.log(`Admin with email ${values.email} already exists — promoted to platform admin.`);
+  } else {
+    const hashed = await bcrypt.hash(password, 10);
+    user = await User.create({
+      name: values.name,
+      email: values.email,
+      password: hashed,
+      platform_role: 'platform_admin',
+    });
   }
 
-  const hashed = await bcrypt.hash(password, 10);
-  const user = await User.create({
-    name: values.name,
-    email: values.email,
-    password: hashed,
+  // Provision a default workspace so the admin has a tenant context.
+  let tenant = await Tenant.findOne({ where: { slug: 'default-restaurant' } });
+  if (!tenant) {
+    tenant = await Tenant.create({
+      name: 'Default Restaurant',
+      slug: 'default-restaurant',
+      status: 'active',
+    });
+  }
+  await UserTenant.findOrCreate({
+    where: { user_id: user.id, tenant_id: tenant.id },
+    defaults: { role: 'owner' },
   });
 
-  console.log(`✅ Admin created: ${user.name} <${user.email}> (id=${user.id})`);
+  console.log(`✅ Platform admin created: ${user.name} <${user.email}> (id=${user.id})`);
+  console.log(`✅ Workspace: ${tenant.name} (slug: ${tenant.slug}, id: ${tenant.id})`);
   await sequelize.close();
 } catch (err) {
   console.error('Failed to seed admin:', err.message);

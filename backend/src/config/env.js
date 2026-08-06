@@ -16,6 +16,8 @@ const envSchema = z.object({
     .min(16, 'JWT_SECRET must be set and at least 16 characters long'),
   DB_STORAGE: z.string().default('./data.sqlite'),
   CORS_ORIGINS: z.string().default('http://localhost:5173'),
+  // Public base URL used to build email links (verification, password reset).
+  APP_BASE_URL: z.string().default('http://localhost:5173'),
   TRUST_PROXY: z
     .string()
     .optional()

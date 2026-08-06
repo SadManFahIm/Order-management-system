@@ -10,8 +10,9 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 
 ## ✨ Features
 
-### Currently working (v1, hardened)
-- **Authentication** — JWT login with validated, rate-limited endpoints; session validation via `GET /api/auth/me`
+### Currently working
+- **Authentication & RBAC (Phase 2)** — register / login / verify-email / password-reset flows · rotating refresh tokens (httpOnly, SameSite cookie) with **session revocation + reuse detection** · optional **TOTP 2FA** · role-based access control (`platform_admin`, `owner`, `manager`, `cashier`, `kitchen`, `delivery`, `customer`) with permission-gated routes · tenant-scoping middleware · auth audit logging
+- **Session management** — short-lived access JWT + revocable refresh sessions; `GET /api/auth/me` session validation
 - **Product management** — create, edit, enable/disable, paginated listing
 - **Promotion engine** — percentage, fixed, and weighted (slab-based) promotions with best-discount selection
 - **Order management** — server-side pricing with per-item discount, subtotal, discount, and grand total
@@ -45,9 +46,10 @@ Multi-tenant workspaces · RBAC (owner/manager/cashier/kitchen/delivery) · rich
 │   │   ├── app.js            # App assembly (middleware, routes, errors)
 │   │   ├── index.js          # Server bootstrap + graceful shutdown
 │   │   ├── config/           # Validated environment config + DB
-│   │   ├── middleware/       # Auth, rate limits, error handler, request IDs
-│   │   ├── models/           # Sequelize models
+│   │   ├── middleware/       # Auth, RBAC, tenant, rate limits, errors, request IDs
+│   │   ├── models/           # Sequelize models (users, sessions, tenants, audit)
 │   │   ├── routes/           # auth, products, promotions, orders
+│   │   ├── services/         # auth service, audit service, email adapter
 │   │   ├── validators/       # zod request schemas
 │   │   ├── utils/            # promotion engine, pagination
 │   │   ├── test/             # Test environment setup
@@ -127,6 +129,7 @@ docker compose up --build
 | `CORS_ORIGINS` | backend `.env` | Comma-separated allowed browser origins |
 | `NODE_ENV` | backend `.env` | `development` / `test` / `production` |
 | `TRUST_PROXY` | backend `.env` | Set `1` behind a reverse proxy |
+| `APP_BASE_URL` | backend `.env` | Public app URL used to build verification/reset links |
 | `VITE_API_URL` | frontend `.env` | Custom API base URL (defaults to same-origin `/api`) |
 
 ---
@@ -135,7 +138,7 @@ docker compose up --build
 
 ```bash
 cd backend
-npm test                      # Vitest — 21 unit + integration tests
+npm test                      # Vitest — 53 unit + integration tests
 npm run test:coverage         # with coverage report
 npm run lint                  # ESLint
 
@@ -144,7 +147,7 @@ npm run lint                  # ESLint
 npm run build                 # production build
 ```
 
-The test suite covers the promotion engine (all discount types, date windows, best-discount selection) and API integration (login, session validation, order creation with promotions, validation errors, security regressions).
+The test suite covers the promotion engine (all discount types, date windows, best-discount selection), the full auth lifecycle (register, verify, login, refresh rotation + reuse detection, logout, password reset), TOTP 2FA setup/verify/disable, RBAC + tenant isolation, and API integration (order creation with promotions, validation errors, security regressions).
 
 ---
 
@@ -159,7 +162,8 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `master`:
 
 ## 🔐 Security Posture
 
-- **No open account creation** — admins are provisioned via CLI only
+- **No open account creation** — admins are provisioned via CLI only; customer registration requires email verification
+- **RBAC + tenant isolation** — every route enforces at least `authenticated`; privileged routes check permissions; tenant scoping is fail-closed
 - **Helmet** security headers (CSP, HSTS, nosniff, frame protection)
 - **CORS allowlist** — origins restricted via environment configuration
 - **Rate limiting** — strict limits on auth endpoints, global API limit
@@ -176,9 +180,9 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `master`:
 
 | Phase | Focus | Status |
 |---|---|---|
-| 1 | Foundation (this release): security, tooling, tests, CI | ✅ Done |
-| 2 | Authentication & RBAC (roles, refresh tokens, 2FA) | ⏳ Next |
-| 3 | Multi-tenant restaurant management | ⬜ |
+| 1 | Foundation: security, tooling, tests, CI | ✅ Done |
+| 2 | Authentication & RBAC (roles, refresh tokens, 2FA) | ✅ Done |
+| 3 | Multi-tenant restaurant management | ⏳ Next |
 | 4 | Rich menu management + image pipeline | ⬜ |
 | 5 | Ordering & fulfillment (storefront, kitchen workflow) | ⬜ |
 | 6 | Payments (SSLCommerz, bKash, Nagad, Stripe) | ⬜ |
