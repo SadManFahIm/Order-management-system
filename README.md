@@ -170,6 +170,9 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `master`:
 - **Backend:** `npm ci` → lint → test → `npm audit --audit-level=high`
 - **Frontend:** `npm ci` → lint → build → `npm audit` (informational — see workflow comment)
 
+The workflow also exposes a `workflow_dispatch` trigger, so CI can always be run manually from the
+Actions tab (or `gh workflow run ci.yml`) even when GitHub's webhook-triggered events are delayed.
+
 ---
 
 ## 🔐 Security Posture
