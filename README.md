@@ -1,77 +1,211 @@
-# Order Management System (React + Node)
+# Order Management System
 
-## Tech Stack
+> A production-ready **Restaurant SaaS Platform** — multi-tenant ordering, menus, orders, and analytics for hundreds of restaurants.
 
-- Backend: Node.js, Express, Sequelize, SQLite, JWT
-- Frontend: React, Vite, Axios, React Router
-- Auth: Email + Password, JWT
+![CI](https://github.com/SadManFahIm/Order-management-system/actions/workflows/ci.yml/badge.svg)
 
-## Features
+The Order Management System is evolving from a single-tenant order CRUD app into a commercial, cloud-based **restaurant ordering SaaS** for the Dhaka market (KFC, Pizza Hut, Domino's, Chillox, Sultan's Dine, Star Kabab, Madchef, and hundreds more — all data-driven, never hard-coded). This repository is the **V2 foundation**: security hardening, engineering tooling, testing, and CI/CD — built incrementally on the existing, working v1 features.
 
-- JWT-based authentication
-- Product management (create, edit, enable/disable)
-- Promotion management
-  - Percentage, fixed, and weighted promotions
-  - Weighted promotions use slabs (min/max weight and discount per 500g)
-- Order management
-  - Per-item discount
-  - Subtotal, total discount, grand total
+---
 
-## Running without Docker
+## ✨ Features
 
-### Backend
+### Currently working (v1, hardened)
+- **Authentication** — JWT login with validated, rate-limited endpoints; session validation via `GET /api/auth/me`
+- **Product management** — create, edit, enable/disable, paginated listing
+- **Promotion engine** — percentage, fixed, and weighted (slab-based) promotions with best-discount selection
+- **Order management** — server-side pricing with per-item discount, subtotal, discount, and grand total
+- **Security hardening** — Helmet security headers, CORS allowlist, rate limiting, centralized error handling, validated payloads (zod), no secrets in code
+
+### Roadmap (V2)
+Multi-tenant workspaces · RBAC (owner/manager/cashier/kitchen/delivery) · rich menu management (categories, variants, add-ons, allergens, images) · customer storefront & ordering · kitchen workflow & live order tracking · payments (SSLCommerz, bKash, Nagad, Stripe) · analytics dashboards · SaaS admin portal · subscriptions & feature flags.
+
+> Full audit and phased roadmap: [`docs/01-codebase-audit.md`](docs/01-codebase-audit.md) · [`docs/02-v2-roadmap.md`](docs/02-v2-roadmap.md)
+
+---
+
+## 🧱 Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Backend | Node.js 20 · Express · Sequelize · SQLite (dev) → PostgreSQL (V2) · JWT · zod |
+| Frontend | React 18 · Vite 7 · Axios · React Router 7 |
+| Security | Helmet · express-rate-limit · bcrypt · strict CORS |
+| Quality | Vitest · Supertest · ESLint · GitHub Actions CI |
+| DevOps | Docker · docker-compose · nginx (SPA + API proxy) |
+
+---
+
+## 📁 Repository Structure
+
+```
+.
+├── backend/                  # Express API
+│   ├── src/
+│   │   ├── app.js            # App assembly (middleware, routes, errors)
+│   │   ├── index.js          # Server bootstrap + graceful shutdown
+│   │   ├── config/           # Validated environment config + DB
+│   │   ├── middleware/       # Auth, rate limits, error handler, request IDs
+│   │   ├── models/           # Sequelize models
+│   │   ├── routes/           # auth, products, promotions, orders
+│   │   ├── validators/       # zod request schemas
+│   │   ├── utils/            # promotion engine, pagination
+│   │   ├── test/             # Test environment setup
+│   │   └── __tests__/        # Unit + integration tests
+│   ├── scripts/              # CLI utilities (seed-admin)
+│   └── Dockerfile
+├── frontend/                 # React SPA
+│   ├── src/
+│   │   ├── components/       # Shared UI components
+│   │   ├── context/          # Auth context (session state)
+│   │   ├── pages/            # Login, Products, Promotions, Orders
+│   │   └── api.js            # Axios client (env-based URL, 401 handling)
+│   └── Dockerfile
+├── .github/workflows/ci.yml  # CI pipeline
+└── docs/                     # Audit + roadmap + architecture docs
+```
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+- Node.js **20+** (see `.nvmrc`)
+- npm 10+
+
+### 1. Backend
 
 ```bash
 cd backend
-cp .env.example .env   # edit if needed
+cp .env.example .env          # then set a strong JWT_SECRET (see below)
 npm install
-npm run dev
+npm run dev                   # http://localhost:4000
 ```
 
-Then seed an admin user (once):
+Generate a strong secret:
 
 ```bash
-curl -X POST http://localhost:4000/api/auth/seed-admin \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Admin","email":"admin@test.com","password":"123456"}'
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 ```
 
-### Frontend
+Provision the first admin (replaces the old unauthenticated seed endpoint — **which was a critical vulnerability and has been removed**):
+
+```bash
+npm run seed:admin -- --name "Admin" --email admin@example.com --password "your-strong-password"
+```
+
+### 2. Frontend
 
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev                   # http://localhost:5173 (proxies /api to the backend)
 ```
 
-Open http://localhost:5173 and login:
+Log in with the seeded admin credentials.
 
-- Email: `admin@test.com`
-- Password: `123456`
-
-## Running with Docker
+### 3. Docker (optional)
 
 ```bash
-docker-compose up --build
+cp .env.example .env          # root-level file for docker-compose secrets
+docker compose up --build
 ```
 
-- Backend: http://localhost:4000
-- Frontend: http://localhost:5173
+- Backend: http://localhost:4000 · Frontend: http://localhost:5173
+- The frontend's nginx proxies `/api` to the backend — no CORS issues in production.
+- Containers include healthchecks; `JWT_SECRET` is **required** via the root `.env` (never hard-coded).
 
-## Promotion Rules
+---
 
-- Only enabled promotions where `start_date <= today <= end_date` are applied.
-- Promotions are global (apply to all products).
-- If multiple promotions match an item, the **largest discount** is chosen.
-- Weighted promotions:
-  - Each promotion has multiple slabs: `min_weight_gm`, `max_weight_gm`, `discount_per_500gm`.
-  - For a cart item:
-    - `total_weight_gm = product_weight_gm * quantity`
-    - pick slab where `min <= total_weight_gm <= max`
-    - `units = total_weight_gm / 500`
-    - `discount = units * discount_per_500gm`.
+## ⚙️ Configuration
 
-## Notes
+| Variable | Where | Purpose |
+|---|---|---|
+| `JWT_SECRET` | backend `.env` / root `.env` | Signs access tokens (min 16 chars — **never commit real values**) |
+| `PORT` | backend `.env` | API port (default 4000) |
+| `DB_STORAGE` | backend `.env` | SQLite file path (dev) |
+| `CORS_ORIGINS` | backend `.env` | Comma-separated allowed browser origins |
+| `NODE_ENV` | backend `.env` | `development` / `test` / `production` |
+| `TRUST_PROXY` | backend `.env` | Set `1` behind a reverse proxy |
+| `VITE_API_URL` | frontend `.env` | Custom API base URL (defaults to same-origin `/api`) |
 
-This is a reference implementation for the home task.  
-You can extend the UI/logic further or polish styling as desired.
+---
+
+## 🧪 Testing & Quality
+
+```bash
+cd backend
+npm test                      # Vitest — 21 unit + integration tests
+npm run test:coverage         # with coverage report
+npm run lint                  # ESLint
+
+cd frontend
+npm run lint                  # ESLint
+npm run build                 # production build
+```
+
+The test suite covers the promotion engine (all discount types, date windows, best-discount selection) and API integration (login, session validation, order creation with promotions, validation errors, security regressions).
+
+---
+
+## 🔄 CI/CD
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `master`:
+
+- **Backend:** `npm ci` → lint → test → `npm audit --audit-level=high`
+- **Frontend:** `npm ci` → lint → build → `npm audit` (informational — see workflow comment)
+
+---
+
+## 🔐 Security Posture
+
+- **No open account creation** — admins are provisioned via CLI only
+- **Helmet** security headers (CSP, HSTS, nosniff, frame protection)
+- **CORS allowlist** — origins restricted via environment configuration
+- **Rate limiting** — strict limits on auth endpoints, global API limit
+- **Input validation** — every payload validated with zod before reaching the database
+- **Central error handling** — unified error envelope with request IDs; internal errors never leak details
+- **Environment hygiene** — `.env`, databases, and `node_modules` are gitignored; secrets are never committed
+- **Dependency discipline** — CI gates on known vulnerabilities; `npm ci` for reproducible installs
+
+**Remaining known advisories (non-blocking):** react-router 7.18.x reports an RSC-mode CSRF advisory that does not apply to this declarative-mode SPA (no server actions). Tracked in CI with an informational audit step.
+
+---
+
+## 🗺️ Roadmap
+
+| Phase | Focus | Status |
+|---|---|---|
+| 1 | Foundation (this release): security, tooling, tests, CI | ✅ Done |
+| 2 | Authentication & RBAC (roles, refresh tokens, 2FA) | ⏳ Next |
+| 3 | Multi-tenant restaurant management | ⬜ |
+| 4 | Rich menu management + image pipeline | ⬜ |
+| 5 | Ordering & fulfillment (storefront, kitchen workflow) | ⬜ |
+| 6 | Payments (SSLCommerz, bKash, Nagad, Stripe) | ⬜ |
+| 7 | Analytics & dashboards | ⬜ |
+| 8 | Admin portal & SaaS operations | ⬜ |
+| 9 | Hardening (performance, observability, load) | ⬜ |
+| 10 | Production release | ⬜ |
+
+See [`docs/02-v2-roadmap.md`](docs/02-v2-roadmap.md) for the detailed plan with objectives, deliverables, dependencies, effort, risks, and acceptance criteria per phase.
+
+---
+
+## 📚 Documentation
+
+- [`docs/01-codebase-audit.md`](docs/01-codebase-audit.md) — full V1 audit (59 findings with severity, impact, solution, effort)
+- [`docs/02-v2-roadmap.md`](docs/02-v2-roadmap.md) — target architecture, multi-tenancy strategy, ER diagram, phased roadmap
+
+---
+
+## 🤝 Contributing
+
+1. Fork the repo and create a feature branch from `master`
+2. Run `npm run lint` and `npm test` (backend) before pushing
+3. Open a pull request — CI must pass
+
+---
+
+## 📄 License
+
+Private / internal — all rights reserved.
