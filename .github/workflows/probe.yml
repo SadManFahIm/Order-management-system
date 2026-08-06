@@ -1,6 +1,6 @@
 name: Probe
 
-on:
+"on":
   push:
     branches: [master]
 
