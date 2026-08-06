@@ -1,21 +1,31 @@
-version: "3.9"
-
 services:
   backend:
     build: ./backend
     ports:
       - "4000:4000"
     environment:
-      - PORT=4000
-      - JWT_SECRET=supersecretjwt
-      - DB_STORAGE=/data/data.sqlite
+      NODE_ENV: production
+      PORT: 4000
+      # Required — set in the root .env file (see .env.example).
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in the root .env file}
+      DB_STORAGE: /data/data.sqlite
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      TRUST_PROXY: "1"
     volumes:
       - ./backend/data:/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
 
   frontend:
     build: ./frontend
     ports:
       - "5173:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

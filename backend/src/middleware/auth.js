@@ -1,7 +1,10 @@
 import jwt from 'jsonwebtoken';
-import dotenv from 'dotenv';
-dotenv.config();
+import { env } from '../config/env.js';
 
+/**
+ * Verifies the `Authorization: Bearer <token>` header and attaches the decoded
+ * payload to `req.user`. Rejects missing/invalid/expired tokens with 401.
+ */
 export function authMiddleware(req, res, next) {
   const header = req.headers['authorization'];
   if (!header) return res.status(401).json({ message: 'No token' });
@@ -11,10 +14,10 @@ export function authMiddleware(req, res, next) {
     return res.status(401).json({ message: 'Invalid token' });
 
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const payload = jwt.verify(token, env.JWT_SECRET);
     req.user = payload;
     next();
-  } catch (err) {
+  } catch {
     return res.status(401).json({ message: 'Token invalid/expired' });
   }
 }

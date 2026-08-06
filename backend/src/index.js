@@ -1,43 +1,33 @@
-import express from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
+import app from './app.js';
 import sequelize from './config/db.js';
-
-import './models/User.js';
-import './models/Product.js';
-import './models/Promotion.js';
-import './models/PromotionSlab.js';
-import './models/Order.js';
-import './models/OrderItem.js';
-
-import authRoutes from './routes/auth.js';
-import productRoutes from './routes/products.js';
-import promotionRoutes from './routes/promotions.js';
-import orderRoutes from './routes/orders.js';
-
-dotenv.config();
-
-const app = express();
-app.use(cors());
-app.use(express.json());
-
-app.get('/', (req, res) => {
-  res.json({ status: 'API running' });
-});
-
-app.use('/api/auth', authRoutes);
-app.use('/api/products', productRoutes);
-app.use('/api/promotions', promotionRoutes);
-app.use('/api/orders', orderRoutes);
-
-const PORT = process.env.PORT || 4000;
+import { env } from './config/env.js';
 
 async function start() {
   try {
-    await sequelize.sync({ alter: true });
-    app.listen(PORT, () => console.log(`Backend on port ${PORT}`));
+    // Creates tables if they are missing.
+    // NOTE: `sync` is a development convenience — production schema changes
+    // must be managed with migrations (Phase 1 follow-up).
+    await sequelize.sync();
+
+    const server = app.listen(env.PORT, () => {
+      console.log(`Backend listening on port ${env.PORT} (${env.NODE_ENV})`);
+    });
+
+    const shutdown = async () => {
+      console.log('Shutting down gracefully…');
+      server.close(async () => {
+        await sequelize.close();
+        process.exit(0);
+      });
+      // Force-exit if close takes too long
+      setTimeout(() => process.exit(1), 10_000).unref();
+    };
+
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
   } catch (e) {
-    console.error('DB error', e);
+    console.error('Failed to start backend:', e);
+    process.exit(1);
   }
 }
 
