@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import api from '../api';
 import Cart from '../components/Cart';
+import { PageHeader, Card, Field, Input, Textarea, Button, Skeleton, useToast } from '../components/ui';
 
 export default function NewOrderPage() {
-  const [products, setProducts] = useState([]);
+  const [products, setProducts] = useState(null);
   const [cart, setCart] = useState([]);
   const [summary, setSummary] = useState(null);
+  const toast = useToast();
 
   const [customer, setCustomer] = useState({
     customer_name: '',
@@ -14,8 +16,12 @@ export default function NewOrderPage() {
   });
 
   const loadProducts = async () => {
-    const res = await api.get('/products');
-    setProducts(res.data.filter((p) => p.enabled));
+    try {
+      const res = await api.get('/products');
+      setProducts(res.data.filter((p) => p.enabled));
+    } catch {
+      setProducts([]);
+    }
   };
 
   useEffect(() => {
@@ -31,6 +37,7 @@ export default function NewOrderPage() {
         );
       return [...c, { product: p, quantity: 1 }];
     });
+    setSummary(null);
   };
 
   const onQtyChange = (pid, qty) => {
@@ -40,8 +47,7 @@ export default function NewOrderPage() {
     );
   };
 
-  const onRemove = (pid) =>
-    setCart((c) => c.filter((i) => i.product.id !== pid));
+  const onRemove = (pid) => setCart((c) => c.filter((i) => i.product.id !== pid));
 
   const handleCreateOrder = async () => {
     const payload = {
@@ -51,79 +57,94 @@ export default function NewOrderPage() {
         quantity: i.quantity
       }))
     };
-    const res = await api.post('/orders', payload);
-    alert(`Order created with id ${res.data.id}`);
-    const s = {
-      subtotal: res.data.subtotal,
-      totalDiscount: res.data.total_discount,
-      grandTotal: res.data.grand_total
-    };
-    const enrichedCart = res.data.items.map((it) => ({
-      product: it.Product,
-      quantity: it.quantity,
-      baseTotal: it.unit_price * it.quantity,
-      discount: it.discount,
-      lineTotal: it.line_total
-    }));
-    setCart(enrichedCart);
-    setSummary(s);
+    try {
+      const res = await api.post('/orders', payload);
+      toast.success(`Order #${res.data.id} created`);
+      const s = {
+        subtotal: res.data.subtotal,
+        totalDiscount: res.data.total_discount,
+        grandTotal: res.data.grand_total
+      };
+      const enrichedCart = res.data.items.map((it) => ({
+        product: it.Product,
+        quantity: it.quantity,
+        baseTotal: it.unit_price * it.quantity,
+        discount: it.discount,
+        lineTotal: it.line_total
+      }));
+      setCart(enrichedCart);
+      setSummary(s);
+    } catch {
+      toast.error('Failed to create order');
+    }
   };
 
   const onCustomerChange = (e) =>
     setCustomer((c) => ({ ...c, [e.target.name]: e.target.value }));
 
+  const canSubmit = customer.customer_name && cart.length > 0;
+
   return (
-    <div style={{ padding: 16 }}>
-      <h2>New Order</h2>
-      <div style={{ display: 'flex', gap: 16 }}>
-        <div style={{ flex: 1 }}>
-          <h3>Customer</h3>
-          <input
-            name="customer_name"
-            placeholder="Name"
-            value={customer.customer_name}
-            onChange={onCustomerChange}
-          />
-          <br />
-          <input
-            name="customer_phone"
-            placeholder="Phone"
-            value={customer.customer_phone}
-            onChange={onCustomerChange}
-          />
-          <br />
-          <textarea
-            name="customer_address"
-            placeholder="Address"
-            value={customer.customer_address}
-            onChange={onCustomerChange}
-          />
-          <h3>Products</h3>
-          <ul>
-            {products.map((p) => (
-              <li key={p.id}>
-                {p.name} ({p.weight_gm}gm) - {p.price} tk
-                <button onClick={() => addToCart(p)} style={{ marginLeft: 8 }}>
-                  Add
-                </button>
-              </li>
-            ))}
-          </ul>
+    <div className="oms-page">
+      <PageHeader
+        title="New order"
+        desc="Build an order from your menu and check out."
+      />
+
+      <div className="oms-grid oms-grid--2col">
+        <div style={{ display: 'grid', gap: 16 }}>
+          <Card title="Customer" subtitle="Who is this order for?">
+            <Field label="Name">
+              <Input name="customer_name" placeholder="Customer name" value={customer.customer_name} onChange={onCustomerChange} />
+            </Field>
+            <Field label="Phone">
+              <Input name="customer_phone" placeholder="01XXXXXXXXX" value={customer.customer_phone} onChange={onCustomerChange} />
+            </Field>
+            <Field label="Delivery address" hint="Leave blank for pickup.">
+              <Textarea name="customer_address" placeholder="House, road, area…" value={customer.customer_address} onChange={onCustomerChange} />
+            </Field>
+          </Card>
+
+          <Card title="Menu" subtitle="Click to add items" bodyPadding={false}>
+            {products === null ? (
+              <div style={{ padding: 20, display: 'grid', gap: 12 }}>
+                {[1, 2, 3, 4].map((i) => (
+                  <Skeleton key={i} height={52} />
+                ))}
+              </div>
+            ) : (
+              <ul className="oms-product-picker" style={{ padding: 12 }}>
+                {products.map((p) => (
+                  <li key={p.id}>
+                    <div className="oms-product-picker__info">
+                      <div className="oms-product-picker__name">{p.name}</div>
+                      <div className="oms-product-picker__meta">
+                        {p.weight_gm} gm · ৳ {Number(p.price).toFixed(2)}
+                      </div>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => addToCart(p)}>
+                      + Add
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
         </div>
-        <div style={{ flex: 2 }}>
-          <Cart
-            cart={cart}
-            summary={summary}
-            onQtyChange={onQtyChange}
-            onRemove={onRemove}
-          />
-          <button
-            onClick={handleCreateOrder}
-            disabled={!customer.customer_name || cart.length === 0}
-            style={{ marginTop: 8 }}
-          >
-            Create order
-          </button>
+
+        <div style={{ display: 'grid', gap: 16 }}>
+          <Cart cart={cart} summary={summary} onQtyChange={onQtyChange} onRemove={onRemove} />
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={handleCreateOrder}
+              disabled={!canSubmit}
+              style={{ minWidth: 200 }}
+            >
+              Create order
+            </Button>
+          </div>
         </div>
       </div>
     </div>

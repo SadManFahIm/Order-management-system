@@ -174,6 +174,8 @@ Core tables for V2 (migrations land phase by phase):
 
 ### Phase 3 — Restaurant (Tenant) Management
 
+> **Status: ✅ Shipped (PR #3 — `feat/phase3-tenant-workspaces` → `master`).** Backend: `tenants` / `plans` / `subscriptions` / `feature_flags` / `usage_counters` models + tenant workspace CRUD + team member invite/remove API, hardened fail-closed tenant-scoping middleware (`X-Tenant` header, suspended/archived blocking), every business route scoped by `tenant_id`, CSRF origin-check middleware for cookie-authenticated routes, and a role-switch fix (selected workspace's membership role now always wins over the login-time token role). Seed: idempotent `seed:restaurants` with 20 Dhaka brands + 89 menu items. Tests: dedicated tenant-isolation suite (cross-tenant 403/404, ID injection, archive blocks, role switching) + CSRF suite — 73 passing. Frontend: workspace switcher in the navbar, `X-Tenant` header in the API client, Wolt/Deliveroo-style theme.
+
 **Objectives:** Multi-tenant workspaces — restaurants are data, not code.
 
 **Deliverables**

@@ -39,8 +39,9 @@ export default [
     },
   },
   {
-    // Context providers legitimately export hooks + constants alongside components.
-    files: ['**/context/*.jsx', '**/*Context.jsx'],
+    // Context providers and provider+hook modules legitimately export
+    // non-component values alongside components.
+    files: ['**/context/*.jsx', '**/*Context.jsx', '**/ui/Toast.jsx'],
     rules: {
       'react-refresh/only-export-components': 'off',
     },

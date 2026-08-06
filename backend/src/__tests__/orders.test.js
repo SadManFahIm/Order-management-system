@@ -6,17 +6,22 @@ import sequelize from '../config/db.js';
 import User from '../models/User.js';
 import Product from '../models/Product.js';
 import Promotion from '../models/Promotion.js';
+import Tenant from '../models/Tenant.js';
+import UserTenant from '../models/UserTenant.js';
 
 let token;
 
 beforeAll(async () => {
   await sequelize.sync({ force: true });
 
-  await User.create({
+  // Phase 3: business data is tenant-scoped, so the cashier needs a workspace.
+  const tenant = await Tenant.create({ name: 'Test Diner', slug: 'test-diner' });
+  const cashier = await User.create({
     name: 'Cashier',
     email: 'cashier@example.com',
     password: await bcrypt.hash('supersecret1', 10),
   });
+  await UserTenant.create({ user_id: cashier.id, tenant_id: tenant.id, role: 'cashier' });
 
   const login = await request(app)
     .post('/api/auth/login')
@@ -24,6 +29,7 @@ beforeAll(async () => {
   token = login.body.accessToken;
 
   await Product.create({
+    tenant_id: tenant.id,
     name: 'Burger',
     description: 'Beef burger',
     price: 200,
@@ -31,6 +37,7 @@ beforeAll(async () => {
     enabled: true,
   });
   await Product.create({
+    tenant_id: tenant.id,
     name: 'Fries',
     description: 'Large fries',
     price: 100,
@@ -38,6 +45,7 @@ beforeAll(async () => {
     enabled: true,
   });
   await Promotion.create({
+    tenant_id: tenant.id,
     title: '10% off',
     type: 'percentage',
     percentage_value: 10,

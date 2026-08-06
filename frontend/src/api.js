@@ -6,7 +6,49 @@ const api = axios.create({
 });
 
 const STORAGE_KEY = 'access_token';
+const TENANT_KEY = 'active_tenant_id';
 let accessToken = null;
+let tenantId = null;
+
+/**
+ * Sets the active workspace for all API calls. The value is sent as the
+ * `X-Tenant` header so the backend scopes every request to that workspace
+ * (it outranks the tenant baked into the access token at login).
+ */
+export function setTenantId(id) {
+  tenantId = id;
+  if (id) {
+    api.defaults.headers.common['X-Tenant'] = String(id);
+    try {
+      window.localStorage.setItem(TENANT_KEY, String(id));
+    } catch {
+      /* storage unavailable */
+    }
+  } else {
+    delete api.defaults.headers.common['X-Tenant'];
+    try {
+      window.localStorage.removeItem(TENANT_KEY);
+    } catch {
+      /* storage unavailable */
+    }
+  }
+}
+
+export function getTenantId() {
+  if (tenantId) return tenantId;
+  try {
+    const stored = window.localStorage.getItem(TENANT_KEY);
+    return stored ? Number(stored) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Restore the last-used workspace across reloads.
+const restoredTenant = getTenantId();
+if (restoredTenant) {
+  api.defaults.headers.common['X-Tenant'] = String(restoredTenant);
+}
 
 export function setAccessToken(token) {
   accessToken = token;

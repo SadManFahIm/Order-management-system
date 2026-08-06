@@ -3,7 +3,7 @@ import request from 'supertest';
 import bcrypt from 'bcryptjs';
 import app from '../app.js';
 import sequelize from '../config/db.js';
-import { User, Tenant, UserTenant } from '../models/index.js';
+import { User, Tenant, UserTenant, Product } from '../models/index.js';
 
 beforeAll(async () => {
   await sequelize.sync({ force: true });
@@ -119,12 +119,18 @@ describe('RBAC guards', () => {
       .get('/api/products')
       .set('Authorization', `Bearer ${login.body.accessToken}`);
 
+    // Customers hold no workspace context → tenant scoping rejects them.
     expect(res.status).toBe(403);
-    expect(res.body.error.code).toBe('FORBIDDEN');
+    expect(['FORBIDDEN', 'TENANT_REQUIRED']).toContain(res.body.error.code);
   });
 
   it('allows legacy member accounts full access (backward compatibility)', async () => {
+    // Boot-time bootstrap grants legacy accounts a default-workspace 'staff'
+    // membership (full access). Mirror that here.
+    const tenant = await Tenant.create({ name: 'Legacy Diner', slug: 'legacy-diner' });
     const member = await createUser({ platform_role: 'member' });
+    await UserTenant.create({ user_id: member.id, tenant_id: tenant.id, role: 'staff' });
+
     const login = await request(app)
       .post('/api/auth/login')
       .send({ email: member.email, password: 'password123' });
@@ -137,6 +143,7 @@ describe('RBAC guards', () => {
   });
 
   it('allows platform admins everything', async () => {
+    await Tenant.create({ name: 'Admin Diner', slug: 'admin-diner' });
     const admin = await createUser({ platform_role: 'platform_admin' });
     const login = await request(app)
       .post('/api/auth/login')
@@ -187,9 +194,20 @@ describe('RBAC guards', () => {
     const menuRes = await request(app).post('/api/products').set(auth).send({ name: 'Hack', price: 1, weight_gm: 1 });
     expect(menuRes.status).toBe(403);
 
+    // The cashier was provisioned into 'test-cafe' by the /auth/staff test;
+    // give that workspace a product so the order can be placed.
+    const cafe = await Tenant.findOne({ where: { slug: 'test-cafe' } });
+    const product = await Product.create({
+      tenant_id: cafe.id,
+      name: 'Walk-in Burger',
+      price: 150,
+      weight_gm: 300,
+      enabled: true,
+    });
+
     const orderRes = await request(app).post('/api/orders').set(auth).send({
       customer_name: 'Walk-in',
-      items: [{ product_id: 1, quantity: 1 }],
+      items: [{ product_id: product.id, quantity: 1 }],
     });
     expect(orderRes.status).toBe(201);
   });

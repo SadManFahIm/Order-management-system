@@ -18,15 +18,21 @@ import './models/AuthToken.js';
 import './models/AuditLog.js';
 import './models/Tenant.js';
 import './models/UserTenant.js';
+import './models/Plan.js';
+import './models/Subscription.js';
+import './models/FeatureFlag.js';
+import './models/UsageCounter.js';
 
 import authRoutes from './routes/auth.js';
 import productRoutes from './routes/products.js';
 import promotionRoutes from './routes/promotions.js';
 import orderRoutes from './routes/orders.js';
+import tenantRoutes from './routes/tenants.js';
 
 import { apiLimiter } from './middleware/rateLimiter.js';
 import { requestId } from './middleware/requestId.js';
 import { notFound, errorHandler } from './middleware/errorHandler.js';
+import { sameOriginGuard } from './middleware/csrf.js';
 
 const app = express();
 
@@ -52,6 +58,10 @@ app.use(
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 
+// CSRF: verify Origin/Sec-Fetch-Site on state-changing requests that carry
+// cookies (protects the httpOnly refresh-token flow). No-op otherwise.
+app.use('/api', sameOriginGuard);
+
 // Health / status
 app.get('/', (req, res) => {
   res.json({ status: 'API running', version: '1.0.0' });
@@ -72,6 +82,7 @@ app.use('/api/auth', apiLimiter, authRoutes);
 app.use('/api/products', apiLimiter, productRoutes);
 app.use('/api/promotions', apiLimiter, promotionRoutes);
 app.use('/api/orders', apiLimiter, orderRoutes);
+app.use('/api/tenants', apiLimiter, tenantRoutes);
 
 // 404 + centralized error handling
 app.use(notFound);

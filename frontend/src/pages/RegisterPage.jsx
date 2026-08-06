@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../api';
+import { Logo, Field, Input, Button, Card } from '../components/ui';
 
 export default function RegisterPage() {
   const nav = useNavigate();
@@ -17,8 +18,6 @@ export default function RegisterPage() {
     setSubmitting(true);
     try {
       const res = await api.post('/auth/register', { name, email, password });
-      // In development the API returns the verification token so the flow is
-      // usable without a real email provider.
       if (res.data.devToken) {
         setDevLink(`/verify-email?token=${res.data.devToken}`);
       } else {
@@ -32,47 +31,72 @@ export default function RegisterPage() {
   };
 
   return (
-    <div style={{ maxWidth: 400, margin: '80px auto', padding: '0 16px' }}>
-      <h2>Create account</h2>
-      {devLink ? (
-        <div style={{ border: '1px solid #cbd5e1', padding: 16, borderRadius: 8 }}>
-          <p>Account created! Check your email for a verification link.</p>
-          <p style={{ fontSize: 13, color: '#64748b' }}>
-            Development mode:{' '}
-            <Link to={devLink}>open the verification link</Link>
-          </p>
+    <div className="oms-auth">
+      <div className="oms-auth__card">
+        <div className="oms-auth__logo">
+          <Logo />
         </div>
-      ) : (
-        <form onSubmit={onSubmit}>
-          <div>
-            <label>Name</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} required style={{ width: '100%' }} />
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <label>Email</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required style={{ width: '100%' }} />
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <label>Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={8}
-              placeholder="8+ chars, letters and numbers"
-              style={{ width: '100%' }}
-            />
-          </div>
-          {error && <p style={{ color: 'red' }}>{error}</p>}
-          <button style={{ marginTop: 12, width: '100%' }} disabled={submitting}>
-            {submitting ? 'Please wait…' : 'Create account'}
-          </button>
-        </form>
-      )}
-      <p style={{ textAlign: 'center', marginTop: 16 }}>
-        Already have an account? <Link to="/login">Sign in</Link>
-      </p>
+        <h1 className="oms-auth__title">Create your account</h1>
+        <p className="oms-auth__desc">Start managing orders in minutes.</p>
+
+        {devLink ? (
+          <Card bodyPadding={false} style={{ marginTop: 24 }}>
+            <div style={{ padding: '20px 22px' }}>
+              <p style={{ color: 'var(--text)', fontWeight: 550 }}>Account created!</p>
+              <p style={{ marginTop: 6, fontSize: 13, color: 'var(--text-secondary)' }}>
+                Check your email for a verification link.
+              </p>
+              <p style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)' }}>
+                Development mode: <Link to={devLink}>open the verification link</Link>
+              </p>
+            </div>
+          </Card>
+        ) : (
+          <form onSubmit={onSubmit} style={{ marginTop: 24 }}>
+            <Field label="Name">
+              <Input id="reg-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" required autoComplete="name" />
+            </Field>
+            <Field label="Email">
+              <Input type="email" id="reg-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@restaurant.com" required autoComplete="email" />
+            </Field>
+            <Field label="Password" hint="At least 8 characters.">
+              <Input
+                type="password"
+                id="reg-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+                minLength={8}
+                autoComplete="new-password"
+              />
+            </Field>
+
+            {error && (
+              <div
+                role="alert"
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  background: 'var(--danger-soft)',
+                  color: 'var(--danger)',
+                  fontSize: 13,
+                }}
+              >
+                {error}
+              </div>
+            )}
+
+            <Button type="submit" variant="primary" size="lg" loading={submitting} style={{ width: '100%', marginTop: 16 }}>
+              {submitting ? 'Creating…' : 'Create account'}
+            </Button>
+          </form>
+        )}
+
+        <div className="oms-auth__footer">
+          Already have an account? <Link to="/login">Sign in</Link>
+        </div>
+      </div>
     </div>
   );
 }

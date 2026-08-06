@@ -5,6 +5,12 @@ import Product from './Product.js';
 
 const OrderItem = sequelize.define('OrderItem', {
   id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
+  // Multi-tenant scoping (Phase 3).
+  tenant_id: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 1,
+  },
   quantity: { type: DataTypes.INTEGER, allowNull: false },
   unit_price: { type: DataTypes.FLOAT, allowNull: false },
   weight_per_unit_gm: { type: DataTypes.INTEGER, allowNull: false },

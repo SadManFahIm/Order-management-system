@@ -127,11 +127,19 @@ router.get(
   })
 );
 
-/** GET /api/auth/tenants — workspaces the user belongs to. */
+/** GET /api/auth/tenants — workspaces the user belongs to.
+ * Platform admins see every workspace (marked with their global role).
+ */
 router.get(
   '/tenants',
   authMiddleware,
   asyncHandler(async (req, res) => {
+    if (req.user.platform_role === 'platform_admin') {
+      const all = await Tenant.findAll({ order: [['id', 'ASC']] });
+      return res.json(
+        all.map((t) => ({ id: t.id, name: t.name, slug: t.slug, role: 'platform_admin' }))
+      );
+    }
     const memberships = await UserTenant.findAll({
       where: { user_id: req.user.id },
       include: [{ model: Tenant }],

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import api, { setAccessToken, getAccessToken } from '../api';
+import api, { setAccessToken, getAccessToken, setTenantId, getTenantId } from '../api';
 
 const AuthContext = createContext(null);
 
@@ -8,6 +8,8 @@ export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => getAccessToken());
   const [loading, setLoading] = useState(true);
   const [twoFactorPending, setTwoFactorPending] = useState(null);
+  const [tenants, setTenants] = useState([]);
+  const [activeTenantId, setActiveTenantId] = useState(() => getTenantId());
 
   // Validate the stored access token against the server on first load.
   useEffect(() => {
@@ -39,6 +41,45 @@ export function AuthProvider({ children }) {
       active = false;
     };
   }, []);
+
+  // Load the user's workspace memberships once the session is known.
+  useEffect(() => {
+    if (!user) return undefined;
+    let active = true;
+    api
+      .get('/auth/tenants')
+      .then((res) => {
+        if (!active) return;
+        const list = Array.isArray(res.data) ? res.data : [];
+        setTenants(list);
+        // Ensure the active workspace is one the user can actually access.
+        if (!list.some((t) => Number(t.id) === Number(activeTenantId))) {
+          const first = list[0];
+          if (first) {
+            setActiveTenantId(first.id);
+            setTenantId(first.id);
+          } else {
+            setTenantId(null);
+          }
+        } else {
+          setTenantId(activeTenantId);
+        }
+      })
+      .catch(() => {
+        /* non-fatal: pages will surface tenant errors */
+      });
+    return () => {
+      active = false;
+    };
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const switchTenant = (id) => {
+    setTenantId(id);
+    setActiveTenantId(id);
+    // Scoped data is fetched on page mount — refresh so the new workspace's
+    // data loads immediately.
+    window.location.reload();
+  };
 
   const applySession = (session) => {
     setAccessToken(session.accessToken);
@@ -76,6 +117,9 @@ export function AuthProvider({ children }) {
     setToken(null);
     setAccessToken(null);
     setTwoFactorPending(null);
+    setTenants([]);
+    setActiveTenantId(null);
+    setTenantId(null);
   };
 
   const value = {
@@ -83,6 +127,9 @@ export function AuthProvider({ children }) {
     token,
     loading,
     twoFactorPending,
+    tenants,
+    activeTenantId,
+    switchTenant,
     login,
     verifyTwoFactor,
     logout,
