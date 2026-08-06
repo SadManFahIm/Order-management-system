@@ -38,4 +38,11 @@ export default [
       'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
     },
   },
+  {
+    // Context providers legitimately export hooks + constants alongside components.
+    files: ['**/context/*.jsx', '**/*Context.jsx'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 ];

@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 
 import sequelize from './config/db.js';
 import { env, allowedOrigins } from './config/env.js';
@@ -12,6 +13,11 @@ import './models/Promotion.js';
 import './models/PromotionSlab.js';
 import './models/Order.js';
 import './models/OrderItem.js';
+import './models/RefreshToken.js';
+import './models/AuthToken.js';
+import './models/AuditLog.js';
+import './models/Tenant.js';
+import './models/UserTenant.js';
 
 import authRoutes from './routes/auth.js';
 import productRoutes from './routes/products.js';
@@ -44,6 +50,7 @@ app.use(
 );
 
 app.use(express.json({ limit: '1mb' }));
+app.use(cookieParser());
 
 // Health / status
 app.get('/', (req, res) => {

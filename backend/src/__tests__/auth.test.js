@@ -26,7 +26,8 @@ describe('POST /api/auth/login', () => {
       .send({ email: 'admin@example.com', password: 'supersecret1' });
 
     expect(res.status).toBe(200);
-    expect(res.body.token).toBeTruthy();
+    expect(res.body.accessToken).toBeTruthy();
+    expect(res.headers['set-cookie']).toBeDefined(); // refresh token cookie
     expect(res.body.user.email).toBe('admin@example.com');
   });
 
@@ -57,7 +58,7 @@ describe('GET /api/auth/me', () => {
 
     const res = await request(app)
       .get('/api/auth/me')
-      .set('Authorization', `Bearer ${login.body.token}`);
+      .set('Authorization', `Bearer ${login.body.accessToken}`);
 
     expect(res.status).toBe(200);
     expect(res.body.user.email).toBe('admin@example.com');
