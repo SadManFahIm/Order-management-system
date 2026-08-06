@@ -198,14 +198,16 @@ Core tables for V2 (migrations land phase by phase):
 
 ### Phase 4 — Menu Management
 
+> **Status: 🟡 Core shipped (PR #5 — `feat/phase4-menu-management` → `master`); image pipeline + bulk import deferred.** Backend: `menu_categories` (self-ref subcategories, sort order), `item_variants` (size/price adjustments), `item_addons` (paid extras) — all tenant-scoped and RBAC-gated (`view:menu` read, `manage:menu` write); `Products` extended with `category_id` / `prep_minutes` / `image_url`; menu router with category CRUD (self-parent & cross-tenant parent rejection, detach-on-delete), variant/add-on CRUD under a product with tenant ownership checks; `seed:restaurants` now backfills categories, variants and add-ons idempotently (16 categories, 14 variants, 5 add-ons across brands). Tests: dedicated menu suite — 17 tests (CRUD, RBAC, cross-tenant ID injection, self-parent, product menu fields) — 90 passing total. Frontend: **Menu page** (category table with item counts, grouped item list with prep times, item detail modal with variant/add-on builder) wired into the nav + router.
+
 **Objectives:** Rich, data-driven menu per restaurant.
 
 **Deliverables**
-- Schema: categories (+subcategories self-ref), menu items (image_url, description, nutrition JSONB, ingredients, allergens, prep_minutes, availability schedule, is_available), variants (size + price), add-ons (option groups)
-- CRUD APIs + bulk import; optimistic locking on items (`version`); soft delete
-- **Image pipeline**: S3-compatible storage, `sharp` resize (thumb/standard/hero), consistent 4:3 ratio, lazy-load + blur-up placeholders, CDN URL builder
-- Merchant menu UI: drag-drop category ordering, item editor with variant/add-on builder, availability toggles, allergen/nutrition editor
-- Public menu API (cached in Redis, ETags) for the future storefront
+- ✅ Schema: categories (+subcategories self-ref), items extended with `category_id` / `prep_minutes` / `image_url`, variants (size + price), add-ons (option groups)
+- 🟡 CRUD APIs done; **bulk import**, optimistic locking on items (`version`), soft delete pending
+- ⬜ **Image pipeline**: S3-compatible storage, `sharp` resize (thumb/standard/hero), consistent 4:3 ratio, lazy-load + blur-up placeholders, CDN URL builder
+- ✅ Merchant menu UI: category manager + item editor with variant/add-on builder (drag-drop ordering, availability toggles, allergen/nutrition editor pending)
+- ⬜ Public menu API (cached in Redis, ETags) for the future storefront
 
 **Dependencies:** Phase 3 (tenants), image storage setup.
 

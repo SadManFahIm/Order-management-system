@@ -15,6 +15,7 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 - **Authentication & RBAC (Phase 2)** — register / login / verify-email / password-reset flows · rotating refresh tokens (httpOnly, SameSite cookie) with **session revocation + reuse detection** · optional **TOTP 2FA** · role-based access control with permission-gated routes · auth audit logging
 - **CSRF protection (Phase 3)** — Origin / `Sec-Fetch-Site` verification for cookie-authenticated routes; safe methods and non-browser clients unaffected
 - **Dhaka seed data (Phase 3)** — `npm run seed:restaurants` provisions 20 data-driven restaurant workspaces (KFC, Pizza Hut, Domino's, Chillox, Sultan's Dine, Star Kabab, Madchef, Takeout, Handi, and more) with 89 realistic menu items — idempotent, rerunnable
+- **Menu management (Phase 4)** — tenant-scoped `menu_categories` (with self-ref subcategories + ordering), `item_variants` (size/price adjustments) and `item_addons` (paid extras) with full CRUD + RBAC (`view:menu` vs `manage:menu`); products extended with `category_id`, `prep_minutes`, `image_url`; the seed now enriches every brand with categories, sizes and add-ons; merchant **Menu page** (Wolt/Deliveroo style) with grouped category view and an item editor modal for variants/add-ons
 - **Session management** — short-lived access JWT + revocable refresh sessions; `GET /api/auth/me` session validation
 - **Product management** — create, edit, enable/disable, paginated listing (tenant-scoped)
 - **Promotion engine** — percentage, fixed, and weighted (slab-based) promotions with best-discount selection (tenant-scoped)
@@ -194,7 +195,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `master`:
 | 1 | Foundation: security, tooling, tests, CI | ✅ Done |
 | 2 | Authentication & RBAC (roles, refresh tokens, 2FA) | ✅ Done |
 | 3 | Multi-tenant workspaces + Dhaka seed data | ✅ Done |
-| 4 | Rich menu management + image pipeline | ⬜ |
+| 4 | Menu management (categories, variants, add-ons) — image pipeline deferred | ✅ Menu core shipped |
 | 5 | Ordering & fulfillment (storefront, kitchen workflow) | ⬜ |
 | 6 | Payments (SSLCommerz, bKash, Nagad, Stripe) | ⬜ |
 | 7 | Analytics & dashboards | ⬜ |

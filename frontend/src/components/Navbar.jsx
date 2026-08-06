@@ -5,6 +5,7 @@ import { useTheme } from '../theme/ThemeContext';
 import { Logo, Button } from './ui';
 
 const LINKS = [
+  { to: '/menu', label: 'Menu', icon: <IconGrid /> },
   { to: '/products', label: 'Products', icon: <IconGrid /> },
   { to: '/promotions', label: 'Promotions', icon: <IconTag /> },
   { to: '/orders', label: 'Orders', icon: <IconBox /> },

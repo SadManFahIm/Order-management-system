@@ -22,12 +22,16 @@ import './models/Plan.js';
 import './models/Subscription.js';
 import './models/FeatureFlag.js';
 import './models/UsageCounter.js';
+import './models/MenuCategory.js';
+import './models/ItemVariant.js';
+import './models/ItemAddon.js';
 
 import authRoutes from './routes/auth.js';
 import productRoutes from './routes/products.js';
 import promotionRoutes from './routes/promotions.js';
 import orderRoutes from './routes/orders.js';
 import tenantRoutes from './routes/tenants.js';
+import menuRoutes from './routes/menu.js';
 
 import { apiLimiter } from './middleware/rateLimiter.js';
 import { requestId } from './middleware/requestId.js';
@@ -83,6 +87,7 @@ app.use('/api/products', apiLimiter, productRoutes);
 app.use('/api/promotions', apiLimiter, promotionRoutes);
 app.use('/api/orders', apiLimiter, orderRoutes);
 app.use('/api/tenants', apiLimiter, tenantRoutes);
+app.use('/api/menu', apiLimiter, menuRoutes);
 
 // 404 + centralized error handling
 app.use(notFound);
