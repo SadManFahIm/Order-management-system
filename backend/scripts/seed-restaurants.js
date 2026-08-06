@@ -11,8 +11,17 @@
  */
 import { parseArgs } from 'node:util';
 import sequelize from '../src/config/db.js';
+import { ensureSchemaColumns } from '../src/config/schemaSync.js';
 import '../src/models/index.js';
-import { Tenant, Product, Plan, Subscription } from '../src/models/index.js';
+import {
+  Tenant,
+  Product,
+  Plan,
+  Subscription,
+  MenuCategory,
+  ItemVariant,
+  ItemAddon,
+} from '../src/models/index.js';
 import { RESTAURANT_SEEDS } from './data/restaurants.js';
 
 const { values } = parseArgs({
@@ -30,12 +39,17 @@ if (seeds.length === 0) {
 }
 
 try {
+  // Apply any new columns (e.g. Products.category_id) to existing tables before seeding.
+  await ensureSchemaColumns();
   await sequelize.sync();
 
   const starter = await Plan.findOne({ where: { code: 'starter' } });
   let created = 0;
   let updated = 0;
   let items = 0;
+  let categories = 0;
+  let variants = 0;
+  let addons = 0;
 
   for (const seed of seeds) {
     let tenant = await Tenant.findOne({ where: { slug: seed.slug } });
@@ -66,25 +80,88 @@ try {
       updated += 1;
     }
 
+    // Categories (Phase 4): seed.categoryDefaults, e.g. [{ name: 'Burgers' }]
+    const categoryIds = {};
+    for (const cat of seed.categoryDefaults || []) {
+      const existing = await MenuCategory.findOne({
+        where: { tenant_id: tenant.id, name: cat.name },
+      });
+      if (existing) {
+        categoryIds[cat.name] = existing.id;
+        continue;
+      }
+      const row = await MenuCategory.create({
+        tenant_id: tenant.id,
+        name: cat.name,
+        sort_order: cat.sort_order ?? 0,
+      });
+      categoryIds[cat.name] = row.id;
+      categories += 1;
+    }
+
     for (const item of seed.items) {
-      const existing = await Product.findOne({
+      let product = await Product.findOne({
         where: { tenant_id: tenant.id, name: item.name },
       });
-      if (existing) continue;
-      await Product.create({
-        tenant_id: tenant.id,
-        name: item.name,
-        description: item.description,
-        price: item.price,
-        weight_gm: item.weight_gm,
-        enabled: true,
-      });
-      items += 1;
+      if (!product) {
+        product = await Product.create({
+          tenant_id: tenant.id,
+          name: item.name,
+          description: item.description,
+          price: item.price,
+          weight_gm: item.weight_gm,
+          enabled: true,
+          category_id: item.category ? categoryIds[item.category] ?? null : null,
+          prep_minutes: item.prep_minutes ?? null,
+        });
+        items += 1;
+      } else {
+        // Existing product: assign category / prep time if not yet set.
+        const categoryId = item.category ? categoryIds[item.category] ?? null : null;
+        const updates = {};
+        if (categoryId !== null && product.category_id === null) updates.category_id = categoryId;
+        if (item.prep_minutes != null && product.prep_minutes === null) updates.prep_minutes = item.prep_minutes;
+        if (Object.keys(updates).length > 0) await product.update(updates);
+      }
+
+      // Backfill variants/add-ons idempotently (by product + name) so
+      // re-running the seed on an existing catalog still enriches it.
+      for (const v of item.variants || []) {
+        const has = await ItemVariant.findOne({
+          where: { tenant_id: tenant.id, product_id: product.id, name: v.name },
+        });
+        if (has) continue;
+        await ItemVariant.create({
+          tenant_id: tenant.id,
+          product_id: product.id,
+          name: v.name,
+          price_adjustment: v.price_adjustment ?? 0,
+          sort_order: v.sort_order ?? 0,
+        });
+        variants += 1;
+      }
+      for (const a of item.addons || []) {
+        const has = await ItemAddon.findOne({
+          where: { tenant_id: tenant.id, product_id: product.id, name: a.name },
+        });
+        if (has) continue;
+        await ItemAddon.create({
+          tenant_id: tenant.id,
+          product_id: product.id,
+          name: a.name,
+          price: a.price ?? 0,
+          sort_order: a.sort_order ?? 0,
+        });
+        addons += 1;
+      }
     }
   }
 
   console.log(`✅ Restaurants: ${created} created, ${updated} updated (${seeds.length} total)`);
   console.log(`✅ Menu items added: ${items}`);
+  console.log(`✅ Categories added: ${categories}`);
+  console.log(`✅ Variants added: ${variants}`);
+  console.log(`✅ Add-ons added: ${addons}`);
   await sequelize.close();
 } catch (err) {
   console.error('Failed to seed restaurants:', err.message);

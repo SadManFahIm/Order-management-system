@@ -13,6 +13,9 @@ import Plan from './Plan.js';
 import Subscription from './Subscription.js';
 import FeatureFlag from './FeatureFlag.js';
 import UsageCounter from './UsageCounter.js';
+import MenuCategory from './MenuCategory.js';
+import ItemVariant from './ItemVariant.js';
+import ItemAddon from './ItemAddon.js';
 
 // Tenant ↔ Plan / SaaS wiring
 Tenant.belongsTo(Plan, { foreignKey: 'plan_id', as: 'plan' });
@@ -34,4 +37,7 @@ export {
   Subscription,
   FeatureFlag,
   UsageCounter,
+  MenuCategory,
+  ItemVariant,
+  ItemAddon,
 };

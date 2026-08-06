@@ -8,6 +8,7 @@ import VerifyEmailPage from './pages/VerifyEmailPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import ProductsPage from './pages/ProductsPage';
+import MenuPage from './pages/MenuPage';
 import PromotionsPage from './pages/PromotionsPage';
 import OrdersListPage from './pages/OrdersListPage';
 import NewOrderPage from './pages/NewOrderPage';
@@ -31,6 +32,7 @@ export default function App() {
                   <main className="oms-shell__main">
                     <Routes>
                       <Route path="/products" element={<ProductsPage />} />
+                      <Route path="/menu" element={<MenuPage />} />
                       <Route path="/promotions" element={<PromotionsPage />} />
                       <Route path="/orders" element={<OrdersListPage />} />
                       <Route path="/orders/new" element={<NewOrderPage />} />

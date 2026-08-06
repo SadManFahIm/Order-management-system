@@ -46,6 +46,18 @@ const TABLE_COLUMNS = {
       name: 'tenant_id',
       definition: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
     },
+    {
+      name: 'category_id',
+      definition: { type: DataTypes.INTEGER, allowNull: true },
+    },
+    {
+      name: 'prep_minutes',
+      definition: { type: DataTypes.INTEGER, allowNull: true },
+    },
+    {
+      name: 'image_url',
+      definition: { type: DataTypes.STRING(500), allowNull: true },
+    },
   ],
   Promotions: [
     {
