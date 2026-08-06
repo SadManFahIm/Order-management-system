@@ -225,3 +225,4 @@ See [`docs/02-v2-roadmap.md`](docs/02-v2-roadmap.md) for the detailed plan with 
 ## 📄 License
 
 Private / internal — all rights reserved.
+
