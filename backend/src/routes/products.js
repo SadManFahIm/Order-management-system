@@ -4,11 +4,11 @@ import { authMiddleware } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { requirePermission } from '../middleware/rbac.js';
-import { resolveTenant } from '../middleware/tenant.js';
+import { resolveTenant, requireTenant } from '../middleware/tenant.js';
 import { parsePagination } from '../utils/pagination.js';
 
 const router = express.Router();
-router.use(authMiddleware, resolveTenant);
+router.use(authMiddleware, resolveTenant, requireTenant);
 
 // Product mutations require menu management rights (owner/manager/admin).
 const canManageMenu = requirePermission('manage:menu');
@@ -21,6 +21,7 @@ router.get(
     const { limit, offset } = parsePagination(req.query);
 
     const { rows, count } = await Product.findAndCountAll({
+      where: { tenant_id: req.tenant.id },
       order: [['id', 'ASC']],
       limit,
       offset,
@@ -49,6 +50,7 @@ router.post(
     }
 
     const p = await Product.create({
+      tenant_id: req.tenant.id,
       name,
       description,
       price,
@@ -64,7 +66,9 @@ router.put(
   '/:id',
   canManageMenu,
   asyncHandler(async (req, res) => {
-    const p = await Product.findByPk(req.params.id);
+    const p = await Product.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+    });
     if (!p) throw new AppError(404, 'NOT_FOUND', 'Product not found');
 
     const { name, description, price, weight_gm, enabled } = req.body;

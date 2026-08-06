@@ -9,6 +9,14 @@ import AuthToken from './AuthToken.js';
 import AuditLog from './AuditLog.js';
 import Tenant from './Tenant.js';
 import UserTenant from './UserTenant.js';
+import Plan from './Plan.js';
+import Subscription from './Subscription.js';
+import FeatureFlag from './FeatureFlag.js';
+import UsageCounter from './UsageCounter.js';
+
+// Tenant ↔ Plan / SaaS wiring
+Tenant.belongsTo(Plan, { foreignKey: 'plan_id', as: 'plan' });
+Plan.hasMany(Tenant, { foreignKey: 'plan_id' });
 
 export {
   User,
@@ -22,4 +30,8 @@ export {
   AuditLog,
   Tenant,
   UserTenant,
+  Plan,
+  Subscription,
+  FeatureFlag,
+  UsageCounter,
 };

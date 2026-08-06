@@ -5,11 +5,11 @@ import { authMiddleware } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { requirePermission } from '../middleware/rbac.js';
-import { resolveTenant } from '../middleware/tenant.js';
+import { resolveTenant, requireTenant } from '../middleware/tenant.js';
 import { parsePagination } from '../utils/pagination.js';
 
 const router = express.Router();
-router.use(authMiddleware, resolveTenant);
+router.use(authMiddleware, resolveTenant, requireTenant);
 
 // Promotion mutations require promotion management rights.
 const canManagePromotions = requirePermission('manage:promotions');
@@ -21,6 +21,7 @@ router.get(
     const { limit, offset } = parsePagination(req.query);
 
     const { rows, count } = await Promotion.findAndCountAll({
+      where: { tenant_id: req.tenant.id },
       include: [{ model: PromotionSlab, as: 'slabs' }],
       order: [['id', 'ASC']],
       limit,
@@ -60,6 +61,7 @@ router.post(
 
     const promo = await Promotion.create(
       {
+        tenant_id: req.tenant.id,
         title,
         type,
         percentage_value: type === 'percentage' ? percentage_value : null,
@@ -88,7 +90,9 @@ router.put(
   '/:id',
   canManagePromotions,
   asyncHandler(async (req, res) => {
-    const promo = await Promotion.findByPk(req.params.id);
+    const promo = await Promotion.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+    });
     if (!promo) throw new AppError(404, 'NOT_FOUND', 'Promotion not found');
 
     const { title, start_date, end_date, enabled } = req.body;

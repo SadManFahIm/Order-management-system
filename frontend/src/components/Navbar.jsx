@@ -1,36 +1,223 @@
-import { Link } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../theme/ThemeContext';
+import { Logo, Button } from './ui';
+
+const LINKS = [
+  { to: '/products', label: 'Products', icon: <IconGrid /> },
+  { to: '/promotions', label: 'Promotions', icon: <IconTag /> },
+  { to: '/orders', label: 'Orders', icon: <IconBox /> },
+  { to: '/orders/new', label: 'New order', icon: <IconPlus /> },
+];
 
 export default function Navbar() {
   const { user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
+
+  const initials =
+    (user?.name || user?.email || '?')
+      .split(/[\s@]/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((s) => s[0]?.toUpperCase())
+      .join('') || '?';
+
   return (
-    <nav
-      style={{
-        display: 'flex',
-        padding: '8px 16px',
-        gap: 16,
-        background: '#0f172a',
-        color: 'white',
-        alignItems: 'center'
-      }}
-    >
-      <span style={{ fontWeight: 'bold' }}>Order System</span>
-      <Link to="/products" style={{ color: 'white' }}>
-        Products
+    <nav className="oms-nav">
+      <Link to="/products" className="oms-nav__brand">
+        <Logo mark="O" />
       </Link>
-      <Link to="/promotions" style={{ color: 'white' }}>
-        Promotions
-      </Link>
-      <Link to="/orders" style={{ color: 'white' }}>
-        Orders
-      </Link>
-      <Link to="/orders/new" style={{ color: 'white' }}>
-        New Order
-      </Link>
-      <div style={{ marginLeft: 'auto' }}>
-        {user && <span style={{ marginRight: 8 }}>{user.email}</span>}
-        <button onClick={logout}>Logout</button>
+      <div className="oms-nav__links">
+        {LINKS.map((l) => (
+          <NavLink
+            key={l.to}
+            to={l.to}
+            end={l.to === '/products'}
+            className={({ isActive }) =>
+              `oms-nav__link ${isActive ? 'oms-nav__link--active' : ''}`
+            }
+          >
+            {l.icon}
+            <span>{l.label}</span>
+          </NavLink>
+        ))}
+      </div>
+      <div className="oms-nav__right">
+        <TenantSwitcher />
+        <button
+          className="oms-icon-btn"
+          onClick={toggleTheme}
+          aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+          title={theme === 'light' ? 'Dark mode' : 'Light mode'}
+        >
+          {theme === 'light' ? <IconMoon /> : <IconSun />}
+        </button>
+        {user && (
+          <span className="oms-user">
+            <span className="oms-user__avatar">{initials}</span>
+            <span className="oms-user__email">{user.email}</span>
+          </span>
+        )}
+        <Button variant="outline" size="sm" onClick={logout}>
+          Log out
+        </Button>
       </div>
     </nav>
+  );
+}
+
+/* ---------------- Workspace switcher ---------------- */
+
+const ROLE_LABELS = {
+  platform_admin: 'Platform',
+  owner: 'Owner',
+  manager: 'Manager',
+  cashier: 'Cashier',
+  kitchen: 'Kitchen',
+  delivery: 'Delivery',
+  staff: 'Staff',
+};
+
+function TenantSwitcher() {
+  const { tenants, activeTenantId, switchTenant } = useAuth();
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  const active = tenants.find((t) => Number(t.id) === Number(activeTenantId));
+
+  // Close on outside click and on Escape.
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointer = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  // Single-workspace users don't need a switcher.
+  if (tenants.length < 1) return null;
+
+  return (
+    <div className="oms-tenant" ref={ref}>
+      <button
+        type="button"
+        className={`oms-tenant__trigger ${open ? 'is-open' : ''}`}
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        title="Switch workspace"
+      >
+        <span className="oms-tenant__dot" />
+        <span className="oms-tenant__name">
+          {active?.name || (tenants.length ? 'Select workspace' : 'No workspace')}
+        </span>
+        <IconChevron />
+      </button>
+      {open && (
+        <div className="oms-tenant__menu" role="listbox" aria-label="Workspaces">
+          {tenants.map((t) => (
+            <button
+              type="button"
+              key={t.id}
+              role="option"
+              aria-selected={Number(t.id) === Number(activeTenantId)}
+              className={`oms-tenant__item ${
+                Number(t.id) === Number(activeTenantId) ? 'is-active' : ''
+              }`}
+              onClick={() => {
+                if (Number(t.id) !== Number(activeTenantId)) switchTenant(t.id);
+                setOpen(false);
+              }}
+            >
+              <span className="oms-tenant__item-name">{t.name}</span>
+              <span className="oms-tenant__item-role">
+                {ROLE_LABELS[t.role] || t.role}
+              </span>
+              {Number(t.id) === Number(activeTenantId) && (
+                <span className="oms-tenant__check">
+                  <IconCheck />
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function IconChevron() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+function IconCheck() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
+}
+
+/* Inline icons (no icon dependency — keeps the bundle lean) */
+
+function IconGrid() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+    </svg>
+  );
+}
+function IconTag() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8Z" />
+      <circle cx="7.5" cy="7.5" r="1.3" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+function IconBox() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 8.5v7a2 2 0 0 1-1 1.73l-7 4a2 2 0 0 1-2 0l-7-4A2 2 0 0 1 3 15.5v-7a2 2 0 0 1 1-1.73l7-4a2 2 0 0 1 2 0l7 4a2 2 0 0 1 1 1.73Z" />
+      <path d="M3.3 7 12 12l8.7-5" />
+      <path d="M12 22V12" />
+    </svg>
+  );
+}
+function IconPlus() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+function IconMoon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+    </svg>
+  );
+}
+function IconSun() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="4.2" />
+      <path d="M12 2v2.5M12 19.5V22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M2 12h2.5M19.5 12H22M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8" />
+    </svg>
   );
 }

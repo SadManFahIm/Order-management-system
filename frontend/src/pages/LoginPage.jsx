@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { Logo, Field, Input, Button } from '../components/ui';
 
 export default function LoginPage() {
   const { login, verifyTwoFactor, twoFactorPending } = useAuth();
@@ -45,66 +46,101 @@ export default function LoginPage() {
   };
 
   return (
-    <div style={{ maxWidth: 400, margin: '80px auto', padding: '0 16px' }}>
-      <h2>{step === '2fa' ? 'Two-factor verification' : 'Sign in'}</h2>
-      {step === '2fa' && twoFactorPending && (
-        <p style={{ color: '#64748b' }}>
-          Enter the 6-digit code from your authenticator app
-          {twoFactorPending.email ? ` for ${twoFactorPending.email}` : ''}.
+    <div className="oms-auth">
+      <div className="oms-auth__card">
+        <div className="oms-auth__logo">
+          <Logo />
+        </div>
+        <h1 className="oms-auth__title">
+          {step === '2fa' ? 'Two-factor verification' : 'Welcome back'}
+        </h1>
+        <p className="oms-auth__desc">
+          {step === '2fa'
+            ? `Enter the 6-digit code from your authenticator app${twoFactorPending?.email ? ` for ${twoFactorPending.email}` : ''}.`
+            : 'Sign in to your workspace to continue.'}
         </p>
-      )}
-      <form onSubmit={step === '2fa' ? onTwoFactor : onSubmit}>
-        {step === 'credentials' && (
-          <>
-            <div>
-              <label>Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                autoComplete="email"
-                style={{ width: '100%' }}
-              />
-            </div>
-            <div style={{ marginTop: 8 }}>
-              <label>Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-                style={{ width: '100%' }}
-              />
-            </div>
-          </>
-        )}
+
         {step === '2fa' && (
-          <div>
-            <label>6-digit code</label>
-            <input
-              inputMode="numeric"
-              maxLength={6}
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-              required
-              autoFocus
-              style={{ width: '100%', letterSpacing: 6, fontSize: 20 }}
-            />
+          <div className="oms-steps">
+            <span className="oms-steps__dot oms-steps__dot--active" />
+            <span className="oms-steps__dot" />
           </div>
         )}
-        {error && <p style={{ color: 'red' }}>{error}</p>}
-        <button style={{ marginTop: 12, width: '100%' }} disabled={submitting}>
-          {submitting ? 'Please wait…' : step === '2fa' ? 'Verify' : 'Login'}
-        </button>
-      </form>
-      {step === 'credentials' && (
-        <div style={{ marginTop: 16, display: 'flex', gap: 16, justifyContent: 'center' }}>
-          <Link to="/register">Create account</Link>
-          <Link to="/forgot-password">Forgot password?</Link>
-        </div>
-      )}
+
+        <form onSubmit={step === '2fa' ? onTwoFactor : onSubmit} style={{ marginTop: 24 }}>
+          {step === 'credentials' && (
+            <>
+              <Field label="Email">
+                <Input
+                  type="email"
+                  id="login-email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@restaurant.com"
+                  required
+                  autoComplete="email"
+                />
+              </Field>
+              <Field label="Password">
+                <Input
+                  type="password"
+                  id="login-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  autoComplete="current-password"
+                />
+              </Field>
+            </>
+          )}
+
+          {step === '2fa' && (
+            <Field label="6-digit code" hint="Open your authenticator app and enter the code.">
+              <Input
+                inputMode="numeric"
+                id="2fa-code"
+                maxLength={6}
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+                placeholder="000000"
+                required
+                autoFocus
+                style={{ letterSpacing: 8, fontSize: 18, textAlign: 'center', height: 46 }}
+              />
+            </Field>
+          )}
+
+          {error && (
+            <div
+              role="alert"
+              style={{
+                marginTop: 2,
+                padding: '10px 12px',
+                borderRadius: 8,
+                background: 'var(--danger-soft)',
+                color: 'var(--danger)',
+                fontSize: 13,
+              }}
+            >
+              {error}
+            </div>
+          )}
+
+          <Button type="submit" variant="primary" size="lg" loading={submitting} style={{ width: '100%', marginTop: 16 }}>
+            {submitting ? 'Please wait…' : step === '2fa' ? 'Verify' : 'Sign in'}
+          </Button>
+        </form>
+
+        {step === 'credentials' && (
+          <div className="oms-auth__footer">
+            <div style={{ display: 'flex', gap: 20, justifyContent: 'center' }}>
+              <Link to="/register">Create account</Link>
+              <Link to="/forgot-password">Forgot password?</Link>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

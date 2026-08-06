@@ -3,6 +3,13 @@ import sequelize from '../config/db.js';
 
 const Promotion = sequelize.define('Promotion', {
   id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
+  // Multi-tenant scoping (Phase 3).
+  tenant_id: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 1,
+    index: true,
+  },
   title: { type: DataTypes.STRING, allowNull: false },
   type: {
     type: DataTypes.ENUM('percentage', 'fixed', 'weighted'),

@@ -26,14 +26,16 @@ export default function App() {
             path="/*"
             element={
               <ProtectedRoute>
-                <div>
+                <div className="oms-shell">
                   <Navbar />
-                  <Routes>
-                    <Route path="/products" element={<ProductsPage />} />
-                    <Route path="/promotions" element={<PromotionsPage />} />
-                    <Route path="/orders" element={<OrdersListPage />} />
-                    <Route path="/orders/new" element={<NewOrderPage />} />
-                  </Routes>
+                  <main className="oms-shell__main">
+                    <Routes>
+                      <Route path="/products" element={<ProductsPage />} />
+                      <Route path="/promotions" element={<PromotionsPage />} />
+                      <Route path="/orders" element={<OrdersListPage />} />
+                      <Route path="/orders/new" element={<NewOrderPage />} />
+                    </Routes>
+                  </main>
                 </div>
               </ProtectedRoute>
             }

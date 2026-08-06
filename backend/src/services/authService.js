@@ -46,7 +46,9 @@ export function publicUser(user, tenant = null) {
     platformRole: user.platform_role,
     emailVerified: Boolean(user.email_verified_at),
     twoFactorEnabled: user.two_factor_enabled,
-    tenantId: tenant ? tenant.id : null,
+    // `tenant` here is a UserTenant membership row (id = membership id);
+    // the workspace id lives on `tenant_id`.
+    tenantId: tenant ? tenant.tenant_id : null,
     tenantRole: tenant ? tenant.role : null,
   };
 }
@@ -81,7 +83,7 @@ async function issueSession(user, req) {
       id: user.id,
       email: user.email,
       platform_role: user.platform_role,
-      tenant_id: tenant ? tenant.id : null,
+      tenant_id: tenant ? tenant.tenant_id : null,
       tenant_role: tenant ? tenant.role : null,
     },
     env.JWT_SECRET,
@@ -285,7 +287,7 @@ export async function refreshSession(rawToken, req) {
       id: user.id,
       email: user.email,
       platform_role: user.platform_role,
-      tenant_id: tenant ? tenant.id : null,
+      tenant_id: tenant ? tenant.tenant_id : null,
       tenant_role: tenant ? tenant.role : null,
     },
     env.JWT_SECRET,

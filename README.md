@@ -11,17 +11,21 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 ## ✨ Features
 
 ### Currently working
-- **Authentication & RBAC (Phase 2)** — register / login / verify-email / password-reset flows · rotating refresh tokens (httpOnly, SameSite cookie) with **session revocation + reuse detection** · optional **TOTP 2FA** · role-based access control (`platform_admin`, `owner`, `manager`, `cashier`, `kitchen`, `delivery`, `customer`) with permission-gated routes · tenant-scoping middleware · auth audit logging
+- **Multi-tenant workspaces (Phase 3)** — every product, promotion, order, and team membership is scoped to a `tenant_id`; workspace CRUD, team member invites (owner/manager/cashier/kitchen/delivery/staff), plans, subscriptions, feature flags, and usage counters · `X-Tenant` header switching with fail-closed isolation (cross-tenant reads/writes return 403/404) · platform admins see and can operate on every workspace
+- **Authentication & RBAC (Phase 2)** — register / login / verify-email / password-reset flows · rotating refresh tokens (httpOnly, SameSite cookie) with **session revocation + reuse detection** · optional **TOTP 2FA** · role-based access control with permission-gated routes · auth audit logging
+- **CSRF protection (Phase 3)** — Origin / `Sec-Fetch-Site` verification for cookie-authenticated routes; safe methods and non-browser clients unaffected
+- **Dhaka seed data (Phase 3)** — `npm run seed:restaurants` provisions 20 data-driven restaurant workspaces (KFC, Pizza Hut, Domino's, Chillox, Sultan's Dine, Star Kabab, Madchef, Takeout, Handi, and more) with 89 realistic menu items — idempotent, rerunnable
 - **Session management** — short-lived access JWT + revocable refresh sessions; `GET /api/auth/me` session validation
-- **Product management** — create, edit, enable/disable, paginated listing
-- **Promotion engine** — percentage, fixed, and weighted (slab-based) promotions with best-discount selection
-- **Order management** — server-side pricing with per-item discount, subtotal, discount, and grand total
+- **Product management** — create, edit, enable/disable, paginated listing (tenant-scoped)
+- **Promotion engine** — percentage, fixed, and weighted (slab-based) promotions with best-discount selection (tenant-scoped)
+- **Order management** — server-side pricing with per-item discount, subtotal, discount, and grand total (tenant-scoped)
+- **Design system** — Wolt/Deliveroo-inspired UI: theme engine with light/dark mode + design tokens, shared UI kit (Button, Card, Input, Table, Modal, Toast, Skeleton, Badge, EmptyState…), workspace switcher, glassy navbar
 - **Security hardening** — Helmet security headers, CORS allowlist, rate limiting, centralized error handling, validated payloads (zod), no secrets in code
 
 ### Roadmap (V2)
-Multi-tenant workspaces · RBAC (owner/manager/cashier/kitchen/delivery) · rich menu management (categories, variants, add-ons, allergens, images) · customer storefront & ordering · kitchen workflow & live order tracking · payments (SSLCommerz, bKash, Nagad, Stripe) · analytics dashboards · SaaS admin portal · subscriptions & feature flags.
+Rich menu management (categories, variants, add-ons, allergens, images) · customer storefront & ordering · kitchen workflow & live order tracking · payments (SSLCommerz, bKash, Nagad, Stripe) · analytics dashboards · SaaS admin portal · hardening (performance, observability, load) · production release.
 
-> Full audit and phased roadmap: [`docs/01-codebase-audit.md`](docs/01-codebase-audit.md) · [`docs/02-v2-roadmap.md`](docs/02-v2-roadmap.md)
+> Full audit and phased roadmap: [`docs/01-codebase-audit.md`](docs/01-codebase-audit.md) · [`docs/02-v2-roadmap.md`](docs/02-v2-roadmap.md) · [`docs/03-database-schema.md`](docs/03-database-schema.md)
 
 ---
 
@@ -96,6 +100,12 @@ Provision the first admin (replaces the old unauthenticated seed endpoint — **
 npm run seed:admin -- --name "Admin" --email admin@example.com --password "your-strong-password"
 ```
 
+Optionally seed 20 Dhaka restaurant workspaces with realistic menus (idempotent — safe to rerun):
+
+```bash
+npm run seed:restaurants
+```
+
 ### 2. Frontend
 
 ```bash
@@ -131,6 +141,7 @@ docker compose up --build
 | `TRUST_PROXY` | backend `.env` | Set `1` behind a reverse proxy |
 | `APP_BASE_URL` | backend `.env` | Public app URL used to build verification/reset links |
 | `VITE_API_URL` | frontend `.env` | Custom API base URL (defaults to same-origin `/api`) |
+| `CORS_ORIGINS` | backend `.env` | Comma-separated allowed origins (defaults to localhost:5173/5174) — required for CSRF origin checks |
 
 ---
 
@@ -138,7 +149,7 @@ docker compose up --build
 
 ```bash
 cd backend
-npm test                      # Vitest — 53 unit + integration tests
+npm test                      # Vitest — 73 unit + integration tests
 npm run test:coverage         # with coverage report
 npm run lint                  # ESLint
 
@@ -147,7 +158,7 @@ npm run lint                  # ESLint
 npm run build                 # production build
 ```
 
-The test suite covers the promotion engine (all discount types, date windows, best-discount selection), the full auth lifecycle (register, verify, login, refresh rotation + reuse detection, logout, password reset), TOTP 2FA setup/verify/disable, RBAC + tenant isolation, and API integration (order creation with promotions, validation errors, security regressions).
+The test suite covers the promotion engine (all discount types, date windows, best-discount selection), the full auth lifecycle (register, verify, login, refresh rotation + reuse detection, logout, password reset), TOTP 2FA setup/verify/disable, RBAC + tenant isolation (cross-tenant 403/404, ID injection, suspended/archived workspaces, role switching), CSRF rejection, and API integration (order creation with promotions, validation errors, security regressions).
 
 ---
 
@@ -182,7 +193,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `master`:
 |---|---|---|
 | 1 | Foundation: security, tooling, tests, CI | ✅ Done |
 | 2 | Authentication & RBAC (roles, refresh tokens, 2FA) | ✅ Done |
-| 3 | Multi-tenant restaurant management | ⏳ Next |
+| 3 | Multi-tenant workspaces + Dhaka seed data | ✅ Done |
 | 4 | Rich menu management + image pipeline | ⬜ |
 | 5 | Ordering & fulfillment (storefront, kitchen workflow) | ⬜ |
 | 6 | Payments (SSLCommerz, bKash, Nagad, Stripe) | ⬜ |
@@ -199,6 +210,7 @@ See [`docs/02-v2-roadmap.md`](docs/02-v2-roadmap.md) for the detailed plan with 
 
 - [`docs/01-codebase-audit.md`](docs/01-codebase-audit.md) — full V1 audit (59 findings with severity, impact, solution, effort)
 - [`docs/02-v2-roadmap.md`](docs/02-v2-roadmap.md) — target architecture, multi-tenancy strategy, ER diagram, phased roadmap
+- [`docs/03-database-schema.md`](docs/03-database-schema.md) — normalized multi-tenant PostgreSQL schema (DDL, indexes, constraints, soft delete, audit), migration system, and the v1 → v2 data migration plan
 
 ---
 

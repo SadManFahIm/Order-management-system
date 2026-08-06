@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Field, Input, Textarea, Checkbox, Button } from './ui';
 
 export default function ProductForm({ initial, onSave }) {
   const [form, setForm] = useState(
@@ -25,48 +26,29 @@ export default function ProductForm({ initial, onSave }) {
   };
 
   return (
-    <form onSubmit={submit} style={{ border: '1px solid #e5e7eb', padding: 8 }}>
-      <input
-        name="name"
-        placeholder="Name"
-        value={form.name}
-        onChange={change}
-      />
-      <br />
-      <textarea
-        name="description"
-        placeholder="Description"
-        value={form.description}
-        onChange={change}
-      />
-      <br />
-      <input
-        name="price"
-        type="number"
-        step="0.01"
-        placeholder="Price"
-        value={form.price}
-        onChange={change}
-      />
-      <br />
-      <input
-        name="weight_gm"
-        type="number"
-        placeholder="Weight (gm)"
-        value={form.weight_gm}
-        onChange={change}
-      />
-      <br />
-      <label>
-        <input
-          type="checkbox"
-          checked={!!form.enabled}
-          onChange={toggleEnabled}
-        />
-        Enabled
-      </label>
-      <br />
-      <button type="submit">Save</button>
+    <form onSubmit={submit}>
+      <Field label="Name">
+        <Input name="name" placeholder="e.g. Beef Kebab 250gm" value={form.name} onChange={change} required />
+      </Field>
+      <Field label="Description">
+        <Textarea name="description" placeholder="A short description…" value={form.description} onChange={change} />
+      </Field>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <Field label="Price (Tk)">
+          <Input name="price" type="number" step="0.01" min="0" placeholder="0.00" value={form.price} onChange={change} required />
+        </Field>
+        <Field label="Weight (gm)">
+          <Input name="weight_gm" type="number" min="1" placeholder="500" value={form.weight_gm} onChange={change} required />
+        </Field>
+      </div>
+      <Field>
+        <Checkbox id={`enabled-${form.id ?? 'new'}`} label="Available for ordering" checked={!!form.enabled} onChange={toggleEnabled} />
+      </Field>
+      <div className="oms-form-actions">
+        <Button type="submit" variant="primary">
+          {initial ? 'Save changes' : 'Add product'}
+        </Button>
+      </div>
     </form>
   );
 }

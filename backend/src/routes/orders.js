@@ -3,7 +3,7 @@ import { authMiddleware } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { requirePermission } from '../middleware/rbac.js';
-import { resolveTenant } from '../middleware/tenant.js';
+import { resolveTenant, requireTenant } from '../middleware/tenant.js';
 import Product from '../models/Product.js';
 import Promotion from '../models/Promotion.js';
 import PromotionSlab from '../models/PromotionSlab.js';
@@ -14,7 +14,7 @@ import { parsePagination } from '../utils/pagination.js';
 import { createOrderSchema } from '../validators/order.js';
 
 const router = express.Router();
-router.use(authMiddleware, resolveTenant);
+router.use(authMiddleware, resolveTenant, requireTenant);
 
 /** GET /api/orders?limit=&offset= — paginated list (backward-compatible: returns an array). */
 router.get(
@@ -24,6 +24,7 @@ router.get(
     const { limit, offset } = parsePagination(req.query);
 
     const { rows, count } = await Order.findAndCountAll({
+      where: { tenant_id: req.tenant.id },
       order: [['id', 'DESC']],
       limit,
       offset,
@@ -52,9 +53,14 @@ router.post(
     // Fetch products and promotions concurrently — independent reads.
     const [products, promotions] = await Promise.all([
       Product.findAll({
-        where: { id: items.map((i) => i.product_id), enabled: true },
+        where: {
+          id: items.map((i) => i.product_id),
+          tenant_id: req.tenant.id,
+          enabled: true,
+        },
       }),
       Promotion.findAll({
+        where: { tenant_id: req.tenant.id },
         include: [{ model: PromotionSlab, as: 'slabs' }],
       }),
     ]);
@@ -84,6 +90,7 @@ router.post(
 
     const order = await Order.create(
       {
+        tenant_id: req.tenant.id,
         customer_name,
         customer_phone: customer_phone || null,
         customer_address: customer_address || null,
@@ -91,6 +98,7 @@ router.post(
         total_discount: totalDiscount,
         grand_total: grandTotal,
         items: enriched.map((i) => ({
+          tenant_id: req.tenant.id,
           product_id: i.product.id,
           quantity: i.quantity,
           unit_price: i.product.price,
