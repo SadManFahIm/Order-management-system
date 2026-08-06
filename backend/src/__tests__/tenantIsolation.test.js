@@ -21,7 +21,6 @@ let tenantA;
 let tenantB;
 let ownerA;
 let ownerB;
-let admin;
 let tokenA;
 let tokenB;
 let adminToken;
@@ -49,7 +48,7 @@ beforeAll(async () => {
   await UserTenant.create({ user_id: ownerA.id, tenant_id: tenantA.id, role: 'owner' });
   await UserTenant.create({ user_id: ownerB.id, tenant_id: tenantB.id, role: 'owner' });
 
-  admin = await User.create({
+  await User.create({
     name: 'Platform Admin',
     email: 'admin@platform.com',
     password: await bcrypt.hash('password123', 10),
