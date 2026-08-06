@@ -27,7 +27,6 @@ export const ROLES = [
 /** Permissions granted to each role. '*' means unrestricted. */
 export const ROLE_PERMISSIONS = {
   platform_admin: ['*'],
-  owner: ['*'],
   manager: [
     'manage:menu',
     'manage:promotions',
