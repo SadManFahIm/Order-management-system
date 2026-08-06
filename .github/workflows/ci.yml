@@ -1,11 +1,11 @@
 name: CI
 
+# Triggers: push to master, pull requests targeting master, manual runs.
 on:
   push:
     branches: [master]
   pull_request:
     branches: [master]
-  # Allow manual runs from the Actions tab (workflow_dispatch).
   workflow_dispatch:
 
 jobs:
