@@ -18,7 +18,7 @@ import productRoutes from './routes/products.js';
 import promotionRoutes from './routes/promotions.js';
 import orderRoutes from './routes/orders.js';
 
-import { apiLimiter, authLimiter } from './middleware/rateLimiter.js';
+import { apiLimiter } from './middleware/rateLimiter.js';
 import { requestId } from './middleware/requestId.js';
 import { notFound, errorHandler } from './middleware/errorHandler.js';
 
@@ -60,7 +60,8 @@ app.get('/health', async (req, res) => {
 });
 
 // Routes
-app.use('/api/auth', authLimiter, authRoutes);
+// Global API cap; the strict brute-force limiter is applied on /login itself.
+app.use('/api/auth', apiLimiter, authRoutes);
 app.use('/api/products', apiLimiter, productRoutes);
 app.use('/api/promotions', apiLimiter, promotionRoutes);
 app.use('/api/orders', apiLimiter, orderRoutes);

@@ -6,9 +6,16 @@ import { env } from '../config/env.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { authLimiter, apiLimiter } from '../middleware/rateLimiter.js';
 import { loginSchema } from '../validators/auth.js';
 
 const router = express.Router();
+
+// Precomputed bcrypt hash used when an account does not exist, so that the
+// login response time does not reveal whether an email is registered
+// (timing-based account enumeration).
+const DUMMY_PASSWORD_HASH =
+  '$2a$10$RRKPx6ammuFaDceeFdeChu2aqLAiNhVERRXpzAMM48lwz4wYCk/K.';
 
 /**
  * POST /api/auth/login — issue an access token.
@@ -17,16 +24,19 @@ const router = express.Router();
  */
 router.post(
   '/login',
+  authLimiter,
   asyncHandler(async (req, res) => {
     const { email, password } = loginSchema.parse(req.body);
 
     const user = await User.findOne({ where: { email } });
-    if (!user) {
-      throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid credentials');
-    }
+    // Always run a bcrypt comparison (against a dummy hash when the account
+    // is missing) so response timing does not leak account existence.
+    const ok = await bcrypt.compare(
+      password,
+      user ? user.password : DUMMY_PASSWORD_HASH
+    );
 
-    const ok = await bcrypt.compare(password, user.password);
-    if (!ok) {
+    if (!user || !ok) {
       throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid credentials');
     }
 
@@ -49,6 +59,7 @@ router.post(
  */
 router.get(
   '/me',
+  apiLimiter,
   authMiddleware,
   asyncHandler(async (req, res) => {
     const user = await User.findByPk(req.user.id, {

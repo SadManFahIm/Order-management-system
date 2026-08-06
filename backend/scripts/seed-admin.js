@@ -23,12 +23,21 @@ const { values } = parseArgs({
   },
 });
 
-const required = ['name', 'email', 'password'];
+// Prefer the SEED_PASSWORD env var (keeps the password out of the process
+// list and shell history); fall back to the --password flag.
+const password = values.password || process.env.SEED_PASSWORD;
+
+const required = ['name', 'email'];
 const missing = required.filter((k) => !values[k]);
 
-if (missing.length > 0) {
-  console.error(`Missing required option(s): ${missing.join(', ')}`);
-  console.error('Usage: npm run seed:admin -- --name <name> --email <email> --password <password>');
+if (missing.length > 0 || !password) {
+  console.error(
+    `Missing required option(s): ${[...missing, ...(password ? [] : ['password'])].join(', ')}`
+  );
+  console.error(
+    'Usage: npm run seed:admin -- --name <name> --email <email> --password <password>'
+  );
+  console.error('  or:  SEED_PASSWORD=<password> npm run seed:admin -- --name <name> --email <email>');
   process.exit(1);
 }
 
@@ -39,7 +48,7 @@ if (process.env.NODE_ENV === 'production' && !values.force) {
   process.exit(1);
 }
 
-if (String(values.password).length < 8) {
+if (String(password).length < 8) {
   console.error('Password must be at least 8 characters.');
   process.exit(1);
 }
@@ -54,7 +63,7 @@ try {
     process.exit(0);
   }
 
-  const hashed = await bcrypt.hash(values.password, 10);
+  const hashed = await bcrypt.hash(password, 10);
   const user = await User.create({
     name: values.name,
     email: values.email,

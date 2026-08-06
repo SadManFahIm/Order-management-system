@@ -45,9 +45,15 @@ router.post(
     const { customer_name, customer_phone, customer_address, items } =
       createOrderSchema.parse(req.body);
 
-    const products = await Product.findAll({
-      where: { id: items.map((i) => i.product_id), enabled: true },
-    });
+    // Fetch products and promotions concurrently — independent reads.
+    const [products, promotions] = await Promise.all([
+      Product.findAll({
+        where: { id: items.map((i) => i.product_id), enabled: true },
+      }),
+      Promotion.findAll({
+        include: [{ model: PromotionSlab, as: 'slabs' }],
+      }),
+    ]);
 
     const productMap = {};
     products.forEach((p) => (productMap[p.id] = p));
@@ -68,10 +74,6 @@ router.post(
       product: productMap[i.product_id],
       quantity: i.quantity,
     }));
-
-    const promotions = await Promotion.findAll({
-      include: [{ model: PromotionSlab, as: 'slabs' }],
-    });
 
     const { items: enriched, subtotal, totalDiscount, grandTotal } =
       applyPromotionsToCart(cartItems, promotions);
