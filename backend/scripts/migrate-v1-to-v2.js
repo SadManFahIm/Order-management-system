@@ -157,7 +157,8 @@ export async function runV1ToV2Migration({
             password_hash: u.password,
             role,
             email_verified_at: u.email_verified_at ?? null,
-            two_factor_enabled: u.two_factor_enabled ? 1 : 0,
+            // true/false (not 1/0) — PG BOOLEAN rejects integers; SQLite accepts both.
+            two_factor_enabled: Boolean(u.two_factor_enabled),
             two_factor_secret: u.two_factor_secret ?? null,
             now: now(),
           },
@@ -221,7 +222,7 @@ export async function runV1ToV2Migration({
             image_url: p.image_url ?? null,
             base_price: round2(p.price),
             prep_minutes: p.prep_minutes ?? null,
-            is_available: p.enabled == null || Number(p.enabled) === 1 ? 1 : 0,
+            is_available: p.enabled == null || Number(p.enabled) === 1 ? true : false,
             now: now(),
           },
           t
@@ -256,7 +257,7 @@ export async function runV1ToV2Migration({
             fixed_value: promo.fixed_value != null ? round2(promo.fixed_value) : null,
             start_date: promo.start_date,
             end_date: promo.end_date,
-            is_enabled: promo.enabled == null || Number(promo.enabled) === 1 ? 1 : 0,
+            is_enabled: promo.enabled == null || Number(promo.enabled) === 1 ? true : false,
             now: now(),
           },
           t
