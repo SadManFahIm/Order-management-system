@@ -3,10 +3,11 @@ import request from 'supertest';
 import bcrypt from 'bcryptjs';
 import app from '../app.js';
 import sequelize from '../config/db.js';
+import { resetTestDb } from '../test/resetDb.js';
 import User from '../models/User.js';
 
 beforeAll(async () => {
-  await sequelize.sync({ force: true });
+  await resetTestDb();
 });
 
 afterAll(async () => {

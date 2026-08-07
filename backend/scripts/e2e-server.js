@@ -29,8 +29,15 @@ const PORT = 4100;
 
 try {
   sequelize.options.logging = false;
-  fs.rmSync('./data.e2e.sqlite', { force: true });
 
+  // Deterministic start: wipe the target, then build the schema.
+  // SQLite — delete the scratch file. PostgreSQL — drop every table (the CI
+  // e2e job runs against a shared postgres:16 service).
+  if (sequelize.getDialect() === 'postgres') {
+    await sequelize.getQueryInterface().dropAllTables({ cascade: true });
+  } else {
+    fs.rmSync('./data.e2e.sqlite', { force: true });
+  }
   await migrateUp(sequelize);
   await ensureBootstrapData(); // plans + default tenant + default subscription
 
