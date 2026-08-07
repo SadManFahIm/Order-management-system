@@ -148,17 +148,14 @@ jobs:
     runs-on: ubuntu-latest
     services:
       minio:
+        # Note: no health-cmd — the minio/minio image has no curl, so a
+        # curl-based health check fails. The bucket step retries instead.
         image: minio/minio:latest
         env:
           MINIO_ROOT_USER: minioadmin
           MINIO_ROOT_PASSWORD: minioadmin
         ports:
           - 9000:9000
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     env:
       NODE_ENV: test
       JWT_SECRET: ci-only-secret-not-for-production
@@ -188,10 +185,23 @@ jobs:
             const c = new S3Client({ region: 'us-east-1',
               endpoint: 'http://localhost:9000', forcePathStyle: true,
               credentials: { accessKeyId: 'minioadmin', secretAccessKey: 'minioadmin' } });
-            await c.send(new CreateBucketCommand({ Bucket: 'oms-test' })).catch((e) => {
-              if (!/BucketAlreadyOwned|409|Already exists/.test(String(e))) throw e;
-            });
-            console.log('bucket ready');
+            // MinIO boots in ~1–2s; the service container has no health check,
+            // so retry until the API answers (max ~30s).
+            for (let i = 0; i < 30; i += 1) {
+              try {
+                await c.send(new CreateBucketCommand({ Bucket: 'oms-test' }));
+                console.log('bucket ready');
+                process.exit(0);
+              } catch (e) {
+                if (/BucketAlreadyOwned|409|Already exists/.test(String(e))) {
+                  console.log('bucket ready (already exists)');
+                  process.exit(0);
+                }
+                await new Promise((r) => setTimeout(r, 1000));
+              }
+            }
+            console.error('MinIO did not become ready in time');
+            process.exit(1);
           "
       - name: Run the S3 driver test suite
         run: npx vitest run src/__tests__/s3Storage.test.js
