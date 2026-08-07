@@ -1,30 +1,42 @@
 import { DataTypes } from 'sequelize';
 import sequelize from '../config/db.js';
 
+/**
+ * Menu item. Table `menu_items` (migration 003) — the v1-era attribute names
+ * are preserved while the columns follow the V2 schema:
+ *   price   → base_price
+ *   enabled → is_available
+ * weight_gm is added by migration 005 (v1 field bridge).
+ * Money stays FLOAT at the attribute level (the pg driver returns DECIMAL as
+ * strings; float8 params cast cleanly into numeric columns, and reads parse
+ * back through the FLOAT type).
+ */
 const Product = sequelize.define(
   'Product',
   {
     id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
     // Multi-tenant scoping (Phase 3): every product belongs to a workspace.
-    // Legacy rows are backfilled to the default tenant by schemaSync.
     tenant_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 1,
       index: true,
     },
-    name: { type: DataTypes.STRING, allowNull: false },
+    name: { type: DataTypes.STRING(200), allowNull: false },
     description: { type: DataTypes.TEXT },
-    price: { type: DataTypes.FLOAT, allowNull: false },
+    price: { type: DataTypes.FLOAT, allowNull: false, field: 'base_price' },
     weight_gm: { type: DataTypes.INTEGER, allowNull: false },
-    enabled: { type: DataTypes.BOOLEAN, defaultValue: true },
+    enabled: { type: DataTypes.BOOLEAN, defaultValue: true, field: 'is_available' },
     // Rich menu (Phase 4): category, prep time, photo URL.
     category_id: { type: DataTypes.INTEGER, allowNull: true },
     prep_minutes: { type: DataTypes.INTEGER, allowNull: true },
-    image_url: { type: DataTypes.STRING(500), allowNull: true }
+    image_url: { type: DataTypes.STRING(500), allowNull: true },
   },
   {
-    indexes: [{ fields: ['tenant_id', 'enabled'] }, { fields: ['tenant_id', 'category_id'] }],
+    tableName: 'menu_items',
+    // Index fields are physical column names (field-mapped), not attributes.
+    indexes: [{ fields: ['tenant_id', 'is_available'] }, { fields: ['tenant_id', 'category_id'] }],
+    underscored: true,
   }
 );
 

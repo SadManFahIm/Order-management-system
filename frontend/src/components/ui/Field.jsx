@@ -8,16 +8,19 @@ import { cloneElement, forwardRef, isValidElement } from 'react';
  * stays correctly associated with the control.
  */
 const Field = forwardRef(function Field(
-  { label, hint, error, children, className = '', ...rest },
+  { label, hint, error, children, className = '' },
   ref
 ) {
-  const ownId = rest.id;
+  // Respect an explicit id on the control itself; only derive one when the
+  // child has none (deriving unconditionally would clobber ids like
+  // `login-email` with `fld-email` and break form selectors).
+  const childId = isValidElement(children) ? children.props.id : undefined;
   const derivedId =
-    ownId ||
+    childId ||
     (label ? `fld-${String(label).toLowerCase().replace(/[^a-z0-9]+/g, '-')}` : undefined);
 
   let control = children;
-  if (derivedId && !ownId && isValidElement(children)) {
+  if (derivedId && !childId && isValidElement(children)) {
     control = cloneElement(children, { id: derivedId });
   }
 

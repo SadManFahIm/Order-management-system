@@ -7,9 +7,10 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // Forward API calls to the backend in development so the frontend can
-      // use same-origin `/api` paths everywhere.
+      // use same-origin `/api` paths everywhere. Overridable so the e2e suite
+      // can point the proxy at the scratch e2e backend (port 4100).
       '/api': {
-        target: 'http://localhost:4000',
+        target: process.env.VITE_API_TARGET || 'http://localhost:4000',
         changeOrigin: true,
       },
     },

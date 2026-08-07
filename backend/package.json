@@ -19,7 +19,8 @@
     "db:migrate": "node scripts/migrate.js up",
     "db:migrate:down": "node scripts/migrate.js down",
     "db:migrate:status": "node scripts/migrate.js status",
-    "db:migrate:v1": "node scripts/migrate-v1-to-v2.js"
+    "db:migrate:v1": "node scripts/migrate-v1-to-v2.js",
+    "db:reset": "node scripts/reset-db.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
