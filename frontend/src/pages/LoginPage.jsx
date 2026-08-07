@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useI18n } from '../i18n';
 import { Logo, Field, Input, Button } from '../components/ui';
 
 export default function LoginPage() {
   const { login, verifyTwoFactor, twoFactorPending } = useAuth();
   const nav = useNavigate();
+  const { t } = useI18n();
   const [step, setStep] = useState('credentials');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -52,12 +54,12 @@ export default function LoginPage() {
           <Logo />
         </div>
         <h1 className="oms-auth__title">
-          {step === '2fa' ? 'Two-factor verification' : 'Welcome back'}
+          {step === '2fa' ? t('auth.twoFactor') : t('auth.welcomeBack')}
         </h1>
         <p className="oms-auth__desc">
           {step === '2fa'
-            ? `Enter the 6-digit code from your authenticator app${twoFactorPending?.email ? ` for ${twoFactorPending.email}` : ''}.`
-            : 'Sign in to your workspace to continue.'}
+            ? `${t('auth.twoFactorHint')}${twoFactorPending?.email ? ` ${twoFactorPending.email}` : ''}.`
+            : t('auth.welcomeSub')}
         </p>
 
         {step === '2fa' && (
@@ -70,7 +72,7 @@ export default function LoginPage() {
         <form onSubmit={step === '2fa' ? onTwoFactor : onSubmit} style={{ marginTop: 24 }}>
           {step === 'credentials' && (
             <>
-              <Field label="Email">
+              <Field label={t('auth.email')}>
                 <Input
                   type="email"
                   id="login-email"
@@ -81,7 +83,7 @@ export default function LoginPage() {
                   autoComplete="email"
                 />
               </Field>
-              <Field label="Password">
+              <Field label={t('auth.password')}>
                 <Input
                   type="password"
                   id="login-password"
@@ -128,15 +130,15 @@ export default function LoginPage() {
           )}
 
           <Button type="submit" variant="primary" size="lg" loading={submitting} style={{ width: '100%', marginTop: 16 }}>
-            {submitting ? 'Please wait…' : step === '2fa' ? 'Verify' : 'Sign in'}
+            {submitting ? t('auth.pleaseWait') : step === '2fa' ? t('auth.verify') : t('auth.signIn')}
           </Button>
         </form>
 
         {step === 'credentials' && (
           <div className="oms-auth__footer">
             <div style={{ display: 'flex', gap: 20, justifyContent: 'center' }}>
-              <Link to="/register">Create account</Link>
-              <Link to="/forgot-password">Forgot password?</Link>
+              <Link to="/register">{t('auth.createAccount')}</Link>
+              <Link to="/forgot-password">{t('auth.forgotPassword')}</Link>
             </div>
           </div>
         )}

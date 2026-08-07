@@ -1,16 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import api from '../api';
+import { useI18n } from '../i18n';
 import { PageHeader, Card, Table, Button, Badge, Skeleton, useToast } from '../components/ui';
 
 const fmt = (n) => `৳ ${Number(n).toFixed(2)}`;
-
-const STATUS_LABEL = {
-  placed: 'Placed',
-  preparing: 'Preparing',
-  ready: 'Ready',
-  delivered: 'Delivered',
-  canceled: 'Canceled',
-};
 
 const STATUS_TONE = {
   placed: 'neutral',
@@ -29,9 +22,12 @@ const NEXT_STATUS = {
   canceled: null,
 };
 
+const statusLabel = (t, status) => t(`orders.${status}`);
+
 export default function OrdersListPage() {
   const [orders, setOrders] = useState(null);
   const toast = useToast();
+  const { t } = useI18n();
 
   const mounted = useRef(true);
   useEffect(() => {
@@ -50,7 +46,7 @@ export default function OrdersListPage() {
     } catch {
       if (mounted.current) {
         setOrders([]);
-        toast?.error('Failed to load orders');
+        toast?.error(t('orders.couldNotLoad'));
       }
     }
   };
@@ -58,10 +54,10 @@ export default function OrdersListPage() {
   const setStatus = async (o, status) => {
     try {
       await api.patch(`/orders/${o.id}/status`, { status });
-      toast.success(`Order #${o.id} → ${STATUS_LABEL[status]}`);
+      toast.success(`Order #${o.id} → ${statusLabel(t, status)}`);
       await load();
     } catch {
-      toast.error('Could not update order status');
+      toast.error(t('orders.couldNotUpdate'));
     }
   };
 
@@ -71,18 +67,18 @@ export default function OrdersListPage() {
   };
 
   const onCancel = (o) => {
-    if (!window.confirm(`Cancel order #${o.id}?`)) return;
+    if (!window.confirm(t('orders.cancelConfirm', o.id))) return;
     setStatus(o, 'canceled');
   };
 
   return (
     <div className="oms-page">
       <PageHeader
-        title="Orders"
-        desc="Every order placed across your restaurant."
+        title={t('pages.orders')}
+        desc={t('pages.ordersDesc')}
         actions={
           <Button to="/orders/new" variant="primary">
-            + New order
+            + {t('nav.newOrder')}
           </Button>
         }
       />
@@ -120,19 +116,23 @@ export default function OrdersListPage() {
               if (key === 'grand_total') return <span className="oms-table__cell-strong">{fmt(o.grand_total)}</span>;
               if (key === 'items') return o.items?.length ?? 0;
               if (key === 'status')
-                return <Badge tone={STATUS_TONE[o.status] || 'neutral'}>{STATUS_LABEL[o.status] || o.status}</Badge>;
+                return (
+                  <Badge tone={STATUS_TONE[o.status] || 'neutral'}>
+                    {statusLabel(t, o.status) || o.status}
+                  </Badge>
+                );
               if (key === 'actions') {
                 const next = NEXT_STATUS[o.status];
                 return (
                   <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                     {next && (
                       <Button size="sm" variant="primary" onClick={() => onAdvance(o)}>
-                        {STATUS_LABEL[next]}
+                        {statusLabel(t, next)}
                       </Button>
                     )}
                     {o.status !== 'canceled' && o.status !== 'delivered' && (
                       <Button size="sm" variant="danger" onClick={() => onCancel(o)}>
-                        Cancel
+                        {t('common.cancel')}
                       </Button>
                     )}
                   </div>
@@ -142,11 +142,11 @@ export default function OrdersListPage() {
             }}
             empty={{
               icon: <span style={{ fontSize: 22 }}>📦</span>,
-              title: 'No orders yet',
-              description: 'Orders placed by customers will appear here.',
+              title: t('pages.noOrders'),
+              description: t('pages.noOrdersDesc'),
               action: (
                 <Button to="/orders/new" variant="primary" size="sm">
-                  Create the first order
+                  {t('pages.createFirstOrder')}
                 </Button>
               ),
             }}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import api from '../api';
+import { useI18n } from '../i18n';
 import ProductForm from '../components/ProductForm';
 import ImportCsvModal from '../components/ImportCsvModal';
 import { PageHeader, Card, Table, Button, Badge, Skeleton, useToast } from '../components/ui';
@@ -9,6 +10,7 @@ export default function ProductsPage() {
   const [editing, setEditing] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
   const toast = useToast();
+  const { t } = useI18n();
 
   const mounted = useRef(true);
   useEffect(() => {
@@ -60,11 +62,11 @@ export default function ProductsPage() {
   return (
     <div className="oms-page">
       <PageHeader
-        title="Products"
-        desc="Manage your menu items and availability."
+        title={t('pages.products')}
+        desc={t('pages.productsDesc')}
         actions={
           <Button variant="outline" size="sm" icon="⬆" onClick={() => setImportOpen(true)}>
-            Import CSV
+            {t('pages.importCsv')}
           </Button>
         }
       />
