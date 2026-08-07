@@ -143,19 +143,11 @@ jobs:
 
   s3-storage:
     # S3-compatible storage tier — runs the image-pipeline driver against a
-    # real MinIO instance (put → public URL → remove round-trip).
+    # real MinIO instance (put → public URL → remove round-trip). MinIO is
+    # downloaded and run in-process because the minio/minio docker image has
+    # no curl for a health check and is flaky as a GH service container.
     name: Backend — S3 driver vs MinIO
     runs-on: ubuntu-latest
-    services:
-      minio:
-        # Note: no health-cmd — the minio/minio image has no curl, so a
-        # curl-based health check fails. The bucket step retries instead.
-        image: minio/minio:latest
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-        ports:
-          - 9000:9000
     env:
       NODE_ENV: test
       JWT_SECRET: ci-only-secret-not-for-production
@@ -178,6 +170,23 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - name: Install dependencies
         run: npm ci
+      - name: Start MinIO in the background
+        run: |-
+          mkdir -p /tmp/minio/data
+          curl -sSL -o /tmp/minio/minio https://dl.min.io/server/minio/release/linux-amd64/minio
+          chmod +x /tmp/minio/minio
+          MINIO_ROOT_USER=minioadmin MINIO_ROOT_PASSWORD=minioadmin \
+            /tmp/minio/minio server /tmp/minio/data --address :9000 > /tmp/minio/server.log 2>&1 &
+          # Wait for the health endpoint.
+          for i in $(seq 1 30); do
+            if curl -fs http://localhost:9000/minio/health/live > /dev/null 2>&1; then
+              echo 'MinIO ready'; exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/minio/server.log
+          echo 'MinIO did not become ready in time' >&2
+          exit 1
       - name: Create the test bucket
         run: |-
           node --input-type=module -e "
