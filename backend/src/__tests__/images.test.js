@@ -204,7 +204,8 @@ describe('POST /api/uploads/images', () => {
       .set(auth(ownerToken));
     expect(plainTraversal.status).toBe(400);
 
-    // Nothing outside uploads was touched.
-    expect(fs.existsSync(path.join(process.cwd(), 'data.sqlite'))).toBe(true);
+    // Nothing outside uploads was touched — the suite's own DB file survives.
+    const dbPath = path.join(process.cwd(), process.env.DB_STORAGE || './data.sqlite');
+    expect(fs.existsSync(dbPath)).toBe(true);
   });
 });
