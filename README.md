@@ -130,6 +130,8 @@ npm run seed:restaurants
 
 `npm run db:migrate:down` rolls back the most recent migration. The backend also runs pending migrations automatically at boot when `DB_DIALECT=postgres` (production boots migrations only — never `sync()`).
 
+> **Known gap (tracked):** the Sequelize models still use their v1 table/column names (`Users`, `password`, …), so a *migrations-only* PostgreSQL database is not yet fully usable by the app — the PG CI job validates migrations + the suite + boot against a schema that also gets `sync()`ed for the tests. Aligning models to the migration schema (`tableName`/`field` mappings) is the tracked follow-up for the full cutover (schema doc §9).
+
 ### 2. Frontend
 
 ```bash
