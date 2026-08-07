@@ -1,6 +1,6 @@
 import { DataTypes } from 'sequelize';
 import sequelize from './db.js';
-import { Tenant, UserTenant, Plan, Subscription } from '../models/index.js';
+import { User, Tenant, UserTenant, Plan, Subscription } from '../models/index.js';
 
 /**
  * Lightweight, idempotent schema evolution for EXISTING tables.
@@ -130,8 +130,14 @@ export async function ensureBootstrapData() {
   }
 
   // Backfill legacy users: no memberships → default tenant as 'staff'.
+  // Table names come from the models and are quoted — SQLite matches
+  // identifiers case-insensitively, but PostgreSQL folds unquoted identifiers
+  // to lowercase, so hardcoding 'Users'/'UserTenants' breaks on PG.
+  const usersTable = User.getTableName();
+  const membershipsTable = UserTenant.getTableName();
   const users = await sequelize.query(
-    'SELECT id FROM Users u WHERE NOT EXISTS (SELECT 1 FROM UserTenants ut WHERE ut.user_id = u.id)',
+    `SELECT id FROM "${usersTable}" u WHERE NOT EXISTS
+       (SELECT 1 FROM "${membershipsTable}" ut WHERE ut.user_id = u.id)`,
     { type: 'SELECT' }
   );
   for (const { id } of users) {

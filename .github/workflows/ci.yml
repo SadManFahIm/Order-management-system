@@ -35,6 +35,57 @@ jobs:
       - name: Dependency audit
         run: npm audit --audit-level=high
 
+  backend-postgres:
+    # PostgreSQL integration tier — proves the migration runner and the full
+    # test suite against a real PostgreSQL 16 (the V2 production database).
+    name: Backend — PostgreSQL 16 (migrate, test, smoke)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: oms
+          POSTGRES_PASSWORD: oms
+          POSTGRES_DB: oms_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U oms -d oms_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      JWT_SECRET: ci-only-secret-not-for-production
+      DB_DIALECT: postgres
+      DATABASE_URL: postgres://oms:oms@localhost:5432/oms_test
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Apply migrations on a fresh PostgreSQL
+        run: npm run db:migrate
+      - name: Verify migration status
+        run: npm run db:migrate:status
+      - name: Full test suite against PostgreSQL
+        run: npm test
+      - name: v1 → v2 data migration against PostgreSQL
+        run: |
+          node scripts/make-v1-fixture.js
+          node scripts/migrate-v1-to-v2.js --source ./fixture-v1.sqlite --force
+      - name: Seed + production-mode boot smoke
+        run: |
+          npm run seed:admin -- --name "CI Admin" --email ci@oms.dev --password "CiStr0ngPass!42"
+          NODE_ENV=production node scripts/smoke-pg.js
+
   frontend:
     name: Frontend — lint, build, audit
     runs-on: ubuntu-latest

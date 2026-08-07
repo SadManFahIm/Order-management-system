@@ -126,7 +126,7 @@ Core tables for V2 (migrations land phase by phase):
 
 ### Phase 1 — Foundation
 
-> **Status: ✅ Done, incl. the PostgreSQL stack (PR #6 — `feat/pg-foundation`).** Versioned migration runner (`npm run db:migrate` / `:down` / `:status`) + migrations 001–003 (identity/auth · tenancy/SaaS · menu catalog), `pg` driver, dialect-selectable config (`DB_DIALECT`/`DATABASE_URL`), PostgreSQL 16 dev service in `docker-compose.yml`, and production boot that runs migrations only (no `sync()`). The remaining Phase 1 item — the **full v1 → v2 PostgreSQL switch + data migration** — ships with Phase 3+ per the rollout table in `docs/03-database-schema.md` §9.
+> **Status: ✅ Done, incl. the PostgreSQL stack (PRs #6 + #7).** Versioned migration runner (`npm run db:migrate` / `:down` / `:status`) + migrations 001–004 (identity/auth · tenancy/SaaS · menu catalog · orders/promotions), `pg` driver, dialect-selectable config (`DB_DIALECT`/`DATABASE_URL`), PostgreSQL 16 dev service in `docker-compose.yml`, a **PG-in-CI job** that runs `db:migrate` + the full suite against a real PostgreSQL 16, and the **v1 → v2 data migration** (`npm run db:migrate:v1 -- --source <v1.sqlite>`, schema doc §8 — id maps, DECIMAL conversion, verification). Production boot runs migrations only (no `sync()`).
 
 **Objectives:** Make the repo production-grade before any feature work; fix the critical security holes; introduce the tooling every later phase depends on.
 

@@ -22,7 +22,8 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 - **Order management** — server-side pricing with per-item discount, subtotal, discount, and grand total (tenant-scoped)
 - **Design system** — Wolt/Deliveroo-inspired UI: theme engine with light/dark mode + design tokens, shared UI kit (Button, Card, Input, Table, Modal, Toast, Skeleton, Badge, EmptyState…), workspace switcher, glassy navbar
 - **Security hardening** — Helmet security headers, CORS allowlist, rate limiting, centralized error handling, validated payloads (zod), no secrets in code
-- **PostgreSQL foundation (Phase 1 follow-up)** — versioned migration runner (`npm run db:migrate` / `db:migrate:down` / `db:migrate:status`) with migrations 001–003 (identity/auth, tenancy/SaaS, menu catalog); dialect-selectable DB config (`DB_DIALECT` / `DATABASE_URL`, default SQLite); PostgreSQL 16 service in `docker-compose.yml`; production boots run migrations instead of `sync()`
+- **PostgreSQL foundation (Phase 1 follow-up)** — versioned migration runner (`npm run db:migrate` / `db:migrate:down` / `db:migrate:status`) with migrations 001–004 (identity/auth, tenancy/SaaS, menu catalog, orders/promotions); dialect-selectable DB config (`DB_DIALECT` / `DATABASE_URL`, default SQLite); PostgreSQL 16 service in `docker-compose.yml`; production boots run migrations instead of `sync()`; **a dedicated CI job runs the full suite against a real PostgreSQL 16**
+- **v1 → v2 data migration** — `npm run db:migrate:v1 -- --source data.sqlite` copies the legacy SQLite data into the migrated schema under a default tenant (id maps, `password` → `password_hash`, DECIMAL money conversion, order/status remapping) with blocking verification: row-count parity, money invariants and FK integrity
 
 ### Roadmap (V2)
 Rich menu management (categories, variants, add-ons, allergens, images) · customer storefront & ordering · kitchen workflow & live order tracking · payments (SSLCommerz, bKash, Nagad, Stripe) · analytics dashboards · SaaS admin portal · hardening (performance, observability, load) · production release.
@@ -60,8 +61,8 @@ Rich menu management (categories, variants, add-ons, allergens, images) · custo
 │   │   ├── utils/            # promotion engine, pagination
 │   │   ├── test/             # Test environment setup
 │   │   └── __tests__/        # Unit + integration tests
-│   ├── migrations/           # Versioned SQL/schema migrations (001–003)
-│   ├── scripts/              # CLI utilities (seed-admin, migrate runner)
+│   ├── migrations/           # Versioned SQL/schema migrations (001–004)
+│   ├── scripts/              # CLI utilities (seed-admin, migrate runner, v1→v2 copy, smoke)
 │   └── Dockerfile
 ├── frontend/                 # React SPA
 │   ├── src/
@@ -129,6 +130,8 @@ npm run seed:restaurants
 
 `npm run db:migrate:down` rolls back the most recent migration. The backend also runs pending migrations automatically at boot when `DB_DIALECT=postgres` (production boots migrations only — never `sync()`).
 
+> **Known gap (tracked):** the Sequelize models still use their v1 table/column names (`Users`, `password`, …), so a *migrations-only* PostgreSQL database is not yet fully usable by the app — the PG CI job validates migrations + the suite + boot against a schema that also gets `sync()`ed for the tests. Aligning models to the migration schema (`tableName`/`field` mappings) is the tracked follow-up for the full cutover (schema doc §9).
+
 ### 2. Frontend
 
 ```bash
@@ -179,7 +182,7 @@ docker compose up --build
 
 ```bash
 cd backend
-npm test                      # Vitest — 99 unit + integration tests
+npm test                      # Vitest — 105 unit + integration tests
 npm run test:coverage         # with coverage report
 npm run lint                  # ESLint
 
@@ -197,6 +200,7 @@ The test suite covers the promotion engine (all discount types, date windows, be
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `master`:
 
 - **Backend:** `npm ci` → lint → test → `npm audit --audit-level=high`
+- **Backend — PostgreSQL 16:** real `postgres:16` service → `db:migrate` → `db:migrate:status` → full test suite with `DB_DIALECT=postgres` → seed + production-mode boot smoke
 - **Frontend:** `npm ci` → lint → build → `npm audit` (informational — see workflow comment)
 
 The workflow also exposes a `workflow_dispatch` trigger, so CI can always be run manually from the

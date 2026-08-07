@@ -705,6 +705,7 @@ export const down = async (qi, transaction) => {
 | 001 | `users`, `user_tenants`, `refresh_tokens`, `auth_tokens`, `login_attempts`, `audit_logs`, `tenants` (without `plan_id`) | 2 | ✅ shipped (scaffold) |
 | 002 | `plans`, `subscriptions`, `feature_flags`, `usage_counters`; **`ALTER tenants ADD plan_id` FK** | 3 | ✅ shipped (scaffold) |
 | 003 | `menu_categories`, `menu_items`, `item_variants`, `item_addons`, `allergens`, `item_allergens`, `inventory_items` | 4 | ✅ shipped (scaffold) |
+| 004 | `orders`, `order_items`, `promotions`, `promotion_slabs` | 5/6 | ✅ shipped early — the v1→v2 data migration needs these target tables |
 | 004 | `customers`, `favorites` | 4/5 |
 | 005 | `orders`, `order_items`, `order_item_options`, `order_status_history`, `invoices`, `reviews` | 5 |
 | 004b | `reviews` FK to `orders` (drop + re-add if 004 shipped first) | 5 |
@@ -717,6 +718,8 @@ export const down = async (qi, transaction) => {
 ## 8. v1 → v2 Data Migration Plan
 
 **Goal:** move every v1 record (SQLite: `products`, `promotions`, `promotion_slabs`, `orders`, `order_items`, `users`) into PostgreSQL under a default tenant, with no data loss, then verify.
+
+> **Implemented:** `npm run db:migrate:v1 -- --source <v1.sqlite>` runs this plan against the configured target (PG for the real cutover, SQLite for dry-runs/tests — all DML is portable). It preserves IDs 1:1 (id maps implicit), rounds all money to 2dp, fixes PG sequences, and blocks on the verification queries in §8.3. Covered by `src/__tests__/v1toV2.test.js`.
 
 ### 8.1 Preconditions
 1. Freeze writes: maintenance window; stop the API (`docker compose down api`) or set read-only.
