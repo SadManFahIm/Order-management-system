@@ -182,14 +182,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Create the test bucket
-        run: node --input-type=module -e "
-          import { S3Client, CreateBucketCommand } from '@aws-sdk/client-s3';
-          const c = new S3Client({ region: 'us-east-1',
-            endpoint: 'http://localhost:9000', forcePathStyle: true,
-            credentials: { accessKeyId: 'minioadmin', secretAccessKey: 'minioadmin' } });
-          await c.send(new CreateBucketCommand({ Bucket: 'oms-test' })).catch((e) => { if (!/BucketAlreadyOwned|409|Already exists/.test(String(e))) throw e; });
-          console.log('bucket ready');
-        "
+        run: |-
+          node --input-type=module -e "
+            import { S3Client, CreateBucketCommand } from '@aws-sdk/client-s3';
+            const c = new S3Client({ region: 'us-east-1',
+              endpoint: 'http://localhost:9000', forcePathStyle: true,
+              credentials: { accessKeyId: 'minioadmin', secretAccessKey: 'minioadmin' } });
+            await c.send(new CreateBucketCommand({ Bucket: 'oms-test' })).catch((e) => {
+              if (!/BucketAlreadyOwned|409|Already exists/.test(String(e))) throw e;
+            });
+            console.log('bucket ready');
+          "
       - name: Run the S3 driver test suite
         run: npx vitest run src/__tests__/s3Storage.test.js
 
