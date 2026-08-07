@@ -1,0 +1,190 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import request from 'supertest';
+import bcrypt from 'bcryptjs';
+import app from '../app.js';
+import sequelize from '../config/db.js';
+import { resetTestDb } from '../test/resetDb.js';
+import { User, Tenant, UserTenant, Product, MenuCategory, ItemVariant, ItemAddon } from '../models/index.js';
+
+/**
+ * Public storefront menu API suite (Phase 4).
+ * Read-only, no authentication, whitelist-only serialisation. Verifies that
+ * suspended/archived tenants 404 and that no internal fields leak.
+ */
+
+let tenantA;
+let tenantB;
+let categoryBurgers;
+let categoryDrinks;
+let itemAvailable;
+
+beforeAll(async () => {
+  await resetTestDb();
+
+  tenantA = await Tenant.create({ name: 'Public Cafe A', slug: 'public-a' });
+  tenantB = await Tenant.create({ name: 'Public Cafe B', slug: 'public-b' });
+  await Tenant.create({ name: 'Hidden Cafe', slug: 'hidden-cafe', status: 'suspended' });
+
+  categoryBurgers = await MenuCategory.create({ tenant_id: tenantA.id, name: 'Burgers', sort_order: 1 });
+  categoryDrinks = await MenuCategory.create({ tenant_id: tenantA.id, name: 'Drinks', sort_order: 2 });
+
+  itemAvailable = await Product.create({
+    tenant_id: tenantA.id,
+    name: 'Beef Burger',
+    price: 220,
+    weight_gm: 300,
+    enabled: true,
+    category_id: categoryBurgers.id,
+    prep_minutes: 10,
+    image_url: 'https://cdn.example.com/burger.webp',
+    description: 'Juicy beef patty',
+  });
+  await Product.create({
+    tenant_id: tenantA.id,
+    name: 'Secret Burger',
+    price: 999,
+    weight_gm: 400,
+    enabled: false,
+    category_id: categoryBurgers.id,
+  });
+  await Product.create({
+    tenant_id: tenantA.id,
+    name: 'Cold Drink',
+    price: 50,
+    weight_gm: 250,
+    enabled: true,
+    category_id: categoryDrinks.id,
+  });
+  // A product with no category — should appear under "Other".
+  await Product.create({
+    tenant_id: tenantA.id,
+    name: 'Uncategorised Snack',
+    price: 80,
+    weight_gm: 100,
+    enabled: true,
+  });
+
+  await ItemVariant.create({ tenant_id: tenantA.id, product_id: itemAvailable.id, name: 'Large', price_adjustment: 50, sort_order: 1 });
+  await ItemAddon.create({ tenant_id: tenantA.id, product_id: itemAvailable.id, name: 'Extra Cheese', price: 30, sort_order: 1 });
+
+  // A member user to prove public routes ignore auth entirely.
+  const owner = await User.create({
+    name: 'Pub Owner',
+    email: 'pubowner@example.com',
+    password: await bcrypt.hash('password123', 10),
+    platform_role: 'member',
+  });
+  await UserTenant.create({ user_id: owner.id, tenant_id: tenantA.id, role: 'owner' });
+});
+
+afterAll(async () => {
+  await sequelize.close();
+});
+
+describe('GET /api/public/restaurants/:slug', () => {
+  it('returns a public restaurant summary', async () => {
+    const res = await request(app).get('/api/public/restaurants/public-a');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      id: tenantA.id,
+      name: 'Public Cafe A',
+      slug: 'public-a',
+      logoUrl: null,
+      status: 'active',
+    });
+  });
+
+  it('404s for unknown slugs', async () => {
+    const res = await request(app).get('/api/public/restaurants/does-not-exist');
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('NOT_FOUND');
+  });
+
+  it('404s for suspended tenants (never reveals hidden workspaces)', async () => {
+    const res = await request(app).get('/api/public/restaurants/hidden-cafe');
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('GET /api/public/restaurants/:slug/menu', () => {
+  it('returns categories with only enabled items and whitelisted fields', async () => {
+    const res = await request(app).get('/api/public/restaurants/public-a/menu');
+    expect(res.status).toBe(200);
+
+    const { restaurant, categories } = res.body;
+    expect(restaurant.slug).toBe('public-a');
+
+    const burgers = categories.find((c) => c.name === 'Burgers');
+    expect(burgers).toBeDefined();
+    expect(burgers.items.map((i) => i.name)).toEqual(['Beef Burger']);
+    // Hidden item never appears.
+    expect(burgers.items.some((i) => i.name === 'Secret Burger')).toBe(false);
+
+    const burger = burgers.items[0];
+    expect(burger).toMatchObject({
+      id: itemAvailable.id,
+      name: 'Beef Burger',
+      price: 220,
+      weightGm: 300,
+      prepMinutes: 10,
+      imageUrl: 'https://cdn.example.com/burger.webp',
+      available: true,
+    });
+    expect(burger.variants).toHaveLength(1);
+    expect(burger.variants[0].name).toBe('Large');
+    expect(burger.addons).toHaveLength(1);
+    expect(burger.addons[0].name).toBe('Extra Cheese');
+
+    // Uncategorised items surface under "Other".
+    const other = categories.find((c) => c.name === 'Other');
+    expect(other.items.map((i) => i.name)).toContain('Uncategorised Snack');
+  });
+
+  it('does not expose internal or sensitive fields', async () => {
+    const res = await request(app).get('/api/public/restaurants/public-a/menu');
+    const burger = res.body.categories.find((c) => c.name === 'Burgers').items[0];
+    const itemJson = JSON.stringify(burger);
+    // Whitelist only: no tenant_id, no settings, no user data, no hashes.
+    expect(itemJson).not.toContain('tenant_id');
+    expect(itemJson).not.toContain('password');
+    expect(itemJson).not.toContain('settings');
+    expect(itemJson).not.toContain('plan_id');
+    expect(itemJson).not.toContain('email');
+    expect(res.body.categories[0]).not.toHaveProperty('tenant_id');
+  });
+
+  it('supports categoryId filtering', async () => {
+    const res = await request(app)
+      .get(`/api/public/restaurants/public-a/menu?categoryId=${categoryDrinks.id}`);
+    const names = res.body.categories
+      .flatMap((c) => c.items.map((i) => i.name));
+    expect(names).toEqual(['Cold Drink']);
+  });
+
+  it('available=false returns hidden items too', async () => {
+    const res = await request(app).get('/api/public/restaurants/public-a/menu?available=false');
+    const allItems = res.body.categories.flatMap((c) => c.items);
+    expect(allItems.some((i) => i.name === 'Secret Burger')).toBe(true);
+  });
+
+  it('requires no authentication (public)', async () => {
+    // No Authorization header at all — and it must still work.
+    const res = await request(app).get('/api/public/restaurants/public-a/menu');
+    expect(res.status).toBe(200);
+  });
+
+  it('404s for unknown or non-public tenants', async () => {
+    const missing = await request(app).get('/api/public/restaurants/nope/menu');
+    expect(missing.status).toBe(404);
+
+    const hidden = await request(app).get('/api/public/restaurants/hidden-cafe/menu');
+    expect(hidden.status).toBe(404);
+  });
+
+  it('never returns other tenants items', async () => {
+    await Product.create({ tenant_id: tenantB.id, name: 'Beta Secret', price: 1, weight_gm: 1, enabled: true });
+    const res = await request(app).get('/api/public/restaurants/public-a/menu');
+    const allItems = res.body.categories.flatMap((c) => c.items);
+    expect(allItems.some((i) => i.name === 'Beta Secret')).toBe(false);
+  });
+});

@@ -12,6 +12,7 @@ import MenuPage from './pages/MenuPage';
 import PromotionsPage from './pages/PromotionsPage';
 import OrdersListPage from './pages/OrdersListPage';
 import NewOrderPage from './pages/NewOrderPage';
+import PublicMenuPage from './pages/PublicMenuPage';
 
 export default function App() {
   return (
@@ -23,6 +24,8 @@ export default function App() {
           <Route path="/verify-email" element={<VerifyEmailPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
+          {/* Public storefront menu — no auth; renders from the public API. */}
+          <Route path="/m/:slug" element={<PublicMenuPage />} />
           <Route
             path="/*"
             element={

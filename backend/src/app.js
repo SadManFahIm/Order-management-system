@@ -32,6 +32,10 @@ import promotionRoutes from './routes/promotions.js';
 import orderRoutes from './routes/orders.js';
 import tenantRoutes from './routes/tenants.js';
 import menuRoutes from './routes/menu.js';
+import uploadRoutes from './routes/uploads.js';
+import publicMenuRoutes from './routes/publicMenu.js';
+
+import { storageDriver, localStatic } from './config/storage.js';
 
 import { apiLimiter } from './middleware/rateLimiter.js';
 import { requestId } from './middleware/requestId.js';
@@ -62,6 +66,13 @@ app.use(
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 
+// Local object storage serves uploaded images from UPLOAD_DIR (dev/tests).
+// In production STORAGE_DRIVER=s3 the images live in the bucket/CDN instead.
+if (storageDriver === 'local') {
+  const { root, setHeaders } = localStatic();
+  app.use('/uploads', express.static(root, { setHeaders }));
+}
+
 // CSRF: verify Origin/Sec-Fetch-Site on state-changing requests that carry
 // cookies (protects the httpOnly refresh-token flow). No-op otherwise.
 app.use('/api', sameOriginGuard);
@@ -88,6 +99,10 @@ app.use('/api/promotions', apiLimiter, promotionRoutes);
 app.use('/api/orders', apiLimiter, orderRoutes);
 app.use('/api/tenants', apiLimiter, tenantRoutes);
 app.use('/api/menu', apiLimiter, menuRoutes);
+app.use('/api/uploads', apiLimiter, uploadRoutes);
+// Public storefront menu — read-only, no auth; use the standard API limiter
+// but slightly relaxed per-IP budget is inherited from apiLimiter defaults.
+app.use('/api/public', apiLimiter, publicMenuRoutes);
 
 // 404 + centralized error handling
 app.use(notFound);

@@ -200,16 +200,16 @@ Core tables for V2 (migrations land phase by phase):
 
 ### Phase 4 — Menu Management
 
-> **Status: 🟡 Core shipped (PR #5 — `feat/phase4-menu-management` → `master`); image pipeline + bulk import deferred.** Backend: `menu_categories` (self-ref subcategories, sort order), `item_variants` (size/price adjustments), `item_addons` (paid extras) — all tenant-scoped and RBAC-gated (`view:menu` read, `manage:menu` write); `Products` extended with `category_id` / `prep_minutes` / `image_url`; menu router with category CRUD (self-parent & cross-tenant parent rejection, detach-on-delete), variant/add-on CRUD under a product with tenant ownership checks; `seed:restaurants` now backfills categories, variants and add-ons idempotently (16 categories, 14 variants, 5 add-ons across brands). Tests: dedicated menu suite — 17 tests (CRUD, RBAC, cross-tenant ID injection, self-parent, product menu fields) — 90 passing total. Frontend: **Menu page** (category table with item counts, grouped item list with prep times, item detail modal with variant/add-on builder) wired into the nav + router.
+> **Status: ✅ Shipped (PR #5 core + PR #10 media/import/public-API).** Core: `menu_categories` (self-ref subcategories, sort order), `item_variants` (size/price adjustments), `item_addons` (paid extras) — all tenant-scoped and RBAC-gated (`view:menu` read, `manage:menu` write); `Products` extended with `category_id` / `prep_minutes` / `image_url`; menu router with category CRUD (self-parent & cross-tenant parent rejection, detach-on-delete), variant/add-on CRUD under a product with tenant ownership checks; `seed:restaurants` backfills categories, variants and add-ons idempotently. Deferred items shipped: **image pipeline** (`POST /api/uploads/images` — sharp → WebP standard + 320px thumbnail, MIME sniffing, size/dimension caps, cleanup on failure; local + S3-compatible drivers with CDN URLs, `DELETE` endpoint), **bulk CSV import** (`POST /api/products/import` — per-row validation, within-file + DB duplicates with `skip/error/update`, auto-category creation, batched transactions, partial success summary, template download), and the **public menu API** (`GET /api/public/restaurants/:slug[/menu]` — no auth, whitelist serialization, category + availability filters, hidden workspaces 404; demo storefront page at `/m/:slug`). Tests: 138 passing (SQLite + PostgreSQL). See [`docs/05-media-import-public-menu.md`](docs/05-media-import-public-menu.md).
 
 **Objectives:** Rich, data-driven menu per restaurant.
 
 **Deliverables**
 - ✅ Schema: categories (+subcategories self-ref), items extended with `category_id` / `prep_minutes` / `image_url`, variants (size + price), add-ons (option groups)
-- 🟡 CRUD APIs done; **bulk import**, optimistic locking on items (`version`), soft delete pending
-- ⬜ **Image pipeline**: S3-compatible storage, `sharp` resize (thumb/standard/hero), consistent 4:3 ratio, lazy-load + blur-up placeholders, CDN URL builder
-- ✅ Merchant menu UI: category manager + item editor with variant/add-on builder (drag-drop ordering, availability toggles, allergen/nutrition editor pending)
-- ⬜ Public menu API (cached in Redis, ETags) for the future storefront
+- ✅ CRUD APIs; **bulk CSV import** (validated, partial success, duplicates, template); optimistic locking on items (`version`) + soft delete still pending
+- ✅ **Image pipeline**: sharp resize (standard + thumbnail) → WebP, MIME sniffing, size/dimension caps, cleanup on failure, S3-compatible + local drivers, CDN URL builder
+- ✅ Merchant menu UI: category manager + item editor with variant/add-on builder + photo upload; allergen/nutrition editor pending
+- ✅ Public menu API (read-only, whitelist fields) for the future storefront — Redis caching + ETags still pending for scale
 
 **Dependencies:** Phase 3 (tenants), image storage setup.
 
