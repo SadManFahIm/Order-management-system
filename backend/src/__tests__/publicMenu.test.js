@@ -173,6 +173,44 @@ describe('GET /api/public/restaurants/:slug/menu', () => {
     expect(res.status).toBe(200);
   });
 
+  it('sets public caching headers (Cache-Control + ETag)', async () => {
+    const res = await request(app).get('/api/public/restaurants/public-a/menu');
+    expect(res.status).toBe(200);
+    expect(res.headers['cache-control']).toMatch(/public, max-age=\d+/);
+    expect(res.headers.etag).toMatch(/^"[a-f0-9]{16}"$/);
+
+    // The restaurant summary endpoint caches too.
+    const summary = await request(app).get('/api/public/restaurants/public-a');
+    expect(summary.headers['cache-control']).toMatch(/public, max-age=\d+/);
+    expect(summary.headers.etag).toBeTruthy();
+  });
+
+  it('answers 304 Not Modified when the client sends a fresh If-None-Match', async () => {
+    const first = await request(app).get('/api/public/restaurants/public-a/menu');
+    const etag = first.headers.etag;
+    expect(etag).toBeTruthy();
+
+    const cached = await request(app)
+      .get('/api/public/restaurants/public-a/menu')
+      .set('If-None-Match', etag);
+    expect(cached.status).toBe(304);
+    expect(cached.body).toEqual({});
+  });
+
+  it('the ETag changes when menu content changes', async () => {
+    const before = await request(app).get('/api/public/restaurants/public-a/menu');
+    await Product.create({
+      tenant_id: tenantA.id,
+      name: 'Cache Buster',
+      price: 1,
+      weight_gm: 1,
+      enabled: true,
+      category_id: categoryBurgers.id,
+    });
+    const after = await request(app).get('/api/public/restaurants/public-a/menu');
+    expect(after.headers.etag).not.toBe(before.headers.etag);
+  });
+
   it('404s for unknown or non-public tenants', async () => {
     const missing = await request(app).get('/api/public/restaurants/nope/menu');
     expect(missing.status).toBe(404);
