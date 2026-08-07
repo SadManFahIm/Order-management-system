@@ -1,16 +1,23 @@
 import express from 'express';
 import multer from 'multer';
+import sequelize from '../config/db.js';
 import Product from '../models/Product.js';
 import MenuCategory from '../models/MenuCategory.js';
 import ItemVariant from '../models/ItemVariant.js';
 import ItemAddon from '../models/ItemAddon.js';
+import InventoryItem from '../models/InventoryItem.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { requirePermission } from '../middleware/rbac.js';
 import { resolveTenant, requireTenant } from '../middleware/tenant.js';
 import { parsePagination } from '../utils/pagination.js';
-import { importProductsCsv, CSV_TEMPLATE, IMPORT_COLUMNS } from '../services/importService.js';
+import {
+  importProductsCsv,
+  importProductsXlsx,
+  CSV_TEMPLATE,
+  IMPORT_COLUMNS,
+} from '../services/importService.js';
 import { env } from '../config/env.js';
 
 // Rich menu includes (Phase 4).
@@ -18,6 +25,7 @@ const MENU_INCLUDE = [
   { model: MenuCategory, as: 'category', attributes: ['id', 'name'] },
   { model: ItemVariant, as: 'variants' },
   { model: ItemAddon, as: 'addons' },
+  { model: InventoryItem, as: 'inventory' },
 ];
 
 const router = express.Router();
@@ -85,6 +93,10 @@ router.post(
       prep_minutes: prep_minutes ?? null,
       image_url: image_url ?? null,
     });
+
+    // Optional inventory snapshot rides on the create payload.
+    await upsertInventory(req.tenant.id, p.id, name, req.body.inventory);
+
     const withMenu = await Product.findByPk(p.id, { include: MENU_INCLUDE });
     res.status(201).json(withMenu);
   })
@@ -101,7 +113,7 @@ router.get(
   }
 );
 
-/** POST /api/products/import — bulk CSV import (partial success). */
+/** POST /api/products/import — bulk CSV **or XLSX** import (partial success). */
 router.post(
   '/import',
   canManageMenu,
@@ -116,20 +128,30 @@ router.post(
   },
   asyncHandler(async (req, res) => {
     if (!req.file) {
-      throw new AppError(400, 'IMPORT_FILE_REQUIRED', 'Attach the CSV as a multipart field named "file"');
+      throw new AppError(400, 'IMPORT_FILE_REQUIRED', 'Attach a CSV or XLSX as a multipart field named "file"');
     }
-    const csv = req.file.buffer.toString('utf8');
     const duplicates = ['skip', 'error', 'update'].includes(req.body.duplicates)
       ? req.body.duplicates
       : 'skip';
-    const summary = await importProductsCsv({ csv, tenantId: req.tenant.id, duplicates });
+
+    // Route by filename/mime — .xlsx goes through the Excel path; everything
+    // else is treated as CSV (matching the pre-existing behaviour).
+    const filename = (req.file.originalname || '').toLowerCase();
+    const isXlsx =
+      filename.endsWith('.xlsx') || req.file.mimetype.includes('spreadsheetml');
+
+    const summary = isXlsx
+      ? await importProductsXlsx({ buffer: req.file.buffer, tenantId: req.tenant.id, duplicates })
+      : await importProductsCsv({ csv: req.file.buffer.toString('utf8'), tenantId: req.tenant.id, duplicates });
+
     res.status(201).json({ ...summary, columns: IMPORT_COLUMNS });
   })
 );
 
-/** DELETE /api/products/:id — remove an item. Variants/add-ons go with it
- * (FK CASCADE); order history is preserved because order_items reference
- * the item via ON DELETE SET NULL. */
+/** DELETE /api/products/:id — SOFT delete (Phase 4 completion): the row keeps
+ * its deleted_at timestamp so order history and analytics stay intact. Child
+ * variants/add-ons are hard-removed in the same transaction (they are menu
+ * artefacts, not history). */
 router.delete(
   '/:id',
   canManageMenu,
@@ -139,12 +161,17 @@ router.delete(
     });
     if (!p) throw new AppError(404, 'NOT_FOUND', 'Product not found');
 
-    await p.destroy();
+    await sequelize.transaction(async (transaction) => {
+      await ItemVariant.destroy({ where: { product_id: p.id }, transaction });
+      await ItemAddon.destroy({ where: { product_id: p.id }, transaction });
+      await p.destroy({ transaction }); // paranoid → sets deleted_at
+    });
     res.status(200).json({ id: p.id, deleted: true });
   })
 );
 
-/** PUT /api/products/:id */
+/** PUT /api/products/:id — optimistic locking: send the `version` you based
+ * the edit on; a stale write gets 409 and the version bumps on success. */
 router.put(
   '/:id',
   canManageMenu,
@@ -156,6 +183,19 @@ router.put(
 
     const { name, description, price, weight_gm, enabled, category_id, prep_minutes, image_url } =
       req.body;
+
+    // Optimistic lock — only enforced when the client supplies a version
+    // (legacy callers that never send one keep working).
+    if (req.body.version !== undefined) {
+      const sentVersion = Number(req.body.version);
+      if (!Number.isInteger(sentVersion) || sentVersion !== p.version) {
+        throw new AppError(
+          409,
+          'VERSION_CONFLICT',
+          `Product was modified by someone else (expected version ${p.version}, got ${req.body.version}). Reload and retry.`
+        );
+      }
+    }
 
     if (category_id !== undefined && category_id !== null) {
       const category = await MenuCategory.findOne({
@@ -176,11 +216,57 @@ router.put(
     if (enabled !== undefined) p.enabled = enabled;
     if (prep_minutes !== undefined) p.prep_minutes = prep_minutes;
     if (image_url !== undefined) p.image_url = image_url;
+    p.version = (p.version ?? 1) + 1;
     await p.save();
+
+    await upsertInventory(req.tenant.id, p.id, p.name, req.body.inventory);
 
     const withMenu = await Product.findByPk(p.id, { include: MENU_INCLUDE });
     res.json(withMenu);
   })
 );
+
+/** PATCH /api/products/:id/inventory — quick stock adjustment (no version). */
+router.patch(
+  '/:id/inventory',
+  canManageMenu,
+  asyncHandler(async (req, res) => {
+    const p = await Product.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+    });
+    if (!p) throw new AppError(404, 'NOT_FOUND', 'Product not found');
+
+    const inventory = await upsertInventory(req.tenant.id, p.id, p.name, req.body);
+    res.json(inventory);
+  })
+);
+
+/**
+ * Upserts the inventory snapshot for a menu item (tenant + item unique).
+ * Partial payloads (e.g. a quick stock PATCH) update only the given fields.
+ * Returns the stored row, or null when no inventory data was provided.
+ */
+async function upsertInventory(tenantId, productId, productName, inventory) {
+  if (!inventory || typeof inventory !== 'object') return null;
+
+  const [row] = await InventoryItem.findOrCreate({
+    where: { tenant_id: tenantId, menu_item_id: productId },
+    defaults: {
+      tenant_id: tenantId,
+      menu_item_id: productId,
+      name: productName,
+      stock_qty: Number(inventory.stock_qty) || 0,
+      low_stock_at: Number(inventory.low_stock_at) || 0,
+      unit: inventory.unit || 'pcs',
+    },
+  });
+
+  if (inventory.stock_qty !== undefined) row.stock_qty = Number(inventory.stock_qty) || 0;
+  if (inventory.low_stock_at !== undefined) row.low_stock_at = Number(inventory.low_stock_at) || 0;
+  if (inventory.unit !== undefined) row.unit = inventory.unit || 'pcs';
+  if (productName) row.name = productName;
+  await row.save();
+  return row;
+}
 
 export default router;

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import bcrypt from 'bcryptjs';
+import ExcelJS from 'exceljs';
 import app from '../app.js';
 import sequelize from '../config/db.js';
 import { resetTestDb } from '../test/resetDb.js';
@@ -162,6 +163,60 @@ describe('POST /api/products/import', () => {
     expect(count).toBe(1);
   });
 
+  it('re-import after soft delete: update resurrects, skip never duplicates', async () => {
+    const p = await Product.create({
+      tenant_id: tenantA.id,
+      name: 'Soft Del Item',
+      price: 100,
+      weight_gm: 200,
+    });
+    await p.destroy(); // paranoid → sets deleted_at, row still occupies the name
+
+    // duplicates=update resurrects the soft-deleted row (clears deleted_at)
+    // instead of inserting a duplicate underneath it.
+    const updateRes = await request(app)
+      .post('/api/products/import')
+      .set(auth(ownerToken))
+      .field('duplicates', 'update')
+      .attach('file', CSV('Soft Del Item,555,200,resurrected via import,true,,5,'), {
+        filename: 'menu.csv',
+        contentType: 'text/csv',
+      });
+    expect(updateRes.status).toBe(201);
+    expect(updateRes.body.succeeded).toBe(1);
+
+    const visible = await Product.findAll({
+      where: { tenant_id: tenantA.id, name: 'Soft Del Item' },
+    });
+    expect(visible).toHaveLength(1);
+    expect(visible[0].deletedAt).toBeNull();
+    expect(Number(visible[0].price)).toBe(555);
+    // No hidden duplicate left underneath.
+    const all = await Product.findAll({
+      where: { tenant_id: tenantA.id, name: 'Soft Del Item' },
+      paranoid: false,
+    });
+    expect(all).toHaveLength(1);
+
+    // duplicates=skip on a soft-deleted name must NOT create a phantom duplicate.
+    await visible[0].destroy();
+    const skipRes = await request(app)
+      .post('/api/products/import')
+      .set(auth(ownerToken))
+      .attach('file', CSV('Soft Del Item,111,200,,true,,5,'), {
+        filename: 'menu.csv',
+        contentType: 'text/csv',
+      });
+    expect(skipRes.status).toBe(201);
+    expect(skipRes.body.skipped).toBe(1);
+    const after = await Product.findAll({
+      where: { tenant_id: tenantA.id, name: 'Soft Del Item' },
+      paranoid: false,
+    });
+    expect(after).toHaveLength(1);
+    expect(after[0].deletedAt).not.toBeNull();
+  });
+
   it('creates unknown categories automatically (idempotent)', async () => {
     const res = await request(app)
       .post('/api/products/import')
@@ -263,5 +318,85 @@ describe('POST /api/products/import', () => {
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toContain('text/csv');
     expect(res.text).toContain('name,price,weight_gm');
+  });
+});
+
+/** Builds an XLSX workbook buffer from a header + data rows (like the CSV helper). */
+const XLSX = async (rows, header = 'name,price,weight_gm,description,enabled,category,prep_minutes,image_url') => {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Menu');
+  sheet.addRow(header.split(','));
+  for (const line of rows.split('\n')) {
+    sheet.addRow(line.split(','));
+  }
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+};
+
+describe('POST /api/products/import — XLSX', () => {
+  it('imports a valid XLSX workbook (same pipeline as CSV)', async () => {
+    const res = await request(app)
+      .post('/api/products/import')
+      .set(auth(ownerToken))
+      .attach('file', await XLSX('Xl Burger,340,260,Excel burger,true,Burgers,10,'), {
+        filename: 'menu.xlsx',
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.total).toBe(1);
+    expect(res.body.succeeded).toBe(1);
+    expect(res.body.failed).toBe(0);
+    expect(res.body.errors).toEqual([]);
+
+    const product = await Product.findOne({ where: { tenant_id: tenantA.id, name: 'Xl Burger' } });
+    expect(product).not.toBeNull();
+    expect(Number(product.price)).toBe(340);
+    // Boolean cells arrive as real booleans from Excel — handled by the schema.
+    expect(product.enabled).toBe(true);
+  });
+
+  it('reports bad XLSX rows per-row and still imports valid ones (mixed success)', async () => {
+    const res = await request(app)
+      .post('/api/products/import')
+      .set(auth(ownerToken))
+      .attach('file', await XLSX('Good Excel Item,180,220,ok,true,,5,\nBroken Excel,,300,missing price,true,,5,'), {
+        filename: 'mixed.xlsx',
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.succeeded).toBe(1);
+    expect(res.body.failed).toBe(1);
+    expect(res.body.errors[0].field).toBe('price');
+  });
+
+  it('handles duplicates=update for XLSX rows (bumps version)', async () => {
+    await Product.create({ tenant_id: tenantA.id, name: 'Xl Dup', price: 10, weight_gm: 10 });
+    const res = await request(app)
+      .post('/api/products/import')
+      .set(auth(ownerToken))
+      .field('duplicates', 'update')
+      .attach('file', await XLSX('Xl Dup,777,50,updated from excel,true,,5,'), {
+        filename: 'dup.xlsx',
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.succeeded).toBe(1);
+
+    const updated = await Product.findOne({ where: { tenant_id: tenantA.id, name: 'Xl Dup' } });
+    expect(Number(updated.price)).toBe(777);
+    expect(updated.version).toBe(2);
+  });
+
+  it('rejects a malformed XLSX buffer', async () => {
+    const res = await request(app)
+      .post('/api/products/import')
+      .set(auth(ownerToken))
+      .attach('file', Buffer.from('this is not a zip file'), {
+        filename: 'broken.xlsx',
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('MALFORMED_XLSX');
   });
 });

@@ -21,6 +21,7 @@ import {
   MenuCategory,
   ItemVariant,
   ItemAddon,
+  InventoryItem,
 } from '../src/models/index.js';
 import { RESTAURANT_SEEDS } from './data/restaurants.js';
 
@@ -155,6 +156,23 @@ try {
           sort_order: a.sort_order ?? 0,
         });
         addons += 1;
+      }
+
+      // Inventory snapshot (Phase 4 completion) — idempotent by
+      // (tenant, menu item); seeds a healthy stock so the demo shows the
+      // stock column and low-stock badge behaviour.
+      const inv = await InventoryItem.findOne({
+        where: { tenant_id: tenant.id, menu_item_id: product.id },
+      });
+      if (!inv) {
+        await InventoryItem.create({
+          tenant_id: tenant.id,
+          menu_item_id: product.id,
+          name: product.name,
+          stock_qty: item.stock_qty ?? 50,
+          low_stock_at: item.low_stock_at ?? 10,
+          unit: item.unit ?? 'pcs',
+        });
       }
     }
   }

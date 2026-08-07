@@ -6,6 +6,7 @@ import { useI18n, LANGUAGES } from '../i18n';
 import { Logo, Button } from './ui';
 
 const LINKS = [
+  { to: '/dashboard', key: 'nav.dashboard', icon: <IconChart /> },
   { to: '/menu', key: 'nav.menu', icon: <IconGrid /> },
   { to: '/products', key: 'nav.products', icon: <IconGrid /> },
   { to: '/promotions', key: 'nav.promotions', icon: <IconTag /> },
@@ -176,6 +177,14 @@ function IconCheck() {
 
 /* Inline icons (no icon dependency — keeps the bundle lean) */
 
+function IconChart() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 3v18h18" />
+      <path d="M7 15l4-5 3 3 5-7" />
+    </svg>
+  );
+}
 function IconGrid() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">

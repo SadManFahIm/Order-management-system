@@ -6,7 +6,7 @@
 
 The Order Management System is evolving from a single-tenant order CRUD app into a commercial, cloud-based **restaurant ordering SaaS** for the Dhaka market (KFC, Pizza Hut, Domino's, Chillox, Sultan's Dine, Star Kabab, Madchef, and hundreds more — all data-driven, never hard-coded). This repository is the **V2 platform**: security hardening, multi-tenancy, RBAC, engineering tooling, testing, CI/CD, and a growing customer-facing storefront — built incrementally on the existing, working v1 features.
 
-**Current status:** Phases 1–4 **shipped** ✅ · Phase 5 (ordering & fulfillment) **foundation shipped** ✅ — order status workflow, Bangla i18n, and the Deliveroo-style design system are live; the customer-facing checkout flow is the next sprint.
+**Current status:** Phases 1–4 **done** ✅ (incl. Phase 4 completion round 2: XLSX import, soft delete + optimistic locking, public menu pagination, inventory, merchant dashboard) · Phase 5 (ordering & fulfillment) **foundation shipped** ✅ — order status workflow, Bangla i18n, and the Deliveroo-style design system are live; the customer-facing checkout flow is the next sprint.
 
 ---
 
@@ -17,7 +17,7 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 | **Phase 1** — Foundation | Security hardening (Helmet, CORS, rate limiting, zod validation, central errors), hotfix wave, PostgreSQL stack (migration runner, migrations 001–005, PG dev service), CI/CD pipeline | Backend + PG CI jobs green |
 | **Phase 2** — Auth & RBAC | Register/login/verify/reset flows, rotating refresh tokens with reuse detection, TOTP 2FA, role-based access control (admin/owner/manager/cashier/kitchen/delivery), session management | Full auth + RBAC test suites |
 | **Phase 3** — Multi-tenant SaaS | Tenant workspaces, team members & roles, plans/subscriptions/feature flags, tenant-scoping middleware (fail-closed isolation), CSRF protection, Dhaka seed data (20 workspaces, 89 menu items) | Tenant isolation + CSRF suites |
-| **Phase 4** — Menu & Media | Menu catalog (categories/variants/add-ons), image pipeline (sharp → WebP, S3-compatible storage, CDN-ready), bulk CSV import, public menu API with HTTP caching, **DELETE endpoints**, **MinIO S3 test tier in CI** | 17 suites · 158 tests passing |
+| **Phase 4** — Menu & Media | Menu catalog (categories/variants/add-ons), image pipeline (sharp → WebP, S3-compatible storage, CDN-ready), bulk **CSV + XLSX** import, public menu API with HTTP caching + pagination, **DELETE endpoints**, **soft delete + optimistic locking**, **inventory**, **merchant dashboard**, **MinIO S3 test tier in CI** | 20 suites · 180 tests passing |
 | **Phase 5 (foundation)** — Ordering | **Order fulfillment workflow** (placed → preparing → ready → delivered, role-gated, cancel rules), **English/Bangla i18n toggle**, Deliveroo-inspired design system | 11 new order workflow tests · live UI verified |
 
 ---
@@ -45,6 +45,7 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 - Tenant-scoped `menu_categories` (self-ref subcategories + ordering), `item_variants` (size/price adjustments) and `item_addons` (paid extras) with full CRUD + RBAC (`view:menu` vs `manage:menu`)
 - Merchant **Menu page** (Wolt/Deliveroo style) with grouped category view and an item editor modal for variants/add-ons
 - **Delete support** — products and promotions can be removed (FK-safe: order history preserved via `SET NULL`, children cascade)
+- **Soft delete + optimistic locking** — products are soft-deleted (`deleted_at`, order history stays intact); every edit carries a `version` and stale writes get **409 VERSION_CONFLICT** (all update paths bump the version, including bulk menu operations)
 
 **Image pipeline (Phase 4)**
 - Authenticated, tenant-scoped uploads (`POST /api/uploads/images`) processed with **sharp** into optimized WebP (standard 1600px + 320px thumbnail): MIME sniffing, size/dimension caps, EXIF stripping, cleanup on failure
@@ -52,11 +53,16 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 - **S3 driver tested against a real MinIO instance in CI** — see `.github/workflows/ci.yml` job "Backend — S3 driver vs MinIO"
 
 **Bulk import (Phase 4)**
-- `POST /api/products/import` accepts CSV (template at `/api/products/import/template`): per-row validation, duplicate handling (`skip` / `error` / `update`), auto-creation of unknown categories, batched transactional writes, structured summary (`succeeded/failed/skipped` + per-row errors) — partial success by design
+- `POST /api/products/import` accepts **CSV and XLSX** (Excel template at `/api/products/import/template`; `.xlsx` detected by filename/mime and parsed via exceljs): per-row validation, duplicate handling (`skip` / `error` / `update`), auto-creation of unknown categories, batched transactional writes, structured summary (`succeeded/failed/skipped` + per-row errors) — partial success by design
+- Soft-delete aware: re-importing a soft-deleted item never spawns a phantom duplicate — `update` resurrects it, `skip` counts it as existing; oversized files/sheets are rejected up front
 
 **Public storefront menu (Phase 4)**
 - Read-only, unauthenticated `GET /api/public/restaurants/:slug[/menu]` with whitelist-only serialization (never internal/user fields), category + availability filters, suspended/archived tenants 404
-- **HTTP caching** — `Cache-Control: public, max-age=60` + `ETag` with `304 Not Modified` round-trips (10× faster storefront reads); live demo page at `/m/:slug`
+- **HTTP caching** — `Cache-Control: public, max-age=60` + `ETag` with `304 Not Modified` round-trips (10× faster storefront reads); **pagination** via `?limit&offset` + `X-Total-Count` (storefront "Show more" loads in pages); live demo page at `/m/:slug`
+
+**Inventory (Phase 4 completion)**
+- `inventory_items` snapshots per menu item (stock qty, low-stock threshold, unit) — set via product create/edit or `PATCH /api/products/:id/inventory`; low-stock items get a warning badge in the Products table
+- **Merchant dashboard** — `GET /api/dashboard`: today's revenue, order count, pending/ready orders, and top-selling items with 7-day trends; the new home screen after login (role-aware: kitchen/delivery see order stats, managers see revenue)
 
 **Localization (Phase 5 foundation)**
 - **English/Bangla i18n toggle** — dependency-free `I18nProvider` with EN/BN dictionaries, localStorage persistence, `<html lang>` sync, and graceful English fallback for untranslated keys; nav, login, page headers, order statuses, and action buttons all switch instantly — a key differentiator for the Dhaka market
@@ -102,7 +108,7 @@ Customer storefront checkout & tracking · CRAV-inspired landing page + per-tena
 
 | Layer | Technology |
 |---|---|
-| Backend | Node.js 20 · Express · Sequelize · SQLite (dev, default) → PostgreSQL 16 (V2) · pg · versioned migrations · JWT · zod · sharp · @aws-sdk/client-s3 · multer · csv-parse |
+| Backend | Node.js 20 · Express · Sequelize · SQLite (dev, default) → PostgreSQL 16 (V2) · pg · versioned migrations · JWT · zod · sharp · @aws-sdk/client-s3 · multer · csv-parse · exceljs |
 | Frontend | React 18 · Vite 7 · Axios · React Router 7 · Playwright (e2e) |
 | Security | Helmet · express-rate-limit · bcrypt · otplib (2FA) · strict CORS · CSRF origin checks |
 | Quality | Vitest · Supertest · ESLint · GitHub Actions CI (5 jobs incl. MinIO + PG) |
@@ -121,10 +127,10 @@ Customer storefront checkout & tracking · CRAV-inspired landing page + per-tena
 │   │   ├── config/           # Validated environment config + DB + storage
 │   │   ├── middleware/       # Auth, RBAC, tenant, CSRF, rate limits, errors
 │   │   ├── models/           # Sequelize models (aligned to migrations)
-│   │   ├── routes/           # auth, products, promotions, orders, menu, uploads, public
+│   │   ├── routes/           # auth, products, promotions, orders, menu, uploads, public, dashboard
 │   │   ├── utils/            # promotion engine, pagination
 │   │   ├── test/             # Test environment setup
-│   │   └── __tests__/        # 17 suites · 158 tests
+│   │   └── __tests__/        # 20 suites · 180 tests
 │   ├── migrations/           # Versioned schema migrations (001–005)
 │   ├── scripts/              # CLI utilities (seed, migrate runner, v1→v2 copy)
 │   └── Dockerfile
@@ -263,7 +269,7 @@ Full media/import/S3 setup details: [`docs/05-media-import-public-menu.md`](docs
 
 ```bash
 cd backend
-npm test                      # Vitest — 158 tests across 17 suites (2 S3 tests skip locally, run in CI/MinIO)
+npm test                      # Vitest — 180 tests across 20 suites (2 S3 tests skip locally, run in CI/MinIO)
 npm run test:coverage         # with coverage report
 npm run lint                  # ESLint
 
@@ -273,7 +279,7 @@ npm run build                 # production build
 npx playwright test           # browser-level e2e suite
 ```
 
-Coverage highlights: promotion engine (all discount types, date windows, best-discount selection), full auth lifecycle (register, verify, login, refresh rotation + reuse detection, logout, password reset), TOTP 2FA, RBAC + tenant isolation (cross-tenant 403/404, ID injection, suspended/archived workspaces, role switching), CSRF rejection, order creation with promotions + **fulfillment workflow** (role denials, invalid skips, cancel rules, cross-tenant isolation), DELETE endpoints, public menu caching (ETag/304), image pipeline, bulk import, S3 storage round-trip, v1→v2 migration parity, and models↔migrations drift.
+Coverage highlights: promotion engine (all discount types, date windows, best-discount selection), full auth lifecycle (register, verify, login, refresh rotation + reuse detection, logout, password reset), TOTP 2FA, RBAC + tenant isolation (cross-tenant 403/404, ID injection, suspended/archived workspaces, role switching), CSRF rejection, order creation with promotions + **fulfillment workflow** (role denials, invalid skips, cancel rules, cross-tenant isolation), DELETE endpoints, public menu caching (ETag/304), image pipeline, bulk import (CSV + XLSX, mixed success, duplicate policies, **soft-delete resurrection**), **optimistic-lock version conflicts (409)**, inventory, dashboard aggregates, S3 storage round-trip, v1→v2 migration parity, and models↔migrations drift.
 
 ---
 
@@ -316,7 +322,7 @@ The workflow exposes a `workflow_dispatch` trigger so CI can always be run manua
 | **1** | Foundation | Security hardening, hotfix wave, engineering tooling, PostgreSQL stack (migration runner, migrations 001–005, PG dev service), CI pipeline | ✅ **Done** |
 | **2** | Authentication & RBAC | Register/login/verify/reset, rotating refresh tokens + reuse detection, TOTP 2FA, 6-role RBAC, session management | ✅ **Done** |
 | **3** | Multi-tenant SaaS | Tenant workspaces + members/roles, tenant-scoping middleware (fail-closed), CSRF protection, Dhaka seed data (20 workspaces, 89 items) | ✅ **Done** |
-| **4** | Menu & Media | Menu catalog (categories/variants/add-ons), image pipeline (sharp → WebP, S3/CDN), bulk CSV import, public menu API, **delete endpoints, HTTP caching, MinIO CI tier** | ✅ **Shipped** |
+| **4** | Menu & Media | Menu catalog (categories/variants/add-ons), image pipeline (sharp → WebP, S3/CDN), bulk **CSV + XLSX** import, public menu API, **delete endpoints, HTTP caching + pagination, soft delete + optimistic locking, inventory, merchant dashboard, MinIO CI tier** | ✅ **Done** |
 | **5** | Ordering & fulfillment | **✅ Shipped:** order status workflow (role-gated transitions, cancel rules), English/Bangla i18n, Deliveroo design system · **⬜ Next sprints:** storefront checkout (cart → order → tracking), CRAV-inspired landing page, per-tenant brand theming, QR table menus, WhatsApp notifications | 🟡 **In progress** |
 | **6** | Payments | bKash, Nagad, SSLCommerz, Stripe — tender tracking + split payments | ⬜ Planned |
 | **7** | Analytics | Merchant dashboard — revenue, peak hours, top items, daily closeout | ⬜ Planned |

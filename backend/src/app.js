@@ -25,6 +25,7 @@ import './models/UsageCounter.js';
 import './models/MenuCategory.js';
 import './models/ItemVariant.js';
 import './models/ItemAddon.js';
+import './models/InventoryItem.js';
 
 import authRoutes from './routes/auth.js';
 import productRoutes from './routes/products.js';
@@ -34,6 +35,7 @@ import tenantRoutes from './routes/tenants.js';
 import menuRoutes from './routes/menu.js';
 import uploadRoutes from './routes/uploads.js';
 import publicMenuRoutes from './routes/publicMenu.js';
+import dashboardRoutes from './routes/dashboard.js';
 
 import { storageDriver, localStatic } from './config/storage.js';
 
@@ -103,6 +105,7 @@ app.use('/api/uploads', apiLimiter, uploadRoutes);
 // Public storefront menu — read-only, no auth; use the standard API limiter
 // but slightly relaxed per-IP budget is inherited from apiLimiter defaults.
 app.use('/api/public', apiLimiter, publicMenuRoutes);
+app.use('/api/dashboard', apiLimiter, dashboardRoutes);
 
 // 404 + centralized error handling
 app.use(notFound);

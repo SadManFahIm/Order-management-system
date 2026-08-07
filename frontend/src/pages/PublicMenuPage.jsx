@@ -8,35 +8,81 @@ import { Skeleton } from '../components/ui';
  * (`/api/public/restaurants/:slug/menu`), no auth required. A taste of the
  * Wolt/Deliveroo-style customer experience for any active restaurant.
  */
+const PAGE_SIZE = 50;
+
+/** Merges a paginated response into the already-fetched categories (by item id). */
+const mergeCategories = (existing, incoming) => {
+  if (!existing) return incoming;
+  const map = new Map(existing.map((c) => [c.id, { ...c, items: [...c.items] }]));
+  for (const cat of incoming) {
+    const target = map.get(cat.id);
+    if (!target) {
+      map.set(cat.id, { ...cat, items: [...cat.items] });
+      continue;
+    }
+    const known = new Set(target.items.map((i) => i.id));
+    for (const item of cat.items) if (!known.has(item.id)) target.items.push(item);
+  }
+  return [...map.values()];
+};
+
 export default function PublicMenuPage() {
   const { slug } = useParams();
   const [state, setState] = useState({ loading: true, error: null, data: null });
   const [activeCat, setActiveCat] = useState(null);
+  const [total, setTotal] = useState(0);
+  const [fetchingMore, setFetchingMore] = useState(false);
   const mounted = useRef(true);
+
+  const loadedCount = (data) =>
+    data ? data.categories.reduce((n, c) => n + c.items.length, 0) : 0;
+
+  const loadPage = async (offset, append) => {
+    const res = await axios.get(`/api/public/restaurants/${slug}/menu`, {
+      params: { limit: PAGE_SIZE, offset },
+    });
+    if (!mounted.current) return;
+    const incoming = res.data;
+    setState((prev) => ({
+      loading: false,
+      error: null,
+      data: append && prev.data ? { ...incoming, categories: mergeCategories(prev.data, incoming.categories) } : incoming,
+    }));
+    setTotal(Number(res.headers['x-total-count']) || loadedCount(incoming));
+    if (!append) {
+      const first = incoming.categories.find((c) => c.items.length > 0);
+      setActiveCat((prev) => prev ?? first?.id ?? null);
+    }
+  };
 
   useEffect(() => {
     mounted.current = true;
     setState({ loading: true, error: null, data: null });
-    axios
-      .get(`/api/public/restaurants/${slug}/menu`)
-      .then((res) => {
-        if (!mounted.current) return;
-        setState({ loading: false, error: null, data: res.data });
-        const first = res.data.categories.find((c) => c.items.length > 0);
-        setActiveCat(first?.id ?? null);
-      })
-      .catch((err) => {
-        if (!mounted.current) return;
-        setState({
-          loading: false,
-          error: err?.response?.status === 404 ? 'Restaurant not found' : 'Could not load menu',
-          data: null,
-        });
+    setTotal(0);
+    loadPage(0, false).catch((err) => {
+      if (!mounted.current) return;
+      setState({
+        loading: false,
+        error: err?.response?.status === 404 ? 'Restaurant not found' : 'Could not load menu',
+        data: null,
       });
+    });
     return () => {
       mounted.current = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
+
+  const showMore = async () => {
+    setFetchingMore(true);
+    try {
+      await loadPage(loadedCount(state.data), true);
+    } catch {
+      /* keep the current page — the button stays retryable */
+    } finally {
+      setFetchingMore(false);
+    }
+  };
 
   if (state.loading) {
     return (
@@ -236,6 +282,32 @@ export default function PublicMenuPage() {
         ) : (
           <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted, #7d9a95)' }}>
             No menu items available right now.
+          </div>
+        )}
+
+        {/* Load-more pagination — driven by the API's X-Total-Count header. */}
+        {loadedCount(state.data) < total && (
+          <div style={{ textAlign: 'center', marginTop: 28 }}>
+            <button
+              onClick={showMore}
+              disabled={fetchingMore}
+              style={{
+                border: '1px solid var(--border-strong, #b9e0da)',
+                background: 'var(--primary, #00b3a5)',
+                color: '#fff',
+                borderRadius: 999,
+                padding: '10px 26px',
+                fontSize: 14,
+                fontWeight: 700,
+                cursor: fetchingMore ? 'wait' : 'pointer',
+                boxShadow: '0 6px 16px rgba(0,179,165,0.28)',
+                transition: 'transform .15s ease, box-shadow .15s ease',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 10px 22px rgba(0,179,165,0.35)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,179,165,0.28)'; }}
+            >
+              {fetchingMore ? 'Loading…' : `Show more (${total - loadedCount(state.data)} more)`}
+            </button>
           </div>
         )}
 

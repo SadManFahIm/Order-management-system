@@ -225,4 +225,33 @@ describe('GET /api/public/restaurants/:slug/menu', () => {
     const allItems = res.body.categories.flatMap((c) => c.items);
     expect(allItems.some((i) => i.name === 'Beta Secret')).toBe(false);
   });
+
+  it('paginates items with limit/offset and X-Total-Count', async () => {
+    // 4 enabled items exist for tenant A at this point (Beef Burger, Cold
+    // Drink, Uncategorised Snack, Cache Buster) — page through 2 at a time.
+    const page1 = await request(app).get('/api/public/restaurants/public-a/menu?limit=2&offset=0');
+    expect(page1.status).toBe(200);
+    expect(Number(page1.headers['x-total-count'])).toBeGreaterThanOrEqual(4);
+    const page1Items = page1.body.categories.flatMap((c) => c.items);
+    expect(page1Items).toHaveLength(2);
+
+    const page2 = await request(app).get('/api/public/restaurants/public-a/menu?limit=2&offset=2');
+    const page2Items = page2.body.categories.flatMap((c) => c.items);
+    expect(page2Items).toHaveLength(2);
+    // Pages never overlap (stable ordering by id ASC).
+    const page1Ids = new Set(page1Items.map((i) => i.id));
+    expect(page2Items.some((i) => page1Ids.has(i.id))).toBe(false);
+
+    // Offset beyond the end yields no items but the true total.
+    const beyond = await request(app).get('/api/public/restaurants/public-a/menu?limit=2&offset=999');
+    expect(beyond.body.categories.flatMap((c) => c.items)).toHaveLength(0);
+    expect(Number(beyond.headers['x-total-count'])).toBeGreaterThanOrEqual(4);
+  });
+
+  it('respects the category filter while paginating', async () => {
+    const res = await request(app)
+      .get(`/api/public/restaurants/public-a/menu?categoryId=${categoryDrinks.id}&limit=5`);
+    expect(Number(res.headers['x-total-count'])).toBe(1);
+    expect(res.body.categories.flatMap((c) => c.items).map((i) => i.name)).toEqual(['Cold Drink']);
+  });
 });

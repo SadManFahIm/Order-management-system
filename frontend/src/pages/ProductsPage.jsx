@@ -41,10 +41,17 @@ export default function ProductsPage() {
   };
 
   const onUpdate = async (data) => {
-    await api.put(`/products/${editing.id}`, data);
-    setEditing(null);
-    toast.success('Product updated');
-    await load();
+    try {
+      await api.put(`/products/${editing.id}`, data);
+      setEditing(null);
+      toast.success('Product updated');
+      await load();
+    } catch (err) {
+      // Optimistic-lock conflicts surface as 409 — tell the merchant to reload.
+      const msg = err?.response?.data?.error?.message;
+      toast.error(msg || 'Could not update product');
+      if (err?.response?.status === 409) await load();
+    }
   };
 
   const onDelete = async (p) => {
@@ -109,6 +116,7 @@ export default function ProductsPage() {
                 { key: 'name', label: 'Product' },
                 { key: 'price', label: 'Price', align: 'right' },
                 { key: 'weight_gm', label: 'Weight', align: 'right' },
+                { key: 'stock', label: 'Stock', align: 'right' },
                 { key: 'enabled', label: 'Status' },
                 { key: 'actions', label: '', align: 'right' },
               ]}
@@ -116,13 +124,26 @@ export default function ProductsPage() {
               render={(p, key) => {
                 if (key === 'price') return <span className="oms-table__cell-strong">৳ {Number(p.price).toFixed(2)}</span>;
                 if (key === 'weight_gm') return `${p.weight_gm} gm`;
+                if (key === 'stock') {
+                  const inv = p.inventory;
+                  const qty = Number(inv?.stock_qty ?? 0);
+                  const low = Number(inv?.low_stock_at ?? 0);
+                  const isLow = low > 0 && qty <= low;
+                  return isLow ? (
+                    <Badge tone="danger">{qty} {inv?.unit || 'pcs'} · Low</Badge>
+                  ) : (
+                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {qty} {inv?.unit || 'pcs'}
+                    </span>
+                  );
+                }
                 if (key === 'enabled')
                   return p.enabled ? <Badge tone="success">Available</Badge> : <Badge tone="neutral">Hidden</Badge>;
                 if (key === 'name') return <span className="oms-table__cell-strong">{p.name}</span>;
                 if (key === 'actions')
                   return (
                     <div className="oms-table__actions">
-                      <Button variant="ghost" size="sm" onClick={() => setEditing(p)}>
+                      <Button variant="ghost" size="sm" onClick={() => setEditing({ ...p, inventory: p.inventory || { stock_qty: 0, low_stock_at: 0, unit: 'pcs' } })}>
                         Edit
                       </Button>
                       <Button variant="danger-ghost" size="sm" onClick={() => onDelete(p)}>

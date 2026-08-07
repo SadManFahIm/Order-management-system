@@ -12,6 +12,7 @@ import MenuPage from './pages/MenuPage';
 import PromotionsPage from './pages/PromotionsPage';
 import OrdersListPage from './pages/OrdersListPage';
 import NewOrderPage from './pages/NewOrderPage';
+import DashboardPage from './pages/DashboardPage';
 import PublicMenuPage from './pages/PublicMenuPage';
 
 export default function App() {
@@ -34,6 +35,7 @@ export default function App() {
                   <Navbar />
                   <main className="oms-shell__main">
                     <Routes>
+                      <Route path="/dashboard" element={<DashboardPage />} />
                       <Route path="/products" element={<ProductsPage />} />
                       <Route path="/menu" element={<MenuPage />} />
                       <Route path="/promotions" element={<PromotionsPage />} />
