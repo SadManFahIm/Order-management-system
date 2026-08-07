@@ -22,8 +22,11 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 - **Order management** — server-side pricing with per-item discount, subtotal, discount, and grand total (tenant-scoped)
 - **Design system** — Wolt/Deliveroo-inspired UI: theme engine with light/dark mode + design tokens, shared UI kit (Button, Card, Input, Table, Modal, Toast, Skeleton, Badge, EmptyState…), workspace switcher, glassy navbar
 - **Security hardening** — Helmet security headers, CORS allowlist, rate limiting, centralized error handling, validated payloads (zod), no secrets in code
-- **PostgreSQL foundation (Phase 1 follow-up)** — versioned migration runner (`npm run db:migrate` / `db:migrate:down` / `db:migrate:status`) with migrations 001–004 (identity/auth, tenancy/SaaS, menu catalog, orders/promotions); dialect-selectable DB config (`DB_DIALECT` / `DATABASE_URL`, default SQLite); PostgreSQL 16 service in `docker-compose.yml`; production boots run migrations instead of `sync()`; **a dedicated CI job runs the full suite against a real PostgreSQL 16**
+- **PostgreSQL foundation (Phase 1 follow-up)** — versioned migration runner (`npm run db:migrate` / `db:migrate:down` / `db:migrate:status`) with migrations 001–005 (identity/auth, tenancy/SaaS, menu catalog, orders/promotions, v1 field bridge); dialect-selectable DB config (`DB_DIALECT` / `DATABASE_URL`, default SQLite); PostgreSQL 16 service in `docker-compose.yml`; **migrations run at boot on both dialects**; **a dedicated CI job runs the full suite against a real PostgreSQL 16**
+- **Models aligned to migrations** — every Sequelize model now maps to the migration tables/columns (`tableName` + `field` mappings: `users.password_hash`, `menu_items.base_price/is_available`, `orders.*_amount`, `order_items.menu_item_id`…), so the app runs unchanged against a *migrations-only* database on SQLite **and** PostgreSQL (v1 `sync()` bridge removed). Covered by the PG CI job
 - **v1 → v2 data migration** — `npm run db:migrate:v1 -- --source data.sqlite` copies the legacy SQLite data into the migrated schema under a default tenant (id maps, `password` → `password_hash`, DECIMAL money conversion, order/status remapping) with blocking verification: row-count parity, money invariants and FK integrity
+- **Production cutover runbook** — [`docs/04-pg-cutover-runbook.md`](docs/04-pg-cutover-runbook.md): the exact backup → dry-run → migrate → copy → verify → flip → rollback procedure for moving a live deployment from SQLite to PostgreSQL
+- **End-to-end tests (Playwright)** — `cd frontend && npx playwright test`: boots the real API on a scratch DB + the Vite app and drives login, product CRUD, and order creation through the actual UI · runs in CI (dedicated `e2e` job)
 
 ### Roadmap (V2)
 Rich menu management (categories, variants, add-ons, allergens, images) · customer storefront & ordering · kitchen workflow & live order tracking · payments (SSLCommerz, bKash, Nagad, Stripe) · analytics dashboards · SaaS admin portal · hardening (performance, observability, load) · production release.
@@ -128,9 +131,9 @@ npm run db:migrate:status
 npm run seed:restaurants
 ```
 
-`npm run db:migrate:down` rolls back the most recent migration. The backend also runs pending migrations automatically at boot when `DB_DIALECT=postgres` (production boots migrations only — never `sync()`).
+`npm run db:migrate:down` rolls back the most recent migration. The backend runs pending migrations automatically at boot on **both** dialects (`sync()` is no longer used anywhere — the models are aligned to the migration DDL). Migrating an existing dev SQLite database: back it up, delete it, `npm run db:migrate`, then re-seed (`seed:admin` + `seed:restaurants`) — or preserve the old data with `npm run db:migrate:v1 -- --source <old-data.sqlite> --force`.
 
-> **Known gap (tracked):** the Sequelize models still use their v1 table/column names (`Users`, `password`, …), so a *migrations-only* PostgreSQL database is not yet fully usable by the app — the PG CI job validates migrations + the suite + boot against a schema that also gets `sync()`ed for the tests. Aligning models to the migration schema (`tableName`/`field` mappings) is the tracked follow-up for the full cutover (schema doc §9).
+> **Cutover to PostgreSQL in production?** Follow [`docs/04-pg-cutover-runbook.md`](docs/04-pg-cutover-runbook.md) — backup, dry-run, migrate, copy, verify, flip, rollback.
 
 ### 2. Frontend
 
@@ -141,6 +144,15 @@ npm run dev                   # http://localhost:5173 (proxies /api to the backe
 ```
 
 Log in with the seeded admin credentials.
+
+### End-to-end tests (Playwright)
+
+```bash
+cd frontend
+npx playwright test           # boots a scratch backend (:4100) + Vite (:5174) automatically
+```
+
+Uses your installed Chrome locally (`channel: 'chrome'`) — CI installs its own Chromium. The suite covers login, product CRUD, and order creation through the real UI.
 
 ### 3. Docker (optional)
 
@@ -189,6 +201,7 @@ npm run lint                  # ESLint
 cd frontend
 npm run lint                  # ESLint
 npm run build                 # production build
+npm run test:e2e              # Playwright — 7 browser-level tests
 ```
 
 The test suite covers the promotion engine (all discount types, date windows, best-discount selection), the full auth lifecycle (register, verify, login, refresh rotation + reuse detection, logout, password reset), TOTP 2FA setup/verify/disable, RBAC + tenant isolation (cross-tenant 403/404, ID injection, suspended/archived workspaces, role switching), CSRF rejection, and API integration (order creation with promotions, validation errors, security regressions).
@@ -201,6 +214,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `master`:
 
 - **Backend:** `npm ci` → lint → test → `npm audit --audit-level=high`
 - **Backend — PostgreSQL 16:** real `postgres:16` service → `db:migrate` → `db:migrate:status` → full test suite with `DB_DIALECT=postgres` → seed + production-mode boot smoke
+- **E2E — Playwright:** installs Chromium → boots the scratch backend + Vite → runs the browser suite (login, products, orders)
 - **Frontend:** `npm ci` → lint → build → `npm audit` (informational — see workflow comment)
 
 The workflow also exposes a `workflow_dispatch` trigger, so CI can always be run manually from the
@@ -248,6 +262,7 @@ See [`docs/02-v2-roadmap.md`](docs/02-v2-roadmap.md) for the detailed plan with 
 - [`docs/01-codebase-audit.md`](docs/01-codebase-audit.md) — full V1 audit (59 findings with severity, impact, solution, effort)
 - [`docs/02-v2-roadmap.md`](docs/02-v2-roadmap.md) — target architecture, multi-tenancy strategy, ER diagram, phased roadmap
 - [`docs/03-database-schema.md`](docs/03-database-schema.md) — normalized multi-tenant PostgreSQL schema (DDL, indexes, constraints, soft delete, audit), migration system, and the v1 → v2 data migration plan
+- [`docs/04-pg-cutover-runbook.md`](docs/04-pg-cutover-runbook.md) — production SQLite → PostgreSQL cutover runbook (backup, dry-run, migrate, copy, verify, flip, rollback)
 
 ---
 

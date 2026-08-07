@@ -19,7 +19,8 @@ export async function audit({
       tenant_id: tenantId,
       entity_type: entityType,
       entity_id: entityId == null ? null : String(entityId),
-      metadata,
+      // migration 001 declares metadata NOT NULL DEFAULT '{}'.
+      metadata: metadata ?? {},
       ip: req?.ip || null,
     });
   } catch (err) {

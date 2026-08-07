@@ -312,7 +312,9 @@ export async function logout(rawToken, req) {
 export async function listSessions(userId) {
   const rows = await RefreshToken.findAll({
     where: { user_id: userId, revoked_at: null },
-    order: [['createdAt', 'DESC']],
+    // Order by the physical column (custom-named timestamp attrs are emitted
+    // as the attribute name in ORDER BY, which breaks the mapped column).
+    order: [['created_at', 'DESC']],
     limit: 20,
   });
   return rows

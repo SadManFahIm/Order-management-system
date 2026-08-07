@@ -1,106 +1,5 @@
-import { DataTypes } from 'sequelize';
 import sequelize from './db.js';
 import { User, Tenant, UserTenant, Plan, Subscription } from '../models/index.js';
-
-/**
- * Lightweight, idempotent schema evolution for EXISTING tables.
- *
- * `sequelize.sync()` only creates missing tables — it never adds columns to
- * tables that already exist, and `sync({ alter: true })` is unsafe on SQLite
- * (it recreates tables in a loop and can corrupt data). Until the full
- * migration system ships with the PostgreSQL migration (Phase 1 follow-up),
- * new columns on pre-existing tables are declared here and added only when
- * missing.
- */
-const TABLE_COLUMNS = {
-  Users: [
-    {
-      name: 'platform_role',
-      definition: { type: DataTypes.STRING(32), allowNull: false, defaultValue: 'member' },
-    },
-    {
-      name: 'email_verified_at',
-      definition: { type: DataTypes.DATE, allowNull: true },
-    },
-    {
-      name: 'two_factor_enabled',
-      definition: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
-    },
-    {
-      name: 'two_factor_secret',
-      definition: { type: DataTypes.STRING(255), allowNull: true },
-    },
-  ],
-  Tenants: [
-    {
-      name: 'logo_url',
-      definition: { type: DataTypes.STRING(500), allowNull: true },
-    },
-    {
-      name: 'plan_id',
-      definition: { type: DataTypes.INTEGER, allowNull: true },
-    },
-  ],
-  Products: [
-    {
-      name: 'tenant_id',
-      definition: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
-    },
-    {
-      name: 'category_id',
-      definition: { type: DataTypes.INTEGER, allowNull: true },
-    },
-    {
-      name: 'prep_minutes',
-      definition: { type: DataTypes.INTEGER, allowNull: true },
-    },
-    {
-      name: 'image_url',
-      definition: { type: DataTypes.STRING(500), allowNull: true },
-    },
-  ],
-  Promotions: [
-    {
-      name: 'tenant_id',
-      definition: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
-    },
-  ],
-  Orders: [
-    {
-      name: 'tenant_id',
-      definition: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
-    },
-  ],
-  OrderItems: [
-    {
-      name: 'tenant_id',
-      definition: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
-    },
-  ],
-};
-
-export async function ensureSchemaColumns() {
-  const qi = sequelize.getQueryInterface();
-
-  for (const [table, columns] of Object.entries(TABLE_COLUMNS)) {
-    let existing;
-    try {
-      existing = await qi.describeTable(table);
-    } catch {
-      // Table does not exist yet — sync() will create it with the full shape.
-      continue;
-    }
-
-    for (const column of columns) {
-      if (!existing[column.name]) {
-        console.log(`[schema] adding column ${table}.${column.name}`);
-        await qi.addColumn(table, column.name, column.definition);
-      }
-    }
-  }
-}
-
-const DEFAULT_TENANT = { name: 'Default Restaurant', slug: 'default-restaurant' };
 
 /**
  * Idempotent bootstrap data (runs on every boot):
@@ -109,7 +8,14 @@ const DEFAULT_TENANT = { name: 'Default Restaurant', slug: 'default-restaurant' 
  *  - give every user WITHOUT a membership access to the default tenant as
  *    legacy 'staff' (full-access wildcard role) so pre-Phase-3 accounts keep
  *    working after tenant scoping is enforced.
+ *
+ * Schema is managed exclusively by the migration runner
+ * (`npm run db:migrate` / boot-time `migrateUp`) on both dialects — the old
+ * `ensureSchemaColumns` bridge was removed when the models were aligned to
+ * the migration DDL (they now define the same table/column names).
  */
+const DEFAULT_TENANT = { name: 'Default Restaurant', slug: 'default-restaurant' };
+
 export async function ensureBootstrapData() {
   const plans = [
     { name: 'Starter', code: 'starter', price_mo: 0 },

@@ -2,7 +2,10 @@ import { DataTypes } from 'sequelize';
 import sequelize from '../config/db.js';
 import Tenant from './Tenant.js';
 
-/** Usage counters for plan-limit enforcement (orders, menu items, seats). */
+/**
+ * Usage counters for plan-limit enforcement (orders, menu items, seats).
+ * Table `usage_counters` (migration 002) — no timestamp columns at all.
+ */
 const UsageCounter = sequelize.define(
   'UsageCounter',
   {
@@ -13,7 +16,9 @@ const UsageCounter = sequelize.define(
     value: { type: DataTypes.BIGINT, allowNull: false, defaultValue: 0 },
   },
   {
+    tableName: 'usage_counters',
     indexes: [{ unique: true, fields: ['tenant_id', 'metric', 'period_start'] }],
+    timestamps: false,
   }
 );
 

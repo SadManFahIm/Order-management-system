@@ -91,6 +91,11 @@ router.post(
     const order = await Order.create(
       {
         tenant_id: req.tenant.id,
+        // `order_no` is NOT NULL in the migration (no DB default) — the app
+        // generates a human-friendly, roughly unique reference per tenant.
+        order_no: `ORD-${req.tenant.id}-${Date.now().toString(36).toUpperCase()}-${Math.floor(
+          Math.random() * 1e4
+        )}`,
         customer_name,
         customer_phone: customer_phone || null,
         customer_address: customer_address || null,
@@ -100,6 +105,8 @@ router.post(
         items: enriched.map((i) => ({
           tenant_id: req.tenant.id,
           product_id: i.product.id,
+          // `item_name` is a NOT NULL denormalized snapshot in the migration.
+          item_name: i.product.name,
           quantity: i.quantity,
           unit_price: i.product.price,
           weight_per_unit_gm: i.product.weight_gm,

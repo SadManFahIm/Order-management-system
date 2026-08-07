@@ -3,8 +3,8 @@ import sequelize from '../config/db.js';
 
 /**
  * Menu category (Phase 4). Tenant-scoped, supports one level of
- * subcategories via the self-referencing parent_id (roadmap allows deeper
- * nesting later — the schema supports it).
+ * subcategories via the self-referencing parent_id. Table `menu_categories`
+ * (migration 003); `is_active` defaults to true at the DB level.
  */
 const MenuCategory = sequelize.define(
   'MenuCategory',
@@ -21,7 +21,9 @@ const MenuCategory = sequelize.define(
     sort_order: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
   },
   {
+    tableName: 'menu_categories',
     indexes: [{ fields: ['tenant_id', 'parent_id'] }],
+    underscored: true,
   }
 );
 

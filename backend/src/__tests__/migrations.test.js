@@ -58,6 +58,7 @@ describe('migration runner', () => {
       '002_tenancy_saas.js',
       '003_menu_catalog.js',
       '004_order_promotions.js',
+      '005_v1_field_bridge.js',
     ]);
   });
 
@@ -89,17 +90,20 @@ describe('migration runner', () => {
   it('reports every migration as applied', async () => {
     const status = await migrationStatus(sequelize);
     expect(status.every((row) => row.state === 'applied')).toBe(true);
-    expect(status).toHaveLength(4);
+    expect(status).toHaveLength(5);
   });
 
   it('rolls back only the most recent migration, then re-applies', async () => {
-    // Down: 004 drops the order/promotion tables and removes the record.
+    // Down: 005 removes the v1 field-bridge columns and its record.
     expect(await migrateDown(sequelize)).toBe(1);
-    expect(await sequelize.getQueryInterface().tableExists('order_items')).toBe(false);
+    const qi = sequelize.getQueryInterface();
+    expect((await qi.describeTable('orders')).customer_name).toBeUndefined();
+    expect((await qi.describeTable('menu_items')).weight_gm).toBeUndefined();
 
     // Re-applying restores them.
     expect(await migrateUp(sequelize)).toBe(1);
-    expect(await sequelize.getQueryInterface().tableExists('order_items')).toBe(true);
+    expect((await qi.describeTable('orders')).customer_name).toBeDefined();
+    expect((await qi.describeTable('menu_items')).weight_gm).toBeDefined();
   });
 
   it('refuses to roll back a migration that is not the most recent', async () => {

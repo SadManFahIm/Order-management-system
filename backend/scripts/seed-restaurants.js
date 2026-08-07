@@ -11,7 +11,7 @@
  */
 import { parseArgs } from 'node:util';
 import sequelize from '../src/config/db.js';
-import { ensureSchemaColumns } from '../src/config/schemaSync.js';
+import { ensureBootstrapData } from '../src/config/schemaSync.js';
 import '../src/models/index.js';
 import {
   Tenant,
@@ -39,9 +39,11 @@ if (seeds.length === 0) {
 }
 
 try {
-  // Apply any new columns (e.g. Products.category_id) to existing tables before seeding.
-  await ensureSchemaColumns();
+  // Schema is migration-managed (models are aligned to the migration DDL);
+  // sync() is a no-op on a migrated database and a fallback on fresh ones.
   await sequelize.sync();
+  // Plans + default tenant (idempotent) — restaurants attach to the Starter plan.
+  await ensureBootstrapData();
 
   const starter = await Plan.findOne({ where: { code: 'starter' } });
   let created = 0;
@@ -164,7 +166,9 @@ try {
   console.log(`✅ Add-ons added: ${addons}`);
   await sequelize.close();
 } catch (err) {
-  console.error('Failed to seed restaurants:', err.message);
+  const details = (err.errors || []).map((e) => `${e.path}: ${e.message}`).join('; ');
+  console.error('Failed to seed restaurants:', err.message, details);
+  if (process.env.SEED_DEBUG) console.error(err);
   await sequelize.close().catch(() => {});
   process.exit(1);
 }

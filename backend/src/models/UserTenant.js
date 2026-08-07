@@ -5,7 +5,8 @@ import Tenant from './Tenant.js';
 
 /**
  * Membership join table: which users belong to which tenants and with which
- * role (owner | manager | cashier | kitchen | delivery).
+ * role (owner | manager | cashier | kitchen | delivery). Table `user_tenants`
+ * (migration 001) — has `created_at` but no `updated_at`.
  */
 const UserTenant = sequelize.define(
   'UserTenant',
@@ -20,7 +21,10 @@ const UserTenant = sequelize.define(
     },
   },
   {
+    tableName: 'user_tenants',
     indexes: [{ unique: true, fields: ['user_id', 'tenant_id'] }],
+    createdAt: 'created_at',
+    updatedAt: false,
   }
 );
 
