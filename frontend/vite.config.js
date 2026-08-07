@@ -13,6 +13,11 @@ export default defineConfig({
         target: process.env.VITE_API_TARGET || 'http://localhost:4000',
         changeOrigin: true,
       },
+      // Uploaded images served by the backend's local storage driver.
+      '/uploads': {
+        target: process.env.VITE_API_TARGET || 'http://localhost:4000',
+        changeOrigin: true,
+      },
     },
   },
   build: {

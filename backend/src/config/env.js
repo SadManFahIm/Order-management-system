@@ -39,6 +39,30 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((v) => v === '1' || v === 'true'),
+  // ── Media / object storage (Phase 4 image pipeline) ────────────────────
+  // 'local' writes to UPLOAD_DIR (zero-config dev; served via /uploads).
+  // 's3' uses an S3-compatible bucket (AWS, MinIO, R2, etc.).
+  STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
+  UPLOAD_DIR: z.string().default('./uploads'),
+  // S3-compatible credentials — never hardcode. All optional in dev.
+  S3_BUCKET: z.string().optional(),
+  S3_REGION: z.string().optional(),
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
+  // Custom endpoint for S3-compatible providers (MinIO, R2).
+  S3_ENDPOINT: z.string().optional(),
+  S3_FORCE_PATH_STYLE: z
+    .string()
+    .optional()
+    .transform((v) => v === '1' || v === 'true'),
+  // CDN base for public image URLs (e.g. https://cdn.example.com). Falls
+  // back to the bucket/API URL when unset.
+  CDN_BASE_URL: z.string().optional(),
+  // Upload + import limits.
+  MAX_IMAGE_BYTES: z.coerce.number().int().positive().default(5 * 1024 * 1024),
+  MAX_IMAGE_DIMENSION: z.coerce.number().int().positive().default(4096),
+  MAX_IMPORT_BYTES: z.coerce.number().int().positive().default(2 * 1024 * 1024),
+  MAX_IMPORT_ROWS: z.coerce.number().int().positive().default(2000),
 });
 
 const parsed = envSchema.safeParse(process.env);

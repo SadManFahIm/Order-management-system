@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import api from '../api';
 import ProductForm from '../components/ProductForm';
+import ImportCsvModal from '../components/ImportCsvModal';
 import { PageHeader, Card, Table, Button, Badge, Skeleton, useToast } from '../components/ui';
 
 export default function ProductsPage() {
   const [products, setProducts] = useState(null); // null = loading
   const [editing, setEditing] = useState(null);
+  const [importOpen, setImportOpen] = useState(false);
   const toast = useToast();
 
   const mounted = useRef(true);
@@ -48,6 +50,20 @@ export default function ProductsPage() {
       <PageHeader
         title="Products"
         desc="Manage your menu items and availability."
+        actions={
+          <Button variant="outline" size="sm" icon="⬆" onClick={() => setImportOpen(true)}>
+            Import CSV
+          </Button>
+        }
+      />
+
+      <ImportCsvModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={() => {
+          toast.success('Menu imported');
+          load();
+        }}
       />
 
       <div className="oms-grid oms-grid--2col">

@@ -1,10 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import api from '../api';
 import { Field, Input, Textarea, Checkbox, Button } from './ui';
 
 export default function ProductForm({ initial, onSave }) {
   const [form, setForm] = useState(
     initial || { name: '', description: '', price: 0, weight_gm: 500, enabled: true }
   );
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
+  const fileRef = useRef(null);
 
   useEffect(() => {
     if (initial) setForm(initial);
@@ -15,6 +19,24 @@ export default function ProductForm({ initial, onSave }) {
 
   const toggleEnabled = (e) =>
     setForm((f) => ({ ...f, enabled: e.target.checked }));
+
+  const onImageFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const fd = new FormData();
+      fd.append('image', file);
+      const res = await api.post('/uploads/images', fd);
+      setForm((f) => ({ ...f, image_url: res.data.url, thumb_url: res.data.thumbUrl }));
+    } catch (err) {
+      setUploadError(err?.response?.data?.error?.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
 
   const submit = (e) => {
     e.preventDefault();
@@ -41,6 +63,39 @@ export default function ProductForm({ initial, onSave }) {
           <Input name="weight_gm" type="number" min="1" placeholder="500" value={form.weight_gm} onChange={change} required />
         </Field>
       </div>
+      <Field label="Photo">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Button
+            variant="outline"
+            size="sm"
+            type="button"
+            loading={uploading}
+            onClick={() => fileRef.current?.click()}
+          >
+            {form.image_url ? 'Replace photo' : 'Upload photo'}
+          </Button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            style={{ display: 'none' }}
+            onChange={onImageFile}
+          />
+          {form.image_url && (
+            <img
+              src={form.thumb_url || form.image_url}
+              alt=""
+              style={{ width: 44, height: 44, borderRadius: 8, objectFit: 'cover', border: '1px solid var(--oms-border)' }}
+            />
+          )}
+          {form.image_url && (
+            <Button variant="ghost" size="sm" type="button" onClick={() => setForm((f) => ({ ...f, image_url: null, thumb_url: null }))}>
+              Remove
+            </Button>
+          )}
+        </div>
+        {uploadError && <div style={{ color: 'var(--oms-danger, #dc2626)', fontSize: 13, marginTop: 6 }}>{uploadError}</div>}
+      </Field>
       <Field>
         <Checkbox id={`enabled-${form.id ?? 'new'}`} label="Available for ordering" checked={!!form.enabled} onChange={toggleEnabled} />
       </Field>

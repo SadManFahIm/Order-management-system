@@ -1,4 +1,5 @@
 import express from 'express';
+import multer from 'multer';
 import Product from '../models/Product.js';
 import MenuCategory from '../models/MenuCategory.js';
 import ItemVariant from '../models/ItemVariant.js';
@@ -9,6 +10,8 @@ import { AppError } from '../middleware/errorHandler.js';
 import { requirePermission } from '../middleware/rbac.js';
 import { resolveTenant, requireTenant } from '../middleware/tenant.js';
 import { parsePagination } from '../utils/pagination.js';
+import { importProductsCsv, CSV_TEMPLATE, IMPORT_COLUMNS } from '../services/importService.js';
+import { env } from '../config/env.js';
 
 // Rich menu includes (Phase 4).
 const MENU_INCLUDE = [
@@ -84,6 +87,43 @@ router.post(
     });
     const withMenu = await Product.findByPk(p.id, { include: MENU_INCLUDE });
     res.status(201).json(withMenu);
+  })
+);
+
+/** GET /api/products/import/template — CSV template + column reference. */
+router.get(
+  '/import/template',
+  canManageMenu,
+  (req, res) => {
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="menu-import-template.csv"');
+    res.send(CSV_TEMPLATE);
+  }
+);
+
+/** POST /api/products/import — bulk CSV import (partial success). */
+router.post(
+  '/import',
+  canManageMenu,
+  (req, res, next) => {
+    multer({ storage: multer.memoryStorage(), limits: { fileSize: env.MAX_IMPORT_BYTES } }).single('file')(req, res, (err) => {
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        return next(new AppError(400, 'IMPORT_TOO_LARGE', `Import file exceeds the ${Math.round(env.MAX_IMPORT_BYTES / 1024 / 1024)} MB limit`));
+      }
+      if (err) return next(err);
+      return next();
+    });
+  },
+  asyncHandler(async (req, res) => {
+    if (!req.file) {
+      throw new AppError(400, 'IMPORT_FILE_REQUIRED', 'Attach the CSV as a multipart field named "file"');
+    }
+    const csv = req.file.buffer.toString('utf8');
+    const duplicates = ['skip', 'error', 'update'].includes(req.body.duplicates)
+      ? req.body.duplicates
+      : 'skip';
+    const summary = await importProductsCsv({ csv, tenantId: req.tenant.id, duplicates });
+    res.status(201).json({ ...summary, columns: IMPORT_COLUMNS });
   })
 );
 

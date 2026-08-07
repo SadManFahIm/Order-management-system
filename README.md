@@ -16,6 +16,9 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 - **CSRF protection (Phase 3)** — Origin / `Sec-Fetch-Site` verification for cookie-authenticated routes; safe methods and non-browser clients unaffected
 - **Dhaka seed data (Phase 3)** — `npm run seed:restaurants` provisions 20 data-driven restaurant workspaces (KFC, Pizza Hut, Domino's, Chillox, Sultan's Dine, Star Kabab, Madchef, Takeout, Handi, and more) with 89 realistic menu items — idempotent, rerunnable
 - **Menu management (Phase 4)** — tenant-scoped `menu_categories` (with self-ref subcategories + ordering), `item_variants` (size/price adjustments) and `item_addons` (paid extras) with full CRUD + RBAC (`view:menu` vs `manage:menu`); products extended with `category_id`, `prep_minutes`, `image_url`; the seed now enriches every brand with categories, sizes and add-ons; merchant **Menu page** (Wolt/Deliveroo style) with grouped category view and an item editor modal for variants/add-ons
+- **Image pipeline (Phase 4)** — authenticated, tenant-scoped uploads (`POST /api/uploads/images`) processed with **sharp** into optimized WebP (standard 1600px + 320px thumbnail): MIME sniffing, size/dimension caps, EXIF stripping, cleanup on failure; modular storage abstraction — `local` driver (zero-config dev, served via `/uploads`) or any **S3-compatible bucket** (AWS/MinIO/R2) with optional CDN URLs (`CDN_BASE_URL`); delete endpoint removes standard + thumb. See [`docs/05-media-import-public-menu.md`](docs/05-media-import-public-menu.md)
+- **Bulk menu import (Phase 4)** — `POST /api/products/import` accepts a CSV (template downloadable at `/api/products/import/template`): per-row validation, duplicate handling within file + against the DB (`skip` / `error` / `update`), auto-creation of unknown categories, batched transactional writes, and a structured summary (`succeeded/failed/skipped` + per-row errors) — partial success by design; upload in the UI via **Products → Import CSV**
+- **Public storefront menu API (Phase 4)** — read-only, unauthenticated `GET /api/public/restaurants/:slug[/menu]` with whitelist-only serialization (never internal/user fields), category + availability filters, suspended/archived tenants 404; live demo page at `/m/:slug`
 - **Session management** — short-lived access JWT + revocable refresh sessions; `GET /api/auth/me` session validation
 - **Product management** — create, edit, enable/disable, paginated listing (tenant-scoped)
 - **Promotion engine** — percentage, fixed, and weighted (slab-based) promotions with best-discount selection (tenant-scoped)
@@ -29,7 +32,7 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 - **End-to-end tests (Playwright)** — `cd frontend && npx playwright test`: boots the real API on a scratch DB + the Vite app and drives login, product CRUD, and order creation through the actual UI · runs in CI (dedicated `e2e` job)
 
 ### Roadmap (V2)
-Rich menu management (categories, variants, add-ons, allergens, images) · customer storefront & ordering · kitchen workflow & live order tracking · payments (SSLCommerz, bKash, Nagad, Stripe) · analytics dashboards · SaaS admin portal · hardening (performance, observability, load) · production release.
+Customer storefront & ordering · kitchen workflow & live order tracking · payments (SSLCommerz, bKash, Nagad, Stripe) · analytics dashboards · SaaS admin portal · hardening (performance, observability, load) · production release.
 
 > Full audit and phased roadmap: [`docs/01-codebase-audit.md`](docs/01-codebase-audit.md) · [`docs/02-v2-roadmap.md`](docs/02-v2-roadmap.md) · [`docs/03-database-schema.md`](docs/03-database-schema.md)
 
@@ -194,7 +197,7 @@ docker compose up --build
 
 ```bash
 cd backend
-npm test                      # Vitest — 105 unit + integration tests
+npm test                      # Vitest — 138 unit + integration tests
 npm run test:coverage         # with coverage report
 npm run lint                  # ESLint
 
@@ -245,7 +248,7 @@ Actions tab (or `gh workflow run ci.yml`) even when GitHub's webhook-triggered e
 | 1 | Foundation: security, tooling, tests, CI + PostgreSQL stack (migration runner, PG dev service) | ✅ Done |
 | 2 | Authentication & RBAC (roles, refresh tokens, 2FA) | ✅ Done |
 | 3 | Multi-tenant workspaces + Dhaka seed data | ✅ Done |
-| 4 | Menu management (categories, variants, add-ons) — image pipeline deferred | ✅ Menu core shipped |
+| 4 | Menu management — core + image pipeline, bulk import, public menu API | ✅ Shipped (core + media/import/public API) |
 | 5 | Ordering & fulfillment (storefront, kitchen workflow) | ⬜ |
 | 6 | Payments (SSLCommerz, bKash, Nagad, Stripe) | ⬜ |
 | 7 | Analytics & dashboards | ⬜ |
@@ -263,6 +266,7 @@ See [`docs/02-v2-roadmap.md`](docs/02-v2-roadmap.md) for the detailed plan with 
 - [`docs/02-v2-roadmap.md`](docs/02-v2-roadmap.md) — target architecture, multi-tenancy strategy, ER diagram, phased roadmap
 - [`docs/03-database-schema.md`](docs/03-database-schema.md) — normalized multi-tenant PostgreSQL schema (DDL, indexes, constraints, soft delete, audit), migration system, and the v1 → v2 data migration plan
 - [`docs/04-pg-cutover-runbook.md`](docs/04-pg-cutover-runbook.md) — production SQLite → PostgreSQL cutover runbook (backup, dry-run, migrate, copy, verify, flip, rollback)
+- [`docs/05-media-import-public-menu.md`](docs/05-media-import-public-menu.md) — image pipeline (storage drivers, env vars, S3/CDN setup), bulk CSV import (columns, duplicates, response), public menu API (endpoints, filters, response shape)
 
 ---
 
