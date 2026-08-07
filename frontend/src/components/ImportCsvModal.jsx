@@ -80,7 +80,7 @@ export default function ImportCsvModal({ open, onClose, onImported }) {
           <a
             href="/api/products/import/template"
             download
-            style={{ fontSize: 13, color: 'var(--oms-primary, #6366f1)' }}
+            style={{ fontSize: 13, color: 'var(--primary, #00b3a5)' }}
           >
             Download the CSV template
           </a>

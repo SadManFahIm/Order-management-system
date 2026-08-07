@@ -100,10 +100,10 @@
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--primary), #9333ea);
+  background: linear-gradient(135deg, var(--primary), #00e0cf);
   color: var(--on-primary);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 0.02em;
 }
 .oms-user__email {
@@ -217,7 +217,7 @@
 .oms-tenant__item.is-active {
   background: var(--primary-soft);
   color: var(--primary);
-  font-weight: 600;
+  font-weight: 650;
 }
 .oms-tenant__item-name {
   flex: 1;
@@ -358,9 +358,10 @@
 .oms-menu-item:hover {
   border-color: var(--border-strong);
   background: var(--surface-2);
+  box-shadow: var(--shadow-sm);
 }
 .oms-menu-item:active {
-  transform: scale(0.995);
+  transform: scale(0.99);
 }
 .oms-menu-item__name {
   flex: 1;
