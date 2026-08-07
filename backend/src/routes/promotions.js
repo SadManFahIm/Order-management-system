@@ -85,6 +85,21 @@ router.post(
   })
 );
 
+/** DELETE /api/promotions/:id — remove a promotion. Slabs cascade. */
+router.delete(
+  '/:id',
+  canManagePromotions,
+  asyncHandler(async (req, res) => {
+    const promo = await Promotion.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+    });
+    if (!promo) throw new AppError(404, 'NOT_FOUND', 'Promotion not found');
+
+    await promo.destroy();
+    res.status(200).json({ id: promo.id, deleted: true });
+  })
+);
+
 /** PUT /api/promotions/:id — edit title, dates, enabled */
 router.put(
   '/:id',

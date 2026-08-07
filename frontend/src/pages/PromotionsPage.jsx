@@ -52,6 +52,17 @@ export default function PromotionsPage() {
     await load();
   };
 
+  const onDelete = async (p) => {
+    if (!window.confirm(`Delete promotion “${p.title}”? This can't be undone.`)) return;
+    try {
+      await api.delete(`/promotions/${p.id}`);
+      toast.success('Promotion deleted');
+      await load();
+    } catch {
+      toast.error('Could not delete promotion');
+    }
+  };
+
   return (
     <div className="oms-page">
       <PageHeader
@@ -94,6 +105,9 @@ export default function PromotionsPage() {
                     <div className="oms-table__actions">
                       <Button variant="ghost" size="sm" onClick={() => onToggle(p)}>
                         {p.enabled ? 'Pause' : 'Activate'}
+                      </Button>
+                      <Button variant="danger-ghost" size="sm" onClick={() => onDelete(p)}>
+                        Delete
                       </Button>
                     </div>
                   );

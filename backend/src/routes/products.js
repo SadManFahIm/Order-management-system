@@ -127,6 +127,23 @@ router.post(
   })
 );
 
+/** DELETE /api/products/:id — remove an item. Variants/add-ons go with it
+ * (FK CASCADE); order history is preserved because order_items reference
+ * the item via ON DELETE SET NULL. */
+router.delete(
+  '/:id',
+  canManageMenu,
+  asyncHandler(async (req, res) => {
+    const p = await Product.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+    });
+    if (!p) throw new AppError(404, 'NOT_FOUND', 'Product not found');
+
+    await p.destroy();
+    res.status(200).json({ id: p.id, deleted: true });
+  })
+);
+
 /** PUT /api/products/:id */
 router.put(
   '/:id',

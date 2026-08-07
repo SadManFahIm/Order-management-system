@@ -45,6 +45,18 @@ export default function ProductsPage() {
     await load();
   };
 
+  const onDelete = async (p) => {
+    if (!window.confirm(`Delete “${p.name}” from the menu? This can't be undone.`)) return;
+    try {
+      await api.delete(`/products/${p.id}`);
+      toast.success('Product deleted');
+      if (editing?.id === p.id) setEditing(null);
+      await load();
+    } catch {
+      toast.error('Could not delete product');
+    }
+  };
+
   return (
     <div className="oms-page">
       <PageHeader
@@ -110,6 +122,9 @@ export default function ProductsPage() {
                     <div className="oms-table__actions">
                       <Button variant="ghost" size="sm" onClick={() => setEditing(p)}>
                         Edit
+                      </Button>
+                      <Button variant="danger-ghost" size="sm" onClick={() => onDelete(p)}>
+                        Delete
                       </Button>
                     </div>
                   );

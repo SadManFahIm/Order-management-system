@@ -141,6 +141,80 @@ jobs:
           path: frontend/playwright-report
           retention-days: 7
 
+  s3-storage:
+    # S3-compatible storage tier — runs the image-pipeline driver against a
+    # real MinIO instance (put → public URL → remove round-trip). MinIO is
+    # downloaded and run in-process because the minio/minio docker image has
+    # no curl for a health check and is flaky as a GH service container.
+    name: Backend — S3 driver vs MinIO
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      JWT_SECRET: ci-only-secret-not-for-production
+      DB_STORAGE: ./data.s3.sqlite
+      STORAGE_DRIVER: s3
+      S3_ENDPOINT: http://localhost:9000
+      S3_BUCKET: oms-test
+      S3_ACCESS_KEY_ID: minioadmin
+      S3_SECRET_ACCESS_KEY: minioadmin
+      S3_FORCE_PATH_STYLE: "1"
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Start MinIO in the background
+        run: |-
+          mkdir -p /tmp/minio/data
+          curl -sSL -o /tmp/minio/minio https://dl.min.io/server/minio/release/linux-amd64/minio
+          chmod +x /tmp/minio/minio
+          MINIO_ROOT_USER=minioadmin MINIO_ROOT_PASSWORD=minioadmin \
+            /tmp/minio/minio server /tmp/minio/data --address :9000 > /tmp/minio/server.log 2>&1 &
+          # Wait for the health endpoint.
+          for i in $(seq 1 30); do
+            if curl -fs http://localhost:9000/minio/health/live > /dev/null 2>&1; then
+              echo 'MinIO ready'; exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/minio/server.log
+          echo 'MinIO did not become ready in time' >&2
+          exit 1
+      - name: Create the test bucket
+        run: |-
+          node --input-type=module -e "
+            import { S3Client, CreateBucketCommand } from '@aws-sdk/client-s3';
+            const c = new S3Client({ region: 'us-east-1',
+              endpoint: 'http://localhost:9000', forcePathStyle: true,
+              credentials: { accessKeyId: 'minioadmin', secretAccessKey: 'minioadmin' } });
+            // MinIO boots in ~1–2s; the service container has no health check,
+            // so retry until the API answers (max ~30s).
+            for (let i = 0; i < 30; i += 1) {
+              try {
+                await c.send(new CreateBucketCommand({ Bucket: 'oms-test' }));
+                console.log('bucket ready');
+                process.exit(0);
+              } catch (e) {
+                if (/BucketAlreadyOwned|409|Already exists/.test(String(e))) {
+                  console.log('bucket ready (already exists)');
+                  process.exit(0);
+                }
+                await new Promise((r) => setTimeout(r, 1000));
+              }
+            }
+            console.error('MinIO did not become ready in time');
+            process.exit(1);
+          "
+      - name: Run the S3 driver test suite
+        run: npx vitest run src/__tests__/s3Storage.test.js
+
   frontend:
     name: Frontend — lint, build, audit
     runs-on: ubuntu-latest

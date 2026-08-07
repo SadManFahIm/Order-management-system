@@ -1,4 +1,5 @@
 import express from 'express';
+import { createHash } from 'node:crypto';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
 import Tenant from '../models/Tenant.js';
@@ -22,6 +23,23 @@ import ItemAddon from '../models/ItemAddon.js';
 const router = express.Router();
 
 const VISIBLE_TENANT_STATUS = ['active', 'trial'];
+
+// Storefront data is safe to cache: it changes only when the merchant edits
+// the menu, so a short public max-age + ETag gives clients (and CDNs) a real
+// performance win without ever serving stale data for long.
+const CACHE_MAX_AGE = 60; // seconds
+
+/** Sets public caching headers and answers 304 when the client has it fresh. */
+function applyPublicCache(req, res, payload) {
+  const etag = `"${createHash('sha1').update(payload).digest('hex').slice(0, 16)}"`;
+  res.set('Cache-Control', `public, max-age=${CACHE_MAX_AGE}`);
+  res.set('ETag', etag);
+  if (req.headers['if-none-match'] === etag) {
+    res.status(304).end();
+    return true;
+  }
+  return false;
+}
 
 /** Fetches a tenant by slug, rejecting non-public ones with 404. */
 async function findPublicTenant(slug) {
@@ -75,7 +93,9 @@ router.get(
   '/restaurants/:slug',
   asyncHandler(async (req, res) => {
     const tenant = await findPublicTenant(req.params.slug);
-    res.json(serializeTenant(tenant));
+    const payload = JSON.stringify(serializeTenant(tenant));
+    if (applyPublicCache(req, res, payload)) return;
+    res.json(JSON.parse(payload));
   })
 );
 
@@ -136,10 +156,12 @@ router.get(
       });
     }
 
-    res.json({
+    const payload = JSON.stringify({
       restaurant: serializeTenant(tenant),
       categories: menu,
     });
+    if (applyPublicCache(req, res, payload)) return;
+    res.json(JSON.parse(payload));
   })
 );
 
