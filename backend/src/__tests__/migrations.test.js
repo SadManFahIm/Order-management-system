@@ -36,6 +36,10 @@ const EXPECTED_TABLES = [
   'allergens',
   'item_allergens',
   'inventory_items',
+  'promotions',
+  'promotion_slabs',
+  'orders',
+  'order_items',
 ];
 
 describe('migration runner', () => {
@@ -53,6 +57,7 @@ describe('migration runner', () => {
       '001_identity_auth.js',
       '002_tenancy_saas.js',
       '003_menu_catalog.js',
+      '004_order_promotions.js',
     ]);
   });
 
@@ -84,17 +89,17 @@ describe('migration runner', () => {
   it('reports every migration as applied', async () => {
     const status = await migrationStatus(sequelize);
     expect(status.every((row) => row.state === 'applied')).toBe(true);
-    expect(status).toHaveLength(3);
+    expect(status).toHaveLength(4);
   });
 
   it('rolls back only the most recent migration, then re-applies', async () => {
-    // Down: 003 drops the menu tables and removes the record.
+    // Down: 004 drops the order/promotion tables and removes the record.
     expect(await migrateDown(sequelize)).toBe(1);
-    expect(await sequelize.getQueryInterface().tableExists('inventory_items')).toBe(false);
+    expect(await sequelize.getQueryInterface().tableExists('order_items')).toBe(false);
 
     // Re-applying restores them.
     expect(await migrateUp(sequelize)).toBe(1);
-    expect(await sequelize.getQueryInterface().tableExists('inventory_items')).toBe(true);
+    expect(await sequelize.getQueryInterface().tableExists('order_items')).toBe(true);
   });
 
   it('refuses to roll back a migration that is not the most recent', async () => {
