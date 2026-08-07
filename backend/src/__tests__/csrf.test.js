@@ -3,6 +3,7 @@ import request from 'supertest';
 import bcrypt from 'bcryptjs';
 import app from '../app.js';
 import sequelize from '../config/db.js';
+import { resetTestDb } from '../test/resetDb.js';
 import { User, Tenant, UserTenant } from '../models/index.js';
 
 const ALLOWED_ORIGIN = 'http://localhost:5173';
@@ -16,7 +17,7 @@ const EVIL_ORIGIN = 'http://evil.example.com';
 let accessToken;
 
 beforeAll(async () => {
-  await sequelize.sync({ force: true });
+  await resetTestDb();
   const tenant = await Tenant.create({ name: 'Csrf Diner', slug: 'csrf-diner' });
   const user = await User.create({
     name: 'Csrf User',

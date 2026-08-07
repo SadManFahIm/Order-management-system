@@ -4,12 +4,13 @@ import bcrypt from 'bcryptjs';
 import { generate } from 'otplib';
 import app from '../app.js';
 import sequelize from '../config/db.js';
+import { resetTestDb } from '../test/resetDb.js';
 import { User } from '../models/index.js';
 
 let agent;
 
 beforeAll(async () => {
-  await sequelize.sync({ force: true });
+  await resetTestDb();
 
   await User.create({
     name: '2FA User',

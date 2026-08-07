@@ -3,6 +3,7 @@ import request from 'supertest';
 import bcrypt from 'bcryptjs';
 import app from '../app.js';
 import sequelize from '../config/db.js';
+import { resetTestDb } from '../test/resetDb.js';
 import User from '../models/User.js';
 import Product from '../models/Product.js';
 import Promotion from '../models/Promotion.js';
@@ -12,7 +13,7 @@ import UserTenant from '../models/UserTenant.js';
 let token;
 
 beforeAll(async () => {
-  await sequelize.sync({ force: true });
+  await resetTestDb();
 
   // Phase 3: business data is tenant-scoped, so the cashier needs a workspace.
   const tenant = await Tenant.create({ name: 'Test Diner', slug: 'test-diner' });

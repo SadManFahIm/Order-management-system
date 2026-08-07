@@ -3,6 +3,7 @@ import request from 'supertest';
 import bcrypt from 'bcryptjs';
 import app from '../app.js';
 import sequelize from '../config/db.js';
+import { resetTestDb } from '../test/resetDb.js';
 import {
   User,
   Tenant,
@@ -28,7 +29,7 @@ let productA;
 let productB;
 
 beforeAll(async () => {
-  await sequelize.sync({ force: true });
+  await resetTestDb();
 
   tenantA = await Tenant.create({ name: 'Cafe Alpha', slug: 'cafe-alpha' });
   tenantB = await Tenant.create({ name: 'Cafe Beta', slug: 'cafe-beta' });

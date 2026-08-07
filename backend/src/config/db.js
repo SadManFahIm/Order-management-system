@@ -1,5 +1,23 @@
-import { Sequelize } from 'sequelize';
+import { Sequelize, DataTypes } from 'sequelize';
+import pg from 'pg';
 import { env } from './env.js';
+
+/**
+ * PG returns BIGINT (int8) and NUMERIC/DECIMAL as *strings* to avoid precision
+ * loss — but the whole app (zod `z.number()` validators, === comparisons,
+ * object-key lookups, API JSON) expects plain JS numbers, exactly like SQLite
+ * returns them. Registering per-OID parsers keeps both dialects type-identical.
+ *
+ * Safe here: ids are small auto-increment BIGINTs (well within
+ * Number.MAX_SAFE_INTEGER) and money uses NUMERIC(12,2) — two decimals.
+ *
+ * Note: for NUMERIC we must ALSO override the dialect's DECIMAL.parse —
+ * Sequelize keeps its own per-connection parser map (consulted before the
+ * driver's) and re-registers it after OIDs load on first connect.
+ */
+pg.types.setTypeParser(pg.types.builtins.INT8, (value) => (value === null ? null : Number(value)));
+pg.types.setTypeParser(pg.types.builtins.NUMERIC, (value) => (value === null ? null : parseFloat(value)));
+DataTypes.postgres.DECIMAL.parse = (value) => (value === null ? null : parseFloat(value));
 
 /**
  * Sequelize instance — dialect selected by environment:

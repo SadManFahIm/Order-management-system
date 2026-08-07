@@ -93,10 +93,27 @@ jobs:
           NODE_ENV=production node scripts/smoke-pg.js
 
   e2e:
-    # Browser-level suite: real API on a scratch DB + the Vite app, driven
-    # with Playwright (login, product CRUD, order creation).
-    name: E2E — Playwright (browser)
+    # Browser-level suite: the real API on a PostgreSQL 16 service + the Vite
+    # app, driven with Playwright (login, product CRUD, order creation).
+    name: E2E — Playwright (browser, PostgreSQL)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: oms
+          POSTGRES_PASSWORD: oms
+          POSTGRES_DB: oms_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U oms -d oms_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DB_DIALECT: postgres
+      DATABASE_URL: postgres://oms:oms@localhost:5432/oms_e2e
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
