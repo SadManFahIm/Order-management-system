@@ -11,6 +11,9 @@ import Tenant from '../models/Tenant.js';
 import UserTenant from '../models/UserTenant.js';
 
 let token;
+let kitchenToken;
+let deliveryToken;
+let managerToken;
 
 beforeAll(async () => {
   await resetTestDb();
@@ -24,10 +27,46 @@ beforeAll(async () => {
   });
   await UserTenant.create({ user_id: cashier.id, tenant_id: tenant.id, role: 'cashier' });
 
+  const kitchen = await User.create({
+    name: 'Kitchen',
+    email: 'kitchen@example.com',
+    password: await bcrypt.hash('supersecret1', 10),
+  });
+  await UserTenant.create({ user_id: kitchen.id, tenant_id: tenant.id, role: 'kitchen' });
+
+  const delivery = await User.create({
+    name: 'Delivery',
+    email: 'delivery@example.com',
+    password: await bcrypt.hash('supersecret1', 10),
+  });
+  await UserTenant.create({ user_id: delivery.id, tenant_id: tenant.id, role: 'delivery' });
+
+  const manager = await User.create({
+    name: 'Manager',
+    email: 'manager@example.com',
+    password: await bcrypt.hash('supersecret1', 10),
+  });
+  await UserTenant.create({ user_id: manager.id, tenant_id: tenant.id, role: 'manager' });
+
   const login = await request(app)
     .post('/api/auth/login')
     .send({ email: 'cashier@example.com', password: 'supersecret1' });
   token = login.body.accessToken;
+  kitchenToken = (
+    await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'kitchen@example.com', password: 'supersecret1' })
+  ).body.accessToken;
+  deliveryToken = (
+    await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'delivery@example.com', password: 'supersecret1' })
+  ).body.accessToken;
+  managerToken = (
+    await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'manager@example.com', password: 'supersecret1' })
+  ).body.accessToken;
 
   await Product.create({
     tenant_id: tenant.id,
@@ -123,5 +162,159 @@ describe('GET /api/orders', () => {
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
     expect(Number(res.headers['x-total-count'])).toBeGreaterThan(0);
+  });
+});
+
+describe('PATCH /api/orders/:id/status (fulfillment lifecycle)', () => {
+  const placeOrder = (authToken) =>
+    request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        customer_name: 'Karim',
+        items: [{ product_id: 1, quantity: 1 }],
+      });
+
+  it('starts at placed and kitchen advances to preparing/ready', async () => {
+    const placed = await placeOrder(token);
+    expect(placed.status).toBe(201);
+    const id = placed.body.id;
+
+    const prep = await request(app)
+      .patch(`/api/orders/${id}/status`)
+      .set('Authorization', `Bearer ${kitchenToken}`)
+      .send({ status: 'preparing' });
+    expect(prep.status).toBe(200);
+    expect(prep.body.status).toBe('preparing');
+
+    const ready = await request(app)
+      .patch(`/api/orders/${id}/status`)
+      .set('Authorization', `Bearer ${kitchenToken}`)
+      .send({ status: 'ready' });
+    expect(ready.status).toBe(200);
+    expect(ready.body.status).toBe('ready');
+  });
+
+  it('delivery role can only move an order to delivered', async () => {
+    const placed = await placeOrder(token);
+    const id = placed.body.id;
+
+    // Delivery cannot fulfill (placed → preparing is valid but not theirs).
+    const forbidden = await request(app)
+      .patch(`/api/orders/${id}/status`)
+      .set('Authorization', `Bearer ${deliveryToken}`)
+      .send({ status: 'preparing' });
+    expect(forbidden.status).toBe(403);
+
+    // Kitchen advances to ready.
+    await request(app)
+      .patch(`/api/orders/${id}/status`)
+      .set('Authorization', `Bearer ${kitchenToken}`)
+      .send({ status: 'preparing' });
+    await request(app)
+      .patch(`/api/orders/${id}/status`)
+      .set('Authorization', `Bearer ${kitchenToken}`)
+      .send({ status: 'ready' });
+
+    const delivered = await request(app)
+      .patch(`/api/orders/${id}/status`)
+      .set('Authorization', `Bearer ${deliveryToken}`)
+      .send({ status: 'delivered' });
+    expect(delivered.status).toBe(200);
+    expect(delivered.body.status).toBe('delivered');
+  });
+
+  it('rejects invalid transitions and non-sequential jumps', async () => {
+    const placed = await placeOrder(token);
+    const id = placed.body.id;
+
+    // placed → delivered is a skip.
+    const skip = await request(app)
+      .patch(`/api/orders/${id}/status`)
+      .set('Authorization', `Bearer ${managerToken}`)
+      .send({ status: 'delivered' });
+    expect(skip.status).toBe(400);
+    expect(skip.body.error.code).toBe('INVALID_STATUS_TRANSITION');
+
+    const bogus = await request(app)
+      .patch(`/api/orders/${id}/status`)
+      .set('Authorization', `Bearer ${managerToken}`)
+      .send({ status: 'launched' });
+    expect(bogus.status).toBe(400);
+
+    const missing = await request(app)
+      .patch(`/api/orders/${id}/status`)
+      .set('Authorization', `Bearer ${managerToken}`)
+      .send({});
+    expect(missing.status).toBe(400);
+  });
+
+  it('cashier cannot advance orders (no fulfill permission)', async () => {
+    const placed = await placeOrder(token);
+    const res = await request(app)
+      .patch(`/api/orders/${placed.body.id}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'preparing' });
+    expect(res.status).toBe(403);
+  });
+
+  it('manager can cancel a placed/preparing order but not a ready one', async () => {
+    const placed = await placeOrder(token);
+
+    const canceled = await request(app)
+      .patch(`/api/orders/${placed.body.id}/status`)
+      .set('Authorization', `Bearer ${managerToken}`)
+      .send({ status: 'canceled' });
+    expect(canceled.status).toBe(200);
+    expect(canceled.body.status).toBe('canceled');
+
+    // Re-cancel / transition from canceled is rejected.
+    const again = await request(app)
+      .patch(`/api/orders/${placed.body.id}/status`)
+      .set('Authorization', `Bearer ${managerToken}`)
+      .send({ status: 'canceled' });
+    expect(again.status).toBe(409);
+
+    // A ready order cannot be canceled.
+    const ready = await placeOrder(token);
+    await request(app)
+      .patch(`/api/orders/${ready.body.id}/status`)
+      .set('Authorization', `Bearer ${kitchenToken}`)
+      .send({ status: 'preparing' });
+    await request(app)
+      .patch(`/api/orders/${ready.body.id}/status`)
+      .set('Authorization', `Bearer ${kitchenToken}`)
+      .send({ status: 'ready' });
+    const lateCancel = await request(app)
+      .patch(`/api/orders/${ready.body.id}/status`)
+      .set('Authorization', `Bearer ${managerToken}`)
+      .send({ status: 'canceled' });
+    expect(lateCancel.status).toBe(409);
+  });
+
+  it('cannot update an order in another tenant (isolation)', async () => {
+    const other = await Tenant.create({ name: 'Other Diner', slug: 'other-diner' });
+    const otherManager = await User.create({
+      name: 'Other Manager',
+      email: 'other.manager@example.com',
+      password: await bcrypt.hash('supersecret1', 10),
+    });
+    await UserTenant.create({
+      user_id: otherManager.id,
+      tenant_id: other.id,
+      role: 'manager',
+    });
+    const otherToken = (
+      await request(app)
+        .post('/api/auth/login')
+        .send({ email: 'other.manager@example.com', password: 'supersecret1' })
+    ).body.accessToken;
+
+    const placed = await placeOrder(token);
+    const res = await request(app)
+      .patch(`/api/orders/${placed.body.id}/status`)
+      .set('Authorization', `Bearer ${otherToken}`)
+      .send({ status: 'canceled' });
+    expect(res.status).toBe(404);
   });
 });
