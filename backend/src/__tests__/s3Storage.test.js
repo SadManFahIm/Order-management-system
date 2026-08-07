@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 
 /**
  * S3 driver integration tier (Phase 4 completion).
  *
- * Exercises the real S3-compatible path (putObject → publicUrl → removeObject)
- * against a MinIO instance. Skips cleanly when MinIO is not configured, so
- * local/CI runs without it stay green. Enable with:
+ * Exercises the real S3-compatible path (putObject → publicUrl → read back
+ * via the SDK → removeObject) against a MinIO instance. Skips cleanly when
+ * MinIO is not configured, so local/CI runs without it stay green. Enable
+ * with:
  *
  *   STORAGE_DRIVER=s3 \
  *   S3_ENDPOINT=http://localhost:9000 \
@@ -13,6 +15,9 @@ import { describe, it, expect } from 'vitest';
  *   S3_ACCESS_KEY_ID=minioadmin S3_SECRET_ACCESS_KEY=minioadmin \
  *   S3_FORCE_PATH_STYLE=1 \
  *   npm test -- s3Storage
+ *
+ * Note: read-back uses the AWS SDK (signed request) because buckets are
+ * private by default — an anonymous HTTP GET would 403.
  */
 
 const configured =
@@ -28,7 +33,19 @@ const { putObject, removeObject, publicUrl, buildObjectKey } = configured
 
 const maybe = configured ? describe : describe.skip;
 maybe('S3-compatible storage driver (MinIO)', () => {
-  it('round-trips an object: put → url → get via public URL → remove', async () => {
+  const s3 = configured
+    ? new S3Client({
+        region: process.env.S3_REGION || 'us-east-1',
+        endpoint: process.env.S3_ENDPOINT,
+        forcePathStyle: process.env.S3_FORCE_PATH_STYLE === '1' || process.env.S3_FORCE_PATH_STYLE === 'true',
+        credentials: {
+          accessKeyId: process.env.S3_ACCESS_KEY_ID,
+          secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
+        },
+      })
+    : null;
+
+  it('round-trips an object: put → url → read back → remove', async () => {
     const key = buildObjectKey({
       tenantId: 1,
       originalName: 'minio-test.png',
@@ -40,19 +57,22 @@ maybe('S3-compatible storage driver (MinIO)', () => {
     expect(url).toContain('/tenants/1/images/');
     expect(url.endsWith(key)).toBe(true);
 
-    // The object must be publicly reachable at the returned URL.
-    const fetched = await fetch(url);
-    expect(fetched.status).toBe(200);
-    expect(Buffer.from(await fetched.arrayBuffer()).equals(body)).toBe(true);
+    // Read back with the SDK (buckets are private — anonymous GET would 403).
+    const got = await s3.send(
+      new GetObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key })
+    );
+    const readBack = Buffer.from(await got.Body.transformToByteArray());
+    expect(readBack.equals(body)).toBe(true);
 
     await removeObject(key);
 
-    // After removal the object is gone.
-    const gone = await fetch(url).catch(() => null);
-    expect(gone && gone.status === 404 ? true : gone === null).toBe(true);
+    // After removal the object is gone (GetObject 404s).
+    await expect(
+      s3.send(new GetObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key }))
+    ).rejects.toMatchObject({ $metadata: { httpStatusCode: 404 } });
   });
 
-  it('publicUrl builds the CDN URL when CDN_BASE_URL is set', () => {
+  it('publicUrl builds a URL that includes the object key', () => {
     const key = 'tenants/1/images/abc.webp';
     const url = publicUrl(key);
     expect(url).toContain(key);
