@@ -2,19 +2,21 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
+import { useI18n, LANGUAGES } from '../i18n';
 import { Logo, Button } from './ui';
 
 const LINKS = [
-  { to: '/menu', label: 'Menu', icon: <IconGrid /> },
-  { to: '/products', label: 'Products', icon: <IconGrid /> },
-  { to: '/promotions', label: 'Promotions', icon: <IconTag /> },
-  { to: '/orders', label: 'Orders', icon: <IconBox /> },
-  { to: '/orders/new', label: 'New order', icon: <IconPlus /> },
+  { to: '/menu', key: 'nav.menu', icon: <IconGrid /> },
+  { to: '/products', key: 'nav.products', icon: <IconGrid /> },
+  { to: '/promotions', key: 'nav.promotions', icon: <IconTag /> },
+  { to: '/orders', key: 'nav.orders', icon: <IconBox /> },
+  { to: '/orders/new', key: 'nav.newOrder', icon: <IconPlus /> },
 ];
 
 export default function Navbar() {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const { t, lang, toggleLang } = useI18n();
 
   const initials =
     (user?.name || user?.email || '?')
@@ -40,12 +42,20 @@ export default function Navbar() {
             }
           >
             {l.icon}
-            <span>{l.label}</span>
+            <span>{t(l.key)}</span>
           </NavLink>
         ))}
       </div>
       <div className="oms-nav__right">
         <TenantSwitcher />
+        <button
+          className="oms-icon-btn oms-lang-btn"
+          onClick={toggleLang}
+          aria-label={lang === 'en' ? 'বাংলায় দেখুন' : 'Switch to English'}
+          title={lang === 'en' ? 'বাংলা' : 'English'}
+        >
+          {LANGUAGES.find((l) => l.code !== lang)?.short}
+        </button>
         <button
           className="oms-icon-btn"
           onClick={toggleTheme}
@@ -61,7 +71,7 @@ export default function Navbar() {
           </span>
         )}
         <Button variant="outline" size="sm" onClick={logout}>
-          Log out
+          {t('nav.logOut')}
         </Button>
       </div>
     </nav>
@@ -70,18 +80,9 @@ export default function Navbar() {
 
 /* ---------------- Workspace switcher ---------------- */
 
-const ROLE_LABELS = {
-  platform_admin: 'Platform',
-  owner: 'Owner',
-  manager: 'Manager',
-  cashier: 'Cashier',
-  kitchen: 'Kitchen',
-  delivery: 'Delivery',
-  staff: 'Staff',
-};
-
 function TenantSwitcher() {
   const { tenants, activeTenantId, switchTenant } = useAuth();
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -115,35 +116,37 @@ function TenantSwitcher() {
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        title="Switch workspace"
+        title={t('nav.switchWorkspace')}
       >
         <span className="oms-tenant__dot" />
         <span className="oms-tenant__name">
-          {active?.name || (tenants.length ? 'Select workspace' : 'No workspace')}
+          {active?.name ||
+            (tenants.length ? t('nav.selectWorkspace') : t('nav.noWorkspace'))}
         </span>
         <IconChevron />
       </button>
       {open && (
         <div className="oms-tenant__menu" role="listbox" aria-label="Workspaces">
-          {tenants.map((t) => (
+          {tenants.map((tenant) => (
             <button
               type="button"
-              key={t.id}
+              key={tenant.id}
               role="option"
-              aria-selected={Number(t.id) === Number(activeTenantId)}
+              aria-selected={Number(tenant.id) === Number(activeTenantId)}
               className={`oms-tenant__item ${
-                Number(t.id) === Number(activeTenantId) ? 'is-active' : ''
+                Number(tenant.id) === Number(activeTenantId) ? 'is-active' : ''
               }`}
               onClick={() => {
-                if (Number(t.id) !== Number(activeTenantId)) switchTenant(t.id);
+                if (Number(tenant.id) !== Number(activeTenantId))
+                  switchTenant(tenant.id);
                 setOpen(false);
               }}
             >
-              <span className="oms-tenant__item-name">{t.name}</span>
+              <span className="oms-tenant__item-name">{tenant.name}</span>
               <span className="oms-tenant__item-role">
-                {ROLE_LABELS[t.role] || t.role}
+                {t(`roles.${tenant.role}`) || tenant.role}
               </span>
-              {Number(t.id) === Number(activeTenantId) && (
+              {Number(tenant.id) === Number(activeTenantId) && (
                 <span className="oms-tenant__check">
                   <IconCheck />
                 </span>

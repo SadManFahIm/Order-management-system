@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useI18n } from '../i18n';
 import api from '../api';
 import PromotionForm from '../components/PromotionForm';
 import { PageHeader, Card, Table, Button, Badge, Skeleton, useToast } from '../components/ui';
@@ -15,6 +16,7 @@ const fmtDate = (d) => {
 };
 
 export default function PromotionsPage() {
+  const { t } = useI18n();
   const [promos, setPromos] = useState(null);
   const toast = useToast();
 
@@ -66,8 +68,8 @@ export default function PromotionsPage() {
   return (
     <div className="oms-page">
       <PageHeader
-        title="Promotions"
-        desc="Create discounts to drive more orders."
+        title={t('pages.promotions')}
+        desc={t('pages.promotionsDesc')}
       />
 
       <div className="oms-grid oms-grid--2col">
