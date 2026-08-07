@@ -38,6 +38,21 @@ Customer storefront & ordering · kitchen workflow & live order tracking · paym
 
 ---
 
+## 📸 Screenshots
+
+> Live captures from the running app (Deliveroo-inspired teal theme). Re-capture with `cd frontend && node scripts/screenshots.mjs` while the dev servers are up.
+
+| | |
+|---|---|
+| **Public storefront** — live menu demo at `/m/:slug` | **Login — dark mode** |
+| ![Public storefront](docs/screenshots/public-menu-light.png) | ![Login dark](docs/screenshots/login-dark.png) |
+| **Products — light mode** | **Products — dark mode** |
+| ![Products light](docs/screenshots/products-light.png) | ![Products dark](docs/screenshots/products-dark.png) |
+| **Login — light mode** | |
+| ![Login light](docs/screenshots/login-light.png) | |
+
+---
+
 ## 🧱 Tech Stack
 
 | Layer | Technology |
@@ -267,6 +282,7 @@ See [`docs/02-v2-roadmap.md`](docs/02-v2-roadmap.md) for the detailed plan with 
 - [`docs/03-database-schema.md`](docs/03-database-schema.md) — normalized multi-tenant PostgreSQL schema (DDL, indexes, constraints, soft delete, audit), migration system, and the v1 → v2 data migration plan
 - [`docs/04-pg-cutover-runbook.md`](docs/04-pg-cutover-runbook.md) — production SQLite → PostgreSQL cutover runbook (backup, dry-run, migrate, copy, verify, flip, rollback)
 - [`docs/05-media-import-public-menu.md`](docs/05-media-import-public-menu.md) — image pipeline (storage drivers, env vars, S3/CDN setup), bulk CSV import (columns, duplicates, response), public menu API (endpoints, filters, response shape)
+- [`docs/06-design-system.md`](docs/06-design-system.md) — the Deliveroo-inspired design system: tokens, colors, typography, motion, component library, page patterns, and how to extend it
 
 ---
 
