@@ -7,6 +7,7 @@ import MenuCategory from '../models/MenuCategory.js';
 import Product from '../models/Product.js';
 import ItemVariant from '../models/ItemVariant.js';
 import ItemAddon from '../models/ItemAddon.js';
+import { parsePagination } from '../utils/pagination.js';
 
 /**
  * Public, read-only storefront menu API (Phase 4).
@@ -107,6 +108,9 @@ router.get(
 
     const categoryId = req.query.categoryId ? Number(req.query.categoryId) : null;
     const onlyAvailable = req.query.available !== 'false';
+    // Pagination applies to the item stream (across categories); the grouped
+    // response keeps every category, with only the requested page of items.
+    const { limit, offset } = parsePagination(req.query, { defaultLimit: 200, maxLimit: 200 });
 
     const categories = await MenuCategory.findAll({
       where: { tenant_id: tenant.id },
@@ -120,6 +124,10 @@ router.get(
     if (onlyAvailable) itemWhere.enabled = true;
     if (categoryId && Number.isInteger(categoryId)) itemWhere.category_id = categoryId;
 
+    // X-Total-Count reflects ALL matching items (before pagination) so
+    // storefronts can render a "load more" affordance from the header.
+    const totalItems = await Product.count({ where: itemWhere });
+
     const items = await Product.findAll({
       where: itemWhere,
       include: [
@@ -127,6 +135,8 @@ router.get(
         { model: ItemAddon, as: 'addons', order: [['sort_order', 'ASC'], ['id', 'ASC']] },
       ],
       order: [['id', 'ASC']],
+      limit,
+      offset,
     });
 
     const itemsByCategory = new Map();
@@ -161,6 +171,7 @@ router.get(
       categories: menu,
     });
     if (applyPublicCache(req, res, payload)) return;
+    res.set('X-Total-Count', String(totalItems));
     res.json(JSON.parse(payload));
   })
 );

@@ -31,12 +31,19 @@ const Product = sequelize.define(
     category_id: { type: DataTypes.INTEGER, allowNull: true },
     prep_minutes: { type: DataTypes.INTEGER, allowNull: true },
     image_url: { type: DataTypes.STRING(500), allowNull: true },
+    // Optimistic lock (migration 003) — bumped on every update; clients send
+    // the version they based their edit on and get 409 on a stale write.
+    version: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
   },
   {
     tableName: 'menu_items',
     // Index fields are physical column names (field-mapped), not attributes.
     indexes: [{ fields: ['tenant_id', 'is_available'] }, { fields: ['tenant_id', 'category_id'] }],
     underscored: true,
+    // Soft delete (Phase 4 completion): DELETE /api/products/:id sets
+    // deleted_at instead of removing the row — order history keeps its FK,
+    // and the migration's deleted_at column matches the paranoid attribute.
+    paranoid: true,
   }
 );
 

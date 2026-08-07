@@ -9,6 +9,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
  */
 const en = {
   nav: {
+    dashboard: 'Dashboard',
     menu: 'Menu',
     products: 'Products',
     promotions: 'Promotions',
@@ -50,6 +51,8 @@ const en = {
     loading: 'Loading…',
   },
   pages: {
+    dashboard: 'Dashboard',
+    dashboardDesc: 'Your restaurant at a glance.',
     products: 'Products',
     productsDesc: 'Every dish your restaurant sells.',
     importCsv: 'Import CSV',
@@ -60,6 +63,15 @@ const en = {
     noOrders: 'No orders yet',
     noOrdersDesc: 'Orders placed by customers will appear here.',
     createFirstOrder: 'Create the first order',
+  },
+  dash: {
+    todayRevenue: 'Today\'s revenue',
+    todayOrders: 'Orders today',
+    openOrders: 'Open orders',
+    menuItems: 'Menu items',
+    topItems: 'Top items',
+    noData: 'No orders yet today.',
+    taka: '৳',
   },
   orders: {
     placed: 'Placed',
@@ -76,6 +88,7 @@ const en = {
 
 const bn = {
   nav: {
+    dashboard: 'ড্যাশবোর্ড',
     menu: 'মেনু',
     products: 'প্রোডাক্ট',
     promotions: 'প্রোমোশন',
@@ -117,6 +130,8 @@ const bn = {
     loading: 'লোড হচ্ছে…',
   },
   pages: {
+    dashboard: 'ড্যাশবোর্ড',
+    dashboardDesc: 'আপনার রেস্টুরেন্ট এক নজরে।',
     products: 'প্রোডাক্ট',
     productsDesc: 'আপনার রেস্টুরেন্টের প্রতিটি খাবার।',
     importCsv: 'CSV ইমপোর্ট',
@@ -127,6 +142,15 @@ const bn = {
     noOrders: 'এখনো কোনো অর্ডার নেই',
     noOrdersDesc: 'গ্রাহকের করা অর্ডার এখানে দেখা যাবে।',
     createFirstOrder: 'প্রথম অর্ডার তৈরি করুন',
+  },
+  dash: {
+    todayRevenue: 'আজকের আয়',
+    todayOrders: 'আজকের অর্ডার',
+    openOrders: 'চলমান অর্ডার',
+    menuItems: 'মেনু আইটেম',
+    topItems: 'সেরা আইটেম',
+    noData: 'আজ এখনো কোনো অর্ডার নেই।',
+    taka: '৳',
   },
   orders: {
     placed: 'প্লেসড',

@@ -1,4 +1,5 @@
 import express from 'express';
+import { literal } from 'sequelize';
 import { authMiddleware } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -108,8 +109,10 @@ router.delete(
     if (!category) throw new AppError(404, 'NOT_FOUND', 'Category not found');
 
     await Promise.all([
+      // Bump version so any client edit based on a stale copy conflicts (409)
+      // — the category detach is a server-side mutation of the product.
       Product.update(
-        { category_id: null },
+        { category_id: null, version: literal('version + 1') },
         { where: { category_id: category.id, tenant_id: req.tenant.id } }
       ),
       MenuCategory.destroy({

@@ -1,4 +1,5 @@
 import { parse } from 'csv-parse/sync';
+import ExcelJS from 'exceljs';
 import { z } from 'zod';
 import sequelize from '../config/db.js';
 import { env } from '../config/env.js';
@@ -72,9 +73,14 @@ const rowSchema = z.object({
   ),
   description: z.preprocess(emptyToNull, z.string().nullable().optional()),
   enabled: z
-    .enum(['true', 'false', '1', '0', 'yes', 'no', ''])
+    // XLSX cells arrive as real booleans; CSV cells arrive as strings.
+    .union([z.boolean(), z.enum(['true', 'false', '1', '0', 'yes', 'no', ''])])
     .optional()
-    .transform((v) => (v === undefined || v === '' ? true : ['true', '1', 'yes'].includes(v))),
+    .transform((v) => {
+      if (v === undefined || v === null || v === '') return true;
+      if (typeof v === 'boolean') return v;
+      return ['true', '1', 'yes'].includes(v);
+    }),
   category: z.preprocess(emptyToNull, z.string().trim().nullable().optional()),
   prep_minutes: numericCell(
     z.coerce.number().int().nonnegative().nullable().optional()
@@ -83,6 +89,75 @@ const rowSchema = z.object({
 });
 
 const BATCH_SIZE = 50;
+
+/**
+ * Parses an XLSX buffer into header-keyed row objects (same shape as the CSV
+ * parser): rows[0] is the header, data rows follow. Numbers arrive as
+ * numbers (Excel cells) — the shared rowSchema coerces them the same way it
+ * coerces numeric CSV strings, so a workbook behaves identically to a CSV.
+ *
+ * @throws {AppError} MALFORMED_XLSX / EMPTY_IMPORT
+ */
+export async function parseXlsxBuffer(buffer) {
+  let workbook;
+  try {
+    workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+  } catch (error) {
+    throw new AppError(400, 'MALFORMED_XLSX', `Could not parse XLSX: ${error.message}`);
+  }
+
+  const sheet = workbook.worksheets[0];
+  if (!sheet) throw new AppError(400, 'EMPTY_IMPORT', 'Import workbook has no worksheets');
+
+  // Reject oversized sheets before loading them into memory (row 1 = header).
+  if (sheet.actualRowCount > env.MAX_IMPORT_ROWS + 1) {
+    throw new AppError(
+      400,
+      'IMPORT_TOO_LARGE',
+      `Import exceeds the ${env.MAX_IMPORT_ROWS} row limit`
+    );
+  }
+
+  // row.values is 1-indexed (values[0] is always undefined) → slice(1).
+  const rows = [];
+  sheet.eachRow((row) => rows.push(row.values.slice(1)));
+  if (rows.length < 2) {
+    throw new AppError(400, 'EMPTY_IMPORT', 'Import file contains no data rows');
+  }
+
+  const header = rows[0].map((h) => String(h ?? '').trim());
+  const records = rows.slice(1).map((cells) => {
+    const record = {};
+    header.forEach((h, i) => {
+      if (!h) return;
+      const value = cells[i];
+      record[h] = typeof value === 'object' && value !== null ? JSON.stringify(value) : value;
+    });
+    return record;
+  });
+  return records;
+}
+
+/**
+ * Imports products for a tenant from XLSX bytes (same pipeline as CSV).
+ *
+ * @param {{ buffer: Buffer, tenantId: number, duplicates?: 'skip'|'error'|'update' }}
+ */
+export async function importProductsXlsx({ buffer, tenantId, duplicates = 'skip' }) {
+  if (!buffer || buffer.length === 0) {
+    throw new AppError(400, 'EMPTY_IMPORT', 'Import file is empty');
+  }
+  if (buffer.length > env.MAX_IMPORT_BYTES) {
+    throw new AppError(
+      400,
+      'IMPORT_TOO_LARGE',
+      `Import file exceeds the ${Math.round(env.MAX_IMPORT_BYTES / 1024 / 1024)} MB limit`
+    );
+  }
+  const records = await parseXlsxBuffer(buffer);
+  return importProductsRows({ rows: records, tenantId, duplicates });
+}
 
 /**
  * Imports products for a tenant from CSV text.
@@ -116,6 +191,19 @@ export async function importProductsCsv({ csv, tenantId, duplicates = 'skip' }) 
     throw new AppError(400, 'MALFORMED_CSV', `Could not parse CSV: ${error.message}`);
   }
 
+  return importProductsRows({ rows: records, tenantId, duplicates });
+}
+
+/**
+ * Shared import core — validates, dedupes and writes rows (objects keyed by
+ * header) regardless of whether they came from CSV or XLSX. Row numbers are
+ * reported as the spreadsheet line (data starts at row 2).
+ *
+ * @param {{ rows: Array<object>, tenantId: number, duplicates?: 'skip'|'error'|'update' }}
+ */
+export async function importProductsRows({ rows, tenantId, duplicates = 'skip' }) {
+  const records = rows;
+
   // Reject unknown columns up front with a clear message — better than
   // silently ignoring typos like "prcie".
   const unknownHeaders = records.length
@@ -125,7 +213,7 @@ export async function importProductsCsv({ csv, tenantId, duplicates = 'skip' }) 
     throw new AppError(
       400,
       'UNKNOWN_COLUMNS',
-      `Unknown CSV column(s): ${unknownHeaders.join(', ')}. Expected: ${IMPORT_COLUMNS.join(', ')}`
+      `Unknown column(s): ${unknownHeaders.join(', ')}. Expected: ${IMPORT_COLUMNS.join(', ')}`
     );
   }
 
@@ -198,9 +286,14 @@ export async function importProductsCsv({ csv, tenantId, duplicates = 'skip' }) 
   // DB duplicate handling. Fetching every product name once keeps the check
   // case-insensitive on BOTH dialects (a SQL `IN` with LOWER() is
   // dialect-specific); the tenant's product set is bounded by MAX_IMPORT_ROWS.
+  // paranoid: false so soft-deleted items still count as "existing" — name
+  // uniqueness is a per-tenant business rule whether or not the row is
+  // currently visible. This prevents re-imports from spawning phantom
+  // duplicates under a soft-deleted row.
   const existing = await Product.findAll({
     where: { tenant_id: tenantId },
-    attributes: ['id', 'name'],
+    attributes: ['id', 'name', 'version', 'deletedAt'],
+    paranoid: false,
   });
   const existingByName = new Map(existing.map((p) => [p.name.toLowerCase(), p]));
 
@@ -240,10 +333,22 @@ export async function importProductsCsv({ csv, tenantId, duplicates = 'skip' }) 
             image_url: data.image_url || null,
           };
           if (existingProduct) {
-            await Product.update(values, {
-              where: { id: existingProduct.id },
-              transaction,
-            });
+            await Product.update(
+              {
+                ...values,
+                version: (existingProduct.version ?? 1) + 1,
+                // duplicates='update' on a soft-deleted item resurrects it
+                // (clears deleted_at) instead of inserting a duplicate row.
+                ...(existingProduct.deletedAt ? { deletedAt: null } : {}),
+              },
+              {
+                where: { id: existingProduct.id },
+                transaction,
+                // Model.update injects `deleted_at IS NULL` when paranoid —
+                // disable it so a resurrected row can be updated at all.
+                paranoid: false,
+              }
+            );
           } else {
             await Product.create({ tenant_id: tenantId, ...values }, { transaction });
           }
