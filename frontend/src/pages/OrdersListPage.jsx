@@ -4,6 +4,31 @@ import { PageHeader, Card, Table, Button, Badge, Skeleton, useToast } from '../c
 
 const fmt = (n) => `৳ ${Number(n).toFixed(2)}`;
 
+const STATUS_LABEL = {
+  placed: 'Placed',
+  preparing: 'Preparing',
+  ready: 'Ready',
+  delivered: 'Delivered',
+  canceled: 'Canceled',
+};
+
+const STATUS_TONE = {
+  placed: 'neutral',
+  preparing: 'warning',
+  ready: 'primary',
+  delivered: 'success',
+  canceled: 'danger',
+};
+
+// Next step in the happy path, or null when terminal/canceled.
+const NEXT_STATUS = {
+  placed: 'preparing',
+  preparing: 'ready',
+  ready: 'delivered',
+  delivered: null,
+  canceled: null,
+};
+
 export default function OrdersListPage() {
   const [orders, setOrders] = useState(null);
   const toast = useToast();
@@ -28,6 +53,26 @@ export default function OrdersListPage() {
         toast?.error('Failed to load orders');
       }
     }
+  };
+
+  const setStatus = async (o, status) => {
+    try {
+      await api.patch(`/orders/${o.id}/status`, { status });
+      toast.success(`Order #${o.id} → ${STATUS_LABEL[status]}`);
+      await load();
+    } catch {
+      toast.error('Could not update order status');
+    }
+  };
+
+  const onAdvance = (o) => {
+    const next = NEXT_STATUS[o.status];
+    if (next) setStatus(o, next);
+  };
+
+  const onCancel = (o) => {
+    if (!window.confirm(`Cancel order #${o.id}?`)) return;
+    setStatus(o, 'canceled');
   };
 
   return (
@@ -58,6 +103,8 @@ export default function OrdersListPage() {
               { key: 'total_discount', label: 'Discount', align: 'right' },
               { key: 'grand_total', label: 'Total', align: 'right' },
               { key: 'items', label: 'Items', align: 'right' },
+              { key: 'status', label: 'Status' },
+              { key: 'actions', label: '', align: 'right' },
             ]}
             rows={orders}
             render={(o, key) => {
@@ -72,6 +119,25 @@ export default function OrdersListPage() {
                 );
               if (key === 'grand_total') return <span className="oms-table__cell-strong">{fmt(o.grand_total)}</span>;
               if (key === 'items') return o.items?.length ?? 0;
+              if (key === 'status')
+                return <Badge tone={STATUS_TONE[o.status] || 'neutral'}>{STATUS_LABEL[o.status] || o.status}</Badge>;
+              if (key === 'actions') {
+                const next = NEXT_STATUS[o.status];
+                return (
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                    {next && (
+                      <Button size="sm" variant="primary" onClick={() => onAdvance(o)}>
+                        {STATUS_LABEL[next]}
+                      </Button>
+                    )}
+                    {o.status !== 'canceled' && o.status !== 'delivered' && (
+                      <Button size="sm" variant="danger" onClick={() => onCancel(o)}>
+                        Cancel
+                      </Button>
+                    )}
+                  </div>
+                );
+              }
               return o[key];
             }}
             empty={{

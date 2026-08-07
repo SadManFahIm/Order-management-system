@@ -32,6 +32,24 @@ const Order = sequelize.define(
     subtotal: { type: DataTypes.FLOAT, allowNull: false, field: 'subtotal_amount' },
     total_discount: { type: DataTypes.FLOAT, allowNull: false, field: 'discount_amount' },
     grand_total: { type: DataTypes.FLOAT, allowNull: false, field: 'total_amount' },
+    // Fulfillment lifecycle (Phase 5 foundation). Columns exist in migration
+    // 004 with sensible defaults; the model declares them so the attributes
+    // are read/written by Sequelize.
+    status: {
+      type: DataTypes.STRING(16),
+      allowNull: false,
+      defaultValue: 'placed',
+    },
+    type: {
+      type: DataTypes.STRING(16),
+      allowNull: false,
+      defaultValue: 'pickup',
+    },
+    payment_status: {
+      type: DataTypes.STRING(16),
+      allowNull: false,
+      defaultValue: 'unpaid',
+    },
   },
   {
     tableName: 'orders',

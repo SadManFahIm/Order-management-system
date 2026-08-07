@@ -18,6 +18,18 @@ export function requirePermission(permission) {
 }
 
 /**
+ * Attaches req.userHas(permission) so routes can do fine-grained checks
+ * beyond a single guard (e.g. different transitions for kitchen vs delivery).
+ */
+export function attachPermissionCheck(req, _res, next) {
+  req.userHas = (permission) => {
+    if (!req.user) return false;
+    return hasPermission(req.user, permission);
+  };
+  next();
+}
+
+/**
  * Guards a route by role (accepts one or more roles).
  * 'platform_admin' and legacy 'staff' (wildcard) roles always pass.
  */

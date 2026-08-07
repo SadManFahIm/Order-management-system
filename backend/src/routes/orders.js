@@ -2,7 +2,7 @@ import express from 'express';
 import { authMiddleware } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { requirePermission } from '../middleware/rbac.js';
+import { requirePermission, attachPermissionCheck } from '../middleware/rbac.js';
 import { resolveTenant, requireTenant } from '../middleware/tenant.js';
 import Product from '../models/Product.js';
 import Promotion from '../models/Promotion.js';
@@ -14,7 +14,7 @@ import { parsePagination } from '../utils/pagination.js';
 import { createOrderSchema } from '../validators/order.js';
 
 const router = express.Router();
-router.use(authMiddleware, resolveTenant, requireTenant);
+router.use(authMiddleware, attachPermissionCheck, resolveTenant, requireTenant);
 
 /** GET /api/orders?limit=&offset= — paginated list (backward-compatible: returns an array). */
 router.get(
@@ -39,6 +39,71 @@ router.get(
 
     res.set('X-Total-Count', String(count));
     res.json(rows);
+  })
+);
+
+/** Fulfillment lifecycle (Phase 5 foundation). */
+const ORDER_STATUS_FLOW = ['placed', 'preparing', 'ready', 'delivered'];
+const CANCELABLE_STATUSES = ['placed', 'preparing'];
+
+// Status transitions are gated by role-appropriate permissions:
+//   kitchen  → fulfill:orders (preparing/ready)
+//   delivery → deliver:orders (delivered)
+//   owner/manager → manage:orders (any transition incl. cancel)
+const canAdvance = (req) =>
+  req.userHas('manage:orders') || req.userHas('fulfill:orders');
+const canDeliver = (req) =>
+  req.userHas('manage:orders') || req.userHas('deliver:orders');
+
+/** PATCH /api/orders/:id/status — advance/cancel an order's fulfillment state. */
+router.patch(
+  '/:id/status',
+  asyncHandler(async (req, res) => {
+    const order = await Order.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+    });
+    if (!order) throw new AppError(404, 'NOT_FOUND', 'Order not found');
+
+    const { status } = req.body;
+    if (!status || typeof status !== 'string') {
+      throw new AppError(400, 'VALIDATION_ERROR', 'status is required');
+    }
+
+    if (status === 'canceled') {
+      if (!req.userHas('manage:orders')) {
+        throw new AppError(403, 'FORBIDDEN', 'Only managers can cancel orders');
+      }
+      if (!CANCELABLE_STATUSES.includes(order.status)) {
+        throw new AppError(
+          409,
+          'INVALID_STATUS_TRANSITION',
+          `Order in "${order.status}" cannot be canceled`
+        );
+      }
+    } else {
+      const currentIndex = ORDER_STATUS_FLOW.indexOf(order.status);
+      const nextIndex = ORDER_STATUS_FLOW.indexOf(status);
+      if (currentIndex === -1 || nextIndex === -1 || nextIndex !== currentIndex + 1) {
+        throw new AppError(
+          400,
+          'INVALID_STATUS_TRANSITION',
+          `Cannot move order from "${order.status}" to "${status}"`
+        );
+      }
+      const permitted =
+        status === 'delivered' ? canDeliver(req) : canAdvance(req);
+      if (!permitted) {
+        throw new AppError(
+          403,
+          'FORBIDDEN',
+          `Your role cannot move orders to "${status}"`
+        );
+      }
+    }
+
+    order.status = status;
+    await order.save();
+    res.json({ id: order.id, status: order.status });
   })
 );
 
