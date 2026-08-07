@@ -6,7 +6,7 @@ export default [
     ignores: ['node_modules/**', 'coverage/**', '*.sqlite', 'data.test.sqlite'],
   },
   {
-    files: ['src/**/*.js', 'scripts/**/*.js', '*.js'],
+    files: ['src/**/*.js', 'scripts/**/*.js', 'migrations/**/*.js', '*.js'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',

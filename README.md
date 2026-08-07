@@ -22,6 +22,7 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 - **Order management** — server-side pricing with per-item discount, subtotal, discount, and grand total (tenant-scoped)
 - **Design system** — Wolt/Deliveroo-inspired UI: theme engine with light/dark mode + design tokens, shared UI kit (Button, Card, Input, Table, Modal, Toast, Skeleton, Badge, EmptyState…), workspace switcher, glassy navbar
 - **Security hardening** — Helmet security headers, CORS allowlist, rate limiting, centralized error handling, validated payloads (zod), no secrets in code
+- **PostgreSQL foundation (Phase 1 follow-up)** — versioned migration runner (`npm run db:migrate` / `db:migrate:down` / `db:migrate:status`) with migrations 001–003 (identity/auth, tenancy/SaaS, menu catalog); dialect-selectable DB config (`DB_DIALECT` / `DATABASE_URL`, default SQLite); PostgreSQL 16 service in `docker-compose.yml`; production boots run migrations instead of `sync()`
 
 ### Roadmap (V2)
 Rich menu management (categories, variants, add-ons, allergens, images) · customer storefront & ordering · kitchen workflow & live order tracking · payments (SSLCommerz, bKash, Nagad, Stripe) · analytics dashboards · SaaS admin portal · hardening (performance, observability, load) · production release.
@@ -34,7 +35,7 @@ Rich menu management (categories, variants, add-ons, allergens, images) · custo
 
 | Layer | Technology |
 |---|---|
-| Backend | Node.js 20 · Express · Sequelize · SQLite (dev) → PostgreSQL (V2) · JWT · zod |
+| Backend | Node.js 20 · Express · Sequelize · SQLite (dev, default) → PostgreSQL 16 (V2) · pg · versioned migrations · JWT · zod |
 | Frontend | React 18 · Vite 7 · Axios · React Router 7 |
 | Security | Helmet · express-rate-limit · bcrypt · strict CORS |
 | Quality | Vitest · Supertest · ESLint · GitHub Actions CI |
@@ -53,13 +54,14 @@ Rich menu management (categories, variants, add-ons, allergens, images) · custo
 │   │   ├── config/           # Validated environment config + DB
 │   │   ├── middleware/       # Auth, RBAC, tenant, rate limits, errors, request IDs
 │   │   ├── models/           # Sequelize models (users, sessions, tenants, audit)
-│   │   ├── routes/           # auth, products, promotions, orders
+│   │   ├── routes/           # auth, products, promotions, orders, menu
 │   │   ├── services/         # auth service, audit service, email adapter
 │   │   ├── validators/       # zod request schemas
 │   │   ├── utils/            # promotion engine, pagination
 │   │   ├── test/             # Test environment setup
 │   │   └── __tests__/        # Unit + integration tests
-│   ├── scripts/              # CLI utilities (seed-admin)
+│   ├── migrations/           # Versioned SQL/schema migrations (001–003)
+│   ├── scripts/              # CLI utilities (seed-admin, migrate runner)
 │   └── Dockerfile
 ├── frontend/                 # React SPA
 │   ├── src/
@@ -107,6 +109,26 @@ Optionally seed 20 Dhaka restaurant workspaces with realistic menus (idempotent 
 npm run seed:restaurants
 ```
 
+#### PostgreSQL (optional — the V2 database)
+
+The default dev setup is zero-config SQLite. To develop against PostgreSQL instead:
+
+```bash
+# 1. Start the local PostgreSQL 16 (repo root) — or point at any PG 14+:
+docker compose up -d db
+
+# 2. Configure the backend to use it (backend/.env):
+#    DB_DIALECT=postgres
+#    DATABASE_URL=postgres://oms:oms@localhost:5432/oms
+
+# 3. Apply the versioned migrations, then seed:
+npm run db:migrate
+npm run db:migrate:status
+npm run seed:restaurants
+```
+
+`npm run db:migrate:down` rolls back the most recent migration. The backend also runs pending migrations automatically at boot when `DB_DIALECT=postgres` (production boots migrations only — never `sync()`).
+
 ### 2. Frontend
 
 ```bash
@@ -124,9 +146,10 @@ cp .env.example .env          # root-level file for docker-compose secrets
 docker compose up --build
 ```
 
-- Backend: http://localhost:4000 · Frontend: http://localhost:5173
+- PostgreSQL 16 (`db`) · Backend: http://localhost:4000 · Frontend: http://localhost:5173
 - The frontend's nginx proxies `/api` to the backend — no CORS issues in production.
-- Containers include healthchecks; `JWT_SECRET` is **required** via the root `.env` (never hard-coded).
+- Containers include healthchecks; the backend waits for `db` healthy, then runs migrations automatically on first boot (data persists in the `pgdata` volume).
+- `JWT_SECRET` is **required** via the root `.env` (never hard-coded).
 
 ---
 
@@ -136,7 +159,13 @@ docker compose up --build
 |---|---|---|
 | `JWT_SECRET` | backend `.env` / root `.env` | Signs access tokens (min 16 chars — **never commit real values**) |
 | `PORT` | backend `.env` | API port (default 4000) |
-| `DB_STORAGE` | backend `.env` | SQLite file path (dev) |
+| `DB_STORAGE` | backend `.env` | SQLite file path (dev, default dialect) |
+| `DB_DIALECT` | backend `.env` | `sqlite` (default) or `postgres` |
+| `DATABASE_URL` | backend `.env` | PostgreSQL connection string (`postgres://user:pass@host:port/db`) |
+| `DB_HOST` / `DB_PORT` | backend `.env` | PostgreSQL host/port when not using `DATABASE_URL` |
+| `DB_NAME` / `DB_USER` / `DB_PASSWORD` | backend `.env` | PostgreSQL database/credentials when not using `DATABASE_URL` |
+| `DB_SSL` | backend `.env` | Set `1` for TLS to managed PostgreSQL (e.g. Neon) |
+| `DB_USER` / `DB_PASSWORD` / `DB_NAME` / `DB_PORT` | root `.env` | Provision the compose `db` service (defaults: `oms`/`oms`/`oms`/`5432`) |
 | `CORS_ORIGINS` | backend `.env` | Comma-separated allowed browser origins |
 | `NODE_ENV` | backend `.env` | `development` / `test` / `production` |
 | `TRUST_PROXY` | backend `.env` | Set `1` behind a reverse proxy |
@@ -150,7 +179,7 @@ docker compose up --build
 
 ```bash
 cd backend
-npm test                      # Vitest — 73 unit + integration tests
+npm test                      # Vitest — 99 unit + integration tests
 npm run test:coverage         # with coverage report
 npm run lint                  # ESLint
 
@@ -195,7 +224,7 @@ Actions tab (or `gh workflow run ci.yml`) even when GitHub's webhook-triggered e
 
 | Phase | Focus | Status |
 |---|---|---|
-| 1 | Foundation: security, tooling, tests, CI | ✅ Done |
+| 1 | Foundation: security, tooling, tests, CI + PostgreSQL stack (migration runner, PG dev service) | ✅ Done |
 | 2 | Authentication & RBAC (roles, refresh tokens, 2FA) | ✅ Done |
 | 3 | Multi-tenant workspaces + Dhaka seed data | ✅ Done |
 | 4 | Menu management (categories, variants, add-ons) — image pipeline deferred | ✅ Menu core shipped |

@@ -1,4 +1,24 @@
 services:
+  # PostgreSQL 16 — the V2 production database. Also usable standalone for
+  # local development: `docker compose up -d db` then run the backend locally
+  # with DB_DIALECT=postgres and npm run db:migrate (see backend/.env.example).
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER:-oms}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-oms}
+      POSTGRES_DB: ${DB_NAME:-oms}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-oms} -d ${DB_NAME:-oms}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
   backend:
     build: ./backend
     ports:
@@ -8,11 +28,14 @@ services:
       PORT: 4000
       # Required — set in the root .env file (see .env.example).
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in the root .env file}
-      DB_STORAGE: /data/data.sqlite
+      # PostgreSQL (migrations run automatically on boot — see backend/src/index.js).
+      DB_DIALECT: postgres
+      DATABASE_URL: postgres://${DB_USER:-oms}:${DB_PASSWORD:-oms}@db:5432/${DB_NAME:-oms}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
       TRUST_PROXY: "1"
-    volumes:
-      - ./backend/data:/data
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -29,3 +52,6 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  pgdata:

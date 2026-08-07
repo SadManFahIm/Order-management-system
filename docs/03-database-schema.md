@@ -3,7 +3,7 @@
 **Target schema for the V2 Restaurant SaaS Platform.** This document defines the fully normalized, multi-tenant PostgreSQL data model, the migration system, and the v1 → v2 data migration plan. It is the authoritative reference for the Sequelize models, the migration runner, and the seed/import services.
 
 - Companion docs: [`01-codebase-audit.md`](./01-codebase-audit.md) · [`02-v2-roadmap.md`](./02-v2-roadmap.md)
-- Status: design + Phase 1–2 slices implemented on SQLite (dev); PostgreSQL migration and per-phase tables land as the roadmap ships.
+- Status: **active.** The migration runner and migrations 001–003 are live in `backend/migrations/` (`npm run db:migrate`); a PostgreSQL 16 dev stack ships in `docker-compose.yml` (`db` service) and the backend selects its dialect via `DB_DIALECT`/`DATABASE_URL` (default stays SQLite). The DDL below remains the authoritative PostgreSQL target — the scaffold migrations are its portable subset (known SQLite quirk documented in `migrations/001_identity_auth.js`).
 
 ---
 
@@ -680,31 +680,31 @@ CREATE TRIGGER trg_users_updated_at BEFORE UPDATE ON users
 ## 7. Migrations
 
 ### Runner
-- Node-based runner, `backend/scripts/migrate.js` (npm script `npm run db:migrate`):
-  - Reads `backend/migrations/*.js` (versioned, sequential).
-  - Applies each in a transaction, recording `name` in `schema_migrations` (upsert = idempotent).
-  - Supports `down` for rollback (targeted, not automatic in CI).
-- **Dev:** `sequelize.sync()` stays for greenfield + `ensureSchemaColumns` for column adds on the legacy SQLite DB — the temporary Phase 1–2 bridge.
-- **Prod:** migrations only. `sync()` is disabled in production.
+- Node-based runner, `backend/scripts/migrate.js` — npm scripts:
+  - `npm run db:migrate` — apply all pending migrations (`up`).
+  - `npm run db:migrate:down` — roll back the most recent migration (`down --name <migration>` for a specific one; only the most recent may be rolled back).
+  - `npm run db:migrate:status` — list applied / pending.
+- Reads `backend/migrations/*.js` (versioned, sequential). Applies each inside a transaction, recording `name` in `schema_migrations` (re-runs are no-ops; completion is recorded only after a successful `up`).
+- **Boot behavior:** on PostgreSQL the app runs pending migrations automatically at startup (`src/index.js`) — `sync()` never runs on PG. On SQLite (dev bridge) `sequelize.sync()` + `ensureSchemaColumns` stay for greenfield/legacy column adds.
 
 ### Migration file contract
 
 ```js
-export const up = async (qi) => {
-  await qi.createTable('menu_items', { /* … */ });
+export const up = async (qi, transaction) => {
+  await qi.createTable('menu_items', { /* … */ }, { transaction });
 };
-export const down = async (qi) => {
-  await qi.dropTable('menu_items');
+export const down = async (qi, transaction) => {
+  await qi.dropTable('menu_items', { transaction });
 };
 ```
 
 ### Timeline of expected migrations
 
-| # | Migration | Phase |
-|---|---|---|
-| 001 | `users`, `user_tenants`, `refresh_tokens`, `auth_tokens`, `login_attempts`, `audit_logs`, `tenants` (without `plan_id`) | 2 |
-| 002 | `plans`, `subscriptions`, `feature_flags`, `usage_counters`; **`ALTER tenants ADD plan_id` FK** | 3 |
-| 003 | `menu_categories`, `menu_items`, `item_variants`, `item_addons`, `allergens`, `item_allergens`, `inventory_items` | 4 |
+| # | Migration | Phase | Status |
+|---|---|---|---|
+| 001 | `users`, `user_tenants`, `refresh_tokens`, `auth_tokens`, `login_attempts`, `audit_logs`, `tenants` (without `plan_id`) | 2 | ✅ shipped (scaffold) |
+| 002 | `plans`, `subscriptions`, `feature_flags`, `usage_counters`; **`ALTER tenants ADD plan_id` FK** | 3 | ✅ shipped (scaffold) |
+| 003 | `menu_categories`, `menu_items`, `item_variants`, `item_addons`, `allergens`, `item_allergens`, `inventory_items` | 4 | ✅ shipped (scaffold) |
 | 004 | `customers`, `favorites` | 4/5 |
 | 005 | `orders`, `order_items`, `order_item_options`, `order_status_history`, `invoices`, `reviews` | 5 |
 | 004b | `reviews` FK to `orders` (drop + re-add if 004 shipped first) | 5 |
@@ -760,7 +760,7 @@ export const down = async (qi) => {
 
 | Phase | Tables added | Notes |
 |---|---|---|
-| 1 (done) | (SQLite) legacy tables + hardening | No schema work beyond `ensureSchemaColumns`; money still FLOAT until PG switch |
+| 1 (done) | (SQLite) legacy tables + hardening; **PG stack follow-up: migration runner, migrations 001–003, `pg` driver, dialect-selectable config, PostgreSQL 16 dev service** | Money still FLOAT on SQLite until the PG switch; PG schema managed by migrations only |
 | 2 (done) | `users`+columns, `user_tenants`, `tenants`, `refresh_tokens`, `auth_tokens`, `audit_logs` (SQLite forms of 001) | Column adds via `schemaSync`; full DDL above is the PG target |
 | 3 | `plans`, `subscriptions`, `feature_flags`, `usage_counters`; harden tenant scoping | PG switch + migration 001–002 land here |
 | 4 | `menu_categories`, `menu_items`, `item_variants`, `item_addons`, `allergens`, `item_allergens`, `inventory_items` | migration 003 |

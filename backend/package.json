@@ -13,9 +13,12 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "lint": "eslint src scripts *.js",
+    "lint": "eslint src scripts migrations *.js",
     "seed:admin": "node scripts/seed-admin.js",
-    "seed:restaurants": "node scripts/seed-restaurants.js"
+    "seed:restaurants": "node scripts/seed-restaurants.js",
+    "db:migrate": "node scripts/migrate.js up",
+    "db:migrate:down": "node scripts/migrate.js down",
+    "db:migrate:status": "node scripts/migrate.js status"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -27,6 +30,8 @@
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "otplib": "^13.4.1",
+    "pg": "^8.22.0",
+    "pg-hstore": "^2.3.4",
     "qrcode": "^1.5.4",
     "sequelize": "^6.37.1",
     "sqlite3": "^6.0.1",
