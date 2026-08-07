@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>UI Redesign Mockup — Order Management System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Nunito:wght@500;700;800;900&family=Plus+Jakarta+Sans:wght@500;700;800&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: #eef0f4;
+    color: #1a1b1f;
+    padding: 24px 20px 60px;
+  }
+  .top {
+    max-width: 1440px; margin: 0 auto 28px; text-align: center;
+  }
+  .top h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; }
+  .top p { color: #565861; margin-top: 6px; font-size: 14px; }
+  .legend { display: flex; gap: 14px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
+  .legend span { font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 999px; }
+
+  .grid {
+    max-width: 1440px; margin: 0 auto;
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px;
+    align-items: start;
+  }
+  @media (max-width: 1080px) { .grid { grid-template-columns: 1fr; } }
+
+  .panel {
+    border-radius: 18px; overflow: hidden;
+    box-shadow: 0 12px 40px rgba(20, 21, 26, 0.10);
+    background: #fff; border: 1px solid #e2e4ea;
+    display: flex; flex-direction: column;
+  }
+  .panel__head { padding: 16px 18px; border-bottom: 1px solid #e6e8ee; display: flex; align-items: center; justify-content: space-between; }
+  .panel__head h2 { font-size: 16px; font-weight: 800; }
+  .panel__head small { display: block; color: #8a8d98; font-size: 11.5px; font-weight: 500; margin-top: 2px; }
+  .tag { font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 999px; letter-spacing: 0.02em; }
+  .panel__body { padding: 18px; display: flex; flex-direction: column; gap: 16px; flex: 1; }
+
+  .sect-label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #9aa0aa; }
+
+  /* ---------- swatches ---------- */
+  .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+  .sw { width: 34px; height: 34px; border-radius: 10px; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
+  .sw span { display: block; text-align: center; font-size: 9px; font-weight: 700; margin-top: 38px; color: #333; white-space: nowrap; }
+
+  /* ---------- buttons ---------- */
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-weight: 700; border-radius: 10px; padding: 0 18px; height: 40px; font-size: 13.5px; border: none; cursor: default; }
+  .btn--lg { height: 48px; width: 100%; font-size: 15px; }
+
+  /* ---------- login card ---------- */
+  .login {
+    border-radius: 16px; overflow: hidden; border: 1px solid; position: relative;
+  }
+  .login__inner { padding: 22px; display: flex; flex-direction: column; gap: 12px; }
+  .login__brand { display: flex; align-items: center; gap: 9px; justify-content: center; font-weight: 800; font-size: 17px; }
+  .login__mark { width: 30px; height: 30px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 900; color: #fff; }
+  .login__title { text-align: center; font-weight: 800; font-size: 19px; }
+  .login__sub { text-align: center; font-size: 12.5px; }
+  .login__field { display: flex; flex-direction: column; gap: 5px; }
+  .login__field label { font-size: 11.5px; font-weight: 700; }
+  .login__input { height: 42px; border-radius: 10px; border: 1.5px solid; padding: 0 13px; font-size: 13.5px; display: flex; align-items: center; color: #8a8d98; }
+  .login__link { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; }
+
+  /* ---------- dashboard row ---------- */
+  .dash { border-radius: 14px; border: 1px solid; overflow: hidden; }
+  .dash__nav { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid; }
+  .dash__pill { font-size: 11.5px; font-weight: 700; padding: 5px 12px; border-radius: 999px; }
+  .dash__spacer { flex: 1; }
+  .dash__avatar { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; color: #fff; }
+  .dash__cards { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; padding: 12px; }
+  .kpi { border-radius: 12px; padding: 11px 12px; border: 1px solid; }
+  .kpi b { display: block; font-size: 17px; font-weight: 800; }
+  .kpi small { font-size: 10.5px; font-weight: 600; opacity: 0.75; }
+
+  /* ---------- food cards ---------- */
+  .food-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+  .food {
+    border-radius: 14px; overflow: hidden; border: 1px solid; display: flex; flex-direction: column;
+  }
+  .food__img { height: 72px; display: flex; align-items: center; justify-content: center; font-size: 30px; }
+  .food__body { padding: 9px 10px 11px; }
+  .food__body b { display: block; font-size: 12.5px; font-weight: 800; }
+  .food__body small { font-size: 10.5px; opacity: 0.72; display: block; margin-top: 2px; }
+  .food__price { font-size: 12px; font-weight: 800; margin-top: 6px; display: inline-block; padding: 2px 8px; border-radius: 999px; }
+
+  /* category pills */
+  .cat-row { display: flex; gap: 7px; flex-wrap: wrap; }
+  .cat { font-size: 11.5px; font-weight: 700; padding: 7px 14px; border-radius: 999px; }
+
+  /* ============================================================
+     THEME A — CURRENT (Stripe/Linear, indigo)
+     ============================================================ */
+  .theme-a { --brand: #4f46e5; --brand-2: #9333ea; --bg: #f7f7f8; --surface: #fff; --surface2: #f4f4f6; --border: #e7e7ea; --text: #1a1b1f; --muted: #8a8d98; --green: #0f9d58; }
+  .theme-a .panel__head { background: #fafafb; }
+  .theme-a .tag { background: #eef0fb; color: #4f46e5; }
+  .theme-a .btn { background: #4f46e5; color: #fff; box-shadow: 0 1px 2px rgba(20,21,26,0.08); }
+  .theme-a .btn--ghost { background: #fff; border: 1px solid #d6d6dd; color: #1a1b1f; }
+  .theme-a .login { background: var(--surface); border-color: var(--border); box-shadow: 0 8px 30px rgba(20,21,26,0.08); }
+  .theme-a .login__mark { background: linear-gradient(135deg, #4f46e5, #9333ea); }
+  .theme-a .login__input { background: #fff; border-color: #d6d6dd; }
+  .theme-a .login__link { color: #4f46e5; }
+  .theme-a .dash { background: #fff; border-color: var(--border); }
+  .theme-a .dash__nav { background: rgba(255,255,255,0.85); }
+  .theme-a .dash__pill--active { background: #eef0fb; color: #4f46e5; }
+  .theme-a .dash__pill { color: #565861; }
+  .theme-a .dash__avatar { background: linear-gradient(135deg, #4f46e5, #9333ea); }
+  .theme-a .kpi { background: #fafafb; border-color: var(--border); }
+  .theme-a .food { background: #fff; border-color: var(--border); }
+  .theme-a .food__img { background: linear-gradient(135deg, #f4f4f6, #ececf0); }
+  .theme-a .food__price { background: #eef0fb; color: #4f46e5; }
+  .theme-a .cat { background: #fff; border: 1px solid var(--border); color: #565861; }
+  .theme-a .cat--active { background: #1a1b1f; color: #fff; }
+
+  /* ============================================================
+     THEME B — WOLT-style (cyan/blue, playful, vibrant)
+     ============================================================ */
+  .theme-b {
+    --brand: #009de0; --brand-2: #00c2ff; --accent: #ff8000; --bg: #f4f9fc;
+    --surface: #fff; --surface2: #eaf6fd; --border: #d9ecf7; --text: #0f2a3a; --muted: #5f7d90; --green: #00a862;
+    font-family: 'Nunito', 'Inter', sans-serif;
+  }
+  .theme-b .panel__head { background: #fff; }
+  .theme-b .tag { background: #e0f2fc; color: #009de0; }
+  .theme-b .btn { background: linear-gradient(180deg, #00b2f0, #009de0); color: #fff; border-radius: 12px; box-shadow: 0 4px 14px rgba(0,157,224,0.35); font-family: inherit; }
+  .theme-b .btn--ghost { background: #fff; border: 1.5px solid #b8dff2; color: #009de0; box-shadow: none; }
+  .theme-b .login { background: var(--surface); border-color: var(--border); border-radius: 20px; box-shadow: 0 12px 40px rgba(0,157,224,0.14); }
+  .theme-b .login__mark { background: linear-gradient(135deg, #009de0, #00c2ff); border-radius: 12px; }
+  .theme-b .login__title { font-weight: 900; }
+  .theme-b .login__input { background: #f7fcff; border-color: #cbe6f5; border-radius: 12px; }
+  .theme-b .login__link { color: #009de0; }
+  .theme-b .dash { background: #fff; border-color: var(--border); border-radius: 16px; }
+  .theme-b .dash__nav { background: #fff; }
+  .theme-b .dash__pill--active { background: #e0f2fc; color: #009de0; }
+  .theme-b .dash__pill { color: #2b566e; }
+  .theme-b .dash__avatar { background: linear-gradient(135deg, #ff8000, #ff9d3f); }
+  .theme-b .kpi { background: #fff; border-color: var(--border); border-radius: 14px; }
+  .theme-b .kpi b { color: #0f2a3a; }
+  .theme-b .food { background: #fff; border-color: var(--border); border-radius: 16px; }
+  .theme-b .food__img { background: linear-gradient(135deg, #eaf6fd, #d9eef9); }
+  .theme-b .food__price { background: #e0f2fc; color: #009de0; border-radius: 999px; }
+  .theme-b .cat { background: #fff; border: 1.5px solid #cbe6f5; color: #2b566e; }
+  .theme-b .cat--active { background: linear-gradient(180deg, #00b2f0, #009de0); color: #fff; border-color: transparent; box-shadow: 0 3px 10px rgba(0,157,224,0.3); }
+
+  /* ============================================================
+     THEME C — DELIVEROO-style (teal/green, friendly, light)
+     ============================================================ */
+  .theme-c {
+    --brand: #00ccbc; --brand-2: #00e0cf; --accent: #f5d300; --bg: #f5fbfa;
+    --surface: #fff; --surface2: #e6f7f4; --border: #cdeee9; --text: #133b36; --muted: #5f7a76; --green: #00a862;
+    font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+  }
+  .theme-c .panel__head { background: #fff; }
+  .theme-c .tag { background: #e0f5f2; color: #009e92; }
+  .theme-c .btn { background: #00ccbc; color: #0b2b27; border-radius: 14px; box-shadow: 0 4px 14px rgba(0,204,188,0.3); font-family: inherit; font-weight: 800; }
+  .theme-c .btn--ghost { background: #fff; border: 1.5px solid #bfe7e1; color: #009e92; box-shadow: none; }
+  .theme-c .login { background: var(--surface); border-color: var(--border); border-radius: 22px; box-shadow: 0 12px 40px rgba(0,160,146,0.12); }
+  .theme-c .login__mark { background: #00ccbc; color: #0b2b27; border-radius: 14px; }
+  .theme-c .login__title { font-weight: 800; }
+  .theme-c .login__input { background: #f7fcfb; border-color: #c4e8e2; border-radius: 12px; }
+  .theme-c .login__link { color: #009e92; }
+  .theme-c .dash { background: #fff; border-color: var(--border); border-radius: 16px; }
+  .theme-c .dash__nav { background: #fff; }
+  .theme-c .dash__pill--active { background: #e0f5f2; color: #009e92; }
+  .theme-c .dash__pill { color: #2c5a54; }
+  .theme-c .dash__avatar { background: #00ccbc; color: #0b2b27; }
+  .theme-c .kpi { background: #fff; border-color: var(--border); border-radius: 14px; }
+  .theme-c .food { background: #fff; border-color: var(--border); border-radius: 18px; }
+  .theme-c .food__img { background: linear-gradient(135deg, #e6f7f4, #d2f0eb); }
+  .theme-c .food__price { background: #e0f5f2; color: #009e92; border-radius: 999px; }
+  .theme-c .cat { background: #fff; border: 1.5px solid #bfe7e1; color: #2c5a54; }
+  .theme-c .cat--active { background: #00ccbc; color: #0b2b27; border-color: transparent; box-shadow: 0 3px 10px rgba(0,204,188,0.3); }
+
+  .note { font-size: 11.5px; color: #8a8d98; line-height: 1.55; margin-top: 2px; }
+  .verdict { margin-top: auto; padding-top: 14px; }
+  .verdict .tag { display: inline-block; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+
+  <div class="top">
+    <h1>🎨 UI Redesign Mockup — Order Management System</h1>
+    <p>Side-by-side comparison: current design vs two Wolt/Deliveroo-inspired directions. Pick the one you like — I'll apply it to the whole app.</p>
+    <div class="legend">
+      <span style="background:#eef0fb;color:#4f46e5">A · Current (indigo)</span>
+      <span style="background:#e0f2fc;color:#009de0">B · Wolt-style (cyan)</span>
+      <span style="background:#e0f5f2;color:#009e92">C · Deliveroo-style (teal)</span>
+    </div>
+  </div>
+
+  <div class="grid">
+
+    <!-- ============ THEME A ============ -->
+    <section class="panel theme-a">
+      <div class="panel__head">
+        <div>
+          <h2>A · Current</h2>
+          <small>Stripe/Linear-inspired · indigo #4f46e5 · Inter</small>
+        </div>
+        <span class="tag">NOW</span>
+      </div>
+      <div class="panel__body">
+
+        <div>
+          <div class="sect-label" style="margin-bottom:8px">Color palette</div>
+          <div class="swatches">
+            <div class="sw" style="background:#4f46e5"><span>primary</span></div>
+            <div class="sw" style="background:#9333ea"><span>accent</span></div>
+            <div class="sw" style="background:#f7f7f8;border:1px solid #e2e4ea"><span>bg</span></div>
+            <div class="sw" style="background:#1a1b1f"><span>text</span></div>
+            <div class="sw" style="background:#0f9d58"><span>success</span></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="sect-label" style="margin-bottom:8px">Buttons</div>
+          <div class="btns">
+            <span class="btn">Primary</span>
+            <span class="btn btn--ghost">Secondary</span>
+          </div>
+        </div>
+
+        <div>
+          <div class="sect-label" style="margin-bottom:8px">Login card</div>
+          <div class="login">
+            <div class="login__inner">
+              <div class="login__brand"><span class="login__mark">OMS</span> Orderly</div>
+              <div class="login__title">Welcome back</div>
+              <div class="login__sub" style="color:var(--muted)">Sign in to your workspace to continue.</div>
+              <div class="login__field"><label>Email</label><div class="login__input">you@restaurant.com</div></div>
+              <div class="login__field"><label>Password</label><div class="login__input">••••••••</div></div>
+              <span class="btn btn--lg">Sign in</span>
+              <div class="login__link"><span>Create account</span><span>Forgot password?</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="sect-label" style="margin-bottom:8px">Dashboard</div>
+          <div class="dash">
+            <div class="dash__nav">
+              <span class="dash__pill dash__pill--active">Dashboard</span>
+              <span class="dash__pill">Menu</span>
+              <span class="dash__pill">Orders</span>
+              <span class="dash__pill">Promotions</span>
+              <div class="dash__spacer"></div>
+              <span class="dash__avatar">SF</span>
+            </div>
+            <div class="dash__cards">
+              <div class="kpi"><b>৳ 47,250</b><small>Revenue today</small></div>
+              <div class="kpi"><b>128</b><small>Orders</small></div>
+              <div class="kpi"><b>4.6 ★</b><small>Avg rating</small></div>
+            </div>
+            <div class="food-row" style="padding:0 12px 12px">
+              <div class="food"><div class="food__img">🍔</div><div class="food__body"><b>Zinger Burger</b><small>KFC</small><span class="food__price">৳ 260</span></div></div>
+              <div class="food"><div class="food__img">🍕</div><div class="food__body"><b>Pepperoni</b><small>Pizza Hut</small><span class="food__price">৳ 890</span></div></div>
+              <div class="food"><div class="food__img">🍗</div><div class="food__body"><b>Chillox Combo</b><small>Chillox</small><span class="food__price">৳ 420</span></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="verdict">
+          <span class="tag">Assessment</span>
+          <p class="note">Clean &amp; professional, but reads as corporate SaaS — flat, muted, and short on food-delivery energy.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ THEME B ============ -->
+    <section class="panel theme-b">
+      <div class="panel__head">
+        <div>
+          <h2>B · Wolt-style</h2>
+          <small>Cyan #009de0 · Nunito rounded · vibrant &amp; playful</small>
+        </div>
+        <span class="tag">NEW ✨</span>
+      </div>
+      <div class="panel__body">
+
+        <div>
+          <div class="sect-label" style="margin-bottom:8px">Color palette</div>
+          <div class="swatches">
+            <div class="sw" style="background:#009de0"><span>primary</span></div>
+            <div class="sw" style="background:#00c2ff"><span>cyan</span></div>
+            <div class="sw" style="background:#ff8000"><span>accent</span></div>
+            <div class="sw" style="background:#f4f9fc;border:1px solid #d9ecf7"><span>bg</span></div>
+            <div class="sw" style="background:#0f2a3a"><span>text</span></div>
+            <div class="sw" style="background:#00a862"><span>success</span></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="sect-label" style="margin-bottom:8px">Buttons — rounded &amp; bold</div>
+          <div class="btns">
+            <span class="btn">Add to cart</span>
+            <span class="btn btn--ghost">View menu</span>
+          </div>
+        </div>
+
+        <div>
+          <div class="sect-label" style="margin-bottom:8px">Login card</div>
+          <div class="login">
+            <div class="login__inner">
+              <div class="login__brand"><span class="login__mark">OMS</span> Orderly</div>
+              <div class="login__title">Welcome back 👋</div>
+              <div class="login__sub" style="color:var(--muted)">Your kitchen is waiting for you.</div>
+              <div class="login__field"><label>Email</label><div class="login__input">you@restaurant.com</div></div>
+              <div class="login__field"><label>Password</label><div class="login__input">••••••••</div></div>
+              <span class="btn btn--lg">Sign in</span>
+              <div class="login__link"><span>Create account</span><span>Forgot password?</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="sect-label" style="margin-bottom:8px">Dashboard — category pills + cards</div>
+          <div class="dash">
+            <div class="dash__nav">
+              <span class="dash__pill dash__pill--active">Dashboard</span>
+              <span class="dash__pill">Menu</span>
+              <span class="dash__pill">Orders</span>
+              <span class="dash__pill">Promotions</span>
+              <div class="dash__spacer"></div>
+              <span class="dash__avatar">SF</span>
+            </div>
+            <div class="dash__cards">
+              <div class="kpi"><b>৳ 47,250</b><small>Revenue today</small></div>
+              <div class="kpi"><b>128</b><small>Orders</small></div>
+              <div class="kpi"><b>4.6 ★</b><small>Avg rating</small></div>
+            </div>
+            <div style="padding:0 12px 8px">
+              <div class="cat-row">
+                <span class="cat cat--active">All</span>
+                <span class="cat">Burgers</span>
+                <span class="cat">Pizza</span>
+                <span class="cat">Biriyani</span>
+                <span class="cat">Drinks</span>
+              </div>
+            </div>
+            <div class="food-row" style="padding:0 12px 12px">
+              <div class="food"><div class="food__img">🍔</div><div class="food__body"><b>Zinger Burger</b><small>KFC</small><span class="food__price">৳ 260</span></div></div>
+              <div class="food"><div class="food__img">🍕</div><div class="food__body"><b>Pepperoni</b><small>Pizza Hut</small><span class="food__price">৳ 890</span></div></div>
+              <div class="food"><div class="food__img">🍗</div><div class="food__body"><b>Chillox Combo</b><small>Chillox</small><span class="food__price">৳ 420</span></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="verdict">
+          <span class="tag">Assessment</span>
+          <p class="note">Bold cyan + orange, rounded Nunito type, pill categories, gradient buttons — energetic and instantly "food delivery".</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ THEME C ============ -->
+    <section class="panel theme-c">
+      <div class="panel__head">
+        <div>
+          <h2>C · Deliveroo-style</h2>
+          <small>Teal #00ccbc · Plus Jakarta · friendly &amp; warm</small>
+        </div>
+        <span class="tag">NEW ✨</span>
+      </div>
+      <div class="panel__body">
+
+        <div>
+          <div class="sect-label" style="margin-bottom:8px">Color palette</div>
+          <div class="swatches">
+            <div class="sw" style="background:#00ccbc"><span>primary</span></div>
+            <div class="sw" style="background:#00e0cf"><span>mint</span></div>
+            <div class="sw" style="background:#f5d300"><span>accent</span></div>
+            <div class="sw" style="background:#f5fbfa;border:1px solid #cdeee9"><span>bg</span></div>
+            <div class="sw" style="background:#133b36"><span>text</span></div>
+            <div class="sw" style="background:#00a862"><span>success</span></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="sect-label" style="margin-bottom:8px">Buttons — friendly &amp; wide</div>
+          <div class="btns">
+            <span class="btn">Order now</span>
+            <span class="btn btn--ghost">Browse menu</span>
+          </div>
+        </div>
+
+        <div>
+          <div class="sect-label" style="margin-bottom:8px">Login card</div>
+          <div class="login">
+            <div class="login__inner">
+              <div class="login__brand"><span class="login__mark">OMS</span> Orderly</div>
+              <div class="login__title">Welcome back</div>
+              <div class="login__sub" style="color:var(--muted)">Let's get your orders flowing.</div>
+              <div class="login__field"><label>Email</label><div class="login__input">you@restaurant.com</div></div>
+              <div class="login__field"><label>Password</label><div class="login__input">••••••••</div></div>
+              <span class="btn btn--lg">Sign in</span>
+              <div class="login__link"><span>Create account</span><span>Forgot password?</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="sect-label" style="margin-bottom:8px">Dashboard — soft cards</div>
+          <div class="dash">
+            <div class="dash__nav">
+              <span class="dash__pill dash__pill--active">Dashboard</span>
+              <span class="dash__pill">Menu</span>
+              <span class="dash__pill">Orders</span>
+              <span class="dash__pill">Promotions</span>
+              <div class="dash__spacer"></div>
+              <span class="dash__avatar">SF</span>
+            </div>
+            <div class="dash__cards">
+              <div class="kpi"><b>৳ 47,250</b><small>Revenue today</small></div>
+              <div class="kpi"><b>128</b><small>Orders</small></div>
+              <div class="kpi"><b>4.6 ★</b><small>Avg rating</small></div>
+            </div>
+            <div class="food-row" style="padding:0 12px 12px">
+              <div class="food"><div class="food__img">🍔</div><div class="food__body"><b>Zinger Burger</b><small>KFC</small><span class="food__price">৳ 260</span></div></div>
+              <div class="food"><div class="food__img">🍕</div><div class="food__body"><b>Pepperoni</b><small>Pizza Hut</small><span class="food__price">৳ 890</span></div></div>
+              <div class="food"><div class="food__img">🍗</div><div class="food__body"><b>Chillox Combo</b><small>Chillox</small><span class="food__price">৳ 420</span></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="verdict">
+          <span class="tag">Assessment</span>
+          <p class="note">Teal + warm yellow, softer radius, trustworthy and calm — a middle ground that still feels like food delivery.</p>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+</body>
+</html>
