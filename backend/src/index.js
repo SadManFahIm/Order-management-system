@@ -1,14 +1,22 @@
 import app from './app.js';
 import sequelize from './config/db.js';
 import { env } from './config/env.js';
+import { migrateUp } from '../scripts/migrate.js';
 import { ensureSchemaColumns, ensureBootstrapData } from './config/schemaSync.js';
 
 async function start() {
   try {
-    // Create missing tables (safe: no alter). Columns added to pre-existing
-    // tables are handled idempotently by ensureSchemaColumns.
-    await sequelize.sync();
-    await ensureSchemaColumns();
+    if (env.DB_DIALECT === 'postgres') {
+      // PostgreSQL: schema is managed by the versioned migration runner only
+      // (roadmap §1 — sync() is disabled outside the SQLite dev bridge).
+      const applied = await migrateUp(sequelize);
+      console.log(`[boot] migrations checked (${applied} applied)`);
+    } else {
+      // SQLite dev bridge: create missing tables (safe: no alter). Columns
+      // added to pre-existing tables are handled by ensureSchemaColumns.
+      await sequelize.sync();
+      await ensureSchemaColumns();
+    }
     // Plans, default tenant, and legacy-user memberships (idempotent).
     await ensureBootstrapData();
 

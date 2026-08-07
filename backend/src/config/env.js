@@ -15,6 +15,21 @@ const envSchema = z.object({
     .string()
     .min(16, 'JWT_SECRET must be set and at least 16 characters long'),
   DB_STORAGE: z.string().default('./data.sqlite'),
+  // Database dialect. SQLite is the zero-config dev default; PostgreSQL is
+  // the V2 target (docker-compose `db` service, production).
+  DB_DIALECT: z.enum(['sqlite', 'postgres']).default('sqlite'),
+  // PostgreSQL connection. Prefer DATABASE_URL; the discrete DB_* variables
+  // are used as a fallback (and by docker-compose to provision the db service).
+  DATABASE_URL: z.string().optional(),
+  DB_HOST: z.string().default('localhost'),
+  DB_PORT: z.coerce.number().int().positive().default(5432),
+  DB_NAME: z.string().default('oms'),
+  DB_USER: z.string().default('oms'),
+  DB_PASSWORD: z.string().default('oms'),
+  DB_SSL: z
+    .string()
+    .optional()
+    .transform((v) => v === '1' || v === 'true'),
   CORS_ORIGINS: z
     .string()
     .default('http://localhost:5173,http://localhost:5174'),

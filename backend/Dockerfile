@@ -10,6 +10,7 @@ RUN npm ci --omit=dev
 
 COPY src ./src
 COPY scripts ./scripts
+COPY migrations ./migrations
 
 # Writable data volume for the non-root user (SQLite in dev).
 RUN mkdir -p /data && chown -R node:node /app /data
