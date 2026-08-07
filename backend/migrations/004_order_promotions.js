@@ -131,7 +131,9 @@ export const up = async (qi, transaction) => {
         onDelete: 'SET NULL',
       },
       item_name: { type: DataTypes.STRING(255), allowNull: false },
-      quantity: { type: DataTypes.SMALLINT, allowNull: false },
+      // INTEGER (not SMALLINT) — matches the v1 OrderItem model and avoids
+      // PG's refusal to bind int4 parameters into smallint columns.
+      quantity: { type: DataTypes.INTEGER, allowNull: false },
       unit_amount: { type: DataTypes.DECIMAL(12, 2), allowNull: false },
       discount_amount: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0 },
       line_amount: { type: DataTypes.DECIMAL(12, 2), allowNull: false },

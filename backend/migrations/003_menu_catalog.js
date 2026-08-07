@@ -64,7 +64,9 @@ export const up = async (qi, transaction) => {
         allowNull: false,
         defaultValue: 0,
       },
-      prep_minutes: { type: DataTypes.SMALLINT, allowNull: true },
+      // INTEGER (not SMALLINT) — matches the v1 Product model and avoids
+      // PG's refusal to bind int4 parameters into smallint columns.
+      prep_minutes: { type: DataTypes.INTEGER, allowNull: true },
       nutrition: { type: DataTypes.JSONB, allowNull: false, defaultValue: {} },
       ingredients: { type: DataTypes.JSONB, allowNull: false, defaultValue: [] },
       is_available: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
@@ -127,7 +129,7 @@ export const up = async (qi, transaction) => {
       group_name: { type: DataTypes.STRING(120), allowNull: false },
       option_name: { type: DataTypes.STRING(120), allowNull: false },
       price: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0 },
-      max_qty: { type: DataTypes.SMALLINT, allowNull: false, defaultValue: 1 },
+      max_qty: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
       sort_order: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
       created_at: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
     },

@@ -181,7 +181,7 @@ export async function runV1ToV2Migration({
       await insertOne(
         target,
         `INSERT INTO menu_categories (tenant_id, name, sort_order, is_active, created_at, updated_at)
-         VALUES (:tenant_id, :name, 0, 1, :now, :now)`,
+         VALUES (:tenant_id, :name, 0, TRUE, :now, :now)`,
         { tenant_id: tenantId, name: GENERAL_CATEGORY, now: now() },
         t
       );
