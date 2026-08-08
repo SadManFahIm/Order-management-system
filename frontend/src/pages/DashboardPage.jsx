@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import api from '../api';
 import { useI18n } from '../i18n';
 import { PageHeader, Card, Skeleton, Badge } from '../components/ui';
+import { TrendAreaChart, OrdersBarChart, StatusDonut } from '../components/charts';
 
-const fmt = (n) => `৳ ${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+const fmtTaka = (n) => `৳ ${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
 export default function DashboardPage() {
   const { t } = useI18n();
@@ -48,17 +49,24 @@ export default function DashboardPage() {
             <Skeleton key={i} height={110} />
           ))}
         </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginTop: 16 }}>
+          <Skeleton height={280} />
+          <Skeleton height={280} />
+        </div>
       </div>
     );
   }
 
   const maxQty = Math.max(...data.topItems.map((x) => x.quantity), 1);
   const stats = [
-    { label: t('dash.todayRevenue'), value: fmt(data.today.revenue), tone: 'success' },
+    { label: t('dash.todayRevenue'), value: fmtTaka(data.today.revenue), tone: 'success' },
     { label: t('dash.todayOrders'), value: String(data.today.orders) },
     { label: t('dash.openOrders'), value: String(data.openOrders), tone: 'warning' },
     { label: t('dash.menuItems'), value: String(data.totalProducts) },
   ];
+
+  const weekRevenue = (data.trend || []).reduce((s, d) => s + (Number(d.revenue) || 0), 0);
+  const weekOrders = (data.trend || []).reduce((s, d) => s + (Number(d.orders) || 0), 0);
 
   return (
     <div className="oms-page">
@@ -94,49 +102,83 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Top items */}
-      <div style={{ marginTop: 16 }}>
-      <Card title={t('dash.topItems')} subtitle="By quantity, latest 500 line items.">
-        {data.topItems.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>
-            {t('dash.noData')}
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gap: 14 }}>
-            {data.topItems.map((item) => (
-              <div key={item.name}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-                  <span style={{ fontWeight: 650 }}>{item.name}</span>
-                  <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                    {item.quantity} sold · {fmt(item.revenue)}
-                  </span>
-                </div>
-                <div
-                  style={{
-                    height: 8,
-                    borderRadius: 999,
-                    background: 'var(--surface-2)',
-                    overflow: 'hidden',
-                  }}
-                >
+      {/* 7-day analytics — revenue trend + order volume */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
+          gap: 16,
+          marginTop: 16,
+        }}
+      >
+        <Card
+          title={t('dash.revenueTrend')}
+          subtitle={`${t('dash.last7Days')} · ${fmtTaka(weekRevenue)} ${t('dash.total')}`}
+        >
+          <TrendAreaChart data={data.trend || []} />
+        </Card>
+        <Card
+          title={t('dash.orderVolume')}
+          subtitle={`${t('dash.last7Days')} · ${weekOrders} ${t('dash.ordersTotal')}`}
+        >
+          <OrdersBarChart data={data.trend || []} />
+        </Card>
+      </div>
+
+      {/* Status breakdown + top items */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
+          gap: 16,
+          marginTop: 16,
+        }}
+      >
+        <Card title={t('dash.statusBreakdown')} subtitle={t('dash.statusSub')}>
+          <StatusDonut data={data.statusBreakdown || []} />
+        </Card>
+
+        <Card title={t('dash.topItems')} subtitle={t('dash.topItemsSub')}>
+          {data.topItems.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>
+              {t('dash.noData')}
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: 14 }}>
+              {data.topItems.map((item) => (
+                <div key={item.name}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+                    <span style={{ fontWeight: 650 }}>{item.name}</span>
+                    <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                      {item.quantity} sold · {fmtTaka(item.revenue)}
+                    </span>
+                  </div>
                   <div
                     style={{
-                      height: '100%',
-                      width: `${Math.max((item.quantity / maxQty) * 100, 4)}%`,
+                      height: 8,
                       borderRadius: 999,
-                      background: 'linear-gradient(90deg, var(--primary), #00e0cf)',
-                      transition: 'width .5s var(--ease-out)',
+                      background: 'var(--surface-2)',
+                      overflow: 'hidden',
                     }}
-                  />
+                  >
+                    <div
+                      style={{
+                        height: '100%',
+                        width: `${Math.max((item.quantity / maxQty) * 100, 4)}%`,
+                        borderRadius: 999,
+                        background: 'linear-gradient(90deg, var(--primary), var(--accent))',
+                        transition: 'width .5s var(--ease-out)',
+                      }}
+                    />
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
+          )}
+          <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+            <Badge tone="neutral">Phase 7: full analytics</Badge>
           </div>
-        )}
-        <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
-          <Badge tone="neutral">Phase 7: full analytics</Badge>
-        </div>
-      </Card>
+        </Card>
       </div>
     </div>
   );

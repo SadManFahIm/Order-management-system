@@ -6,7 +6,7 @@
 
 The Order Management System is evolving from a single-tenant order CRUD app into a commercial, cloud-based **restaurant ordering SaaS** for the Dhaka market (KFC, Pizza Hut, Domino's, Chillox, Sultan's Dine, Star Kabab, Madchef, and hundreds more — all data-driven, never hard-coded). This repository is the **V2 platform**: security hardening, multi-tenancy, RBAC, engineering tooling, testing, CI/CD, and a growing customer-facing storefront — built incrementally on the existing, working v1 features.
 
-**Current status:** Phases 1–4 **done** ✅ (incl. Phase 4 completion round 2: XLSX import, soft delete + optimistic locking, public menu pagination, inventory, merchant dashboard) · Phase 5 (ordering & fulfillment) **foundation shipped** ✅ — order status workflow, Bangla i18n, and the Deliveroo-style design system are live; the customer-facing checkout flow is the next sprint.
+**Current status:** Phases 1–4 **done** ✅ (incl. Phase 4 completion rounds 2 & 3: XLSX import, soft delete + optimistic locking, public menu pagination, inventory, merchant dashboard with live analytics charts, CRAV-style landing page, and per-tenant storefront branding) · Phase 5 (ordering & fulfillment) **foundation shipped** ✅ — order status workflow, Bangla i18n, and the Deliveroo-style design system are live; the customer-facing checkout flow is the next sprint.
 
 ---
 
@@ -17,7 +17,7 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 | **Phase 1** — Foundation | Security hardening (Helmet, CORS, rate limiting, zod validation, central errors), hotfix wave, PostgreSQL stack (migration runner, migrations 001–005, PG dev service), CI/CD pipeline | Backend + PG CI jobs green |
 | **Phase 2** — Auth & RBAC | Register/login/verify/reset flows, rotating refresh tokens with reuse detection, TOTP 2FA, role-based access control (admin/owner/manager/cashier/kitchen/delivery), session management | Full auth + RBAC test suites |
 | **Phase 3** — Multi-tenant SaaS | Tenant workspaces, team members & roles, plans/subscriptions/feature flags, tenant-scoping middleware (fail-closed isolation), CSRF protection, Dhaka seed data (20 workspaces, 89 menu items) | Tenant isolation + CSRF suites |
-| **Phase 4** — Menu & Media | Menu catalog (categories/variants/add-ons), image pipeline (sharp → WebP, S3-compatible storage, CDN-ready), bulk **CSV + XLSX** import, public menu API with HTTP caching + pagination, **DELETE endpoints**, **soft delete + optimistic locking**, **inventory**, **merchant dashboard**, **MinIO S3 test tier in CI** | 20 suites · 180 tests passing |
+| **Phase 4** — Menu & Media | Menu catalog (categories/variants/add-ons), image pipeline (sharp → WebP, S3-compatible storage, CDN-ready), bulk **CSV + XLSX** import, public menu API with HTTP caching + pagination, **DELETE endpoints**, **soft delete + optimistic locking**, **inventory**, **merchant dashboard with analytics charts**, **CRAV-style landing page**, **per-tenant storefront branding**, **MinIO S3 test tier in CI** | 20 suites · 187 tests passing |
 | **Phase 5 (foundation)** — Ordering | **Order fulfillment workflow** (placed → preparing → ready → delivered, role-gated, cancel rules), **English/Bangla i18n toggle**, Deliveroo-inspired design system | 11 new order workflow tests · live UI verified |
 
 ---
@@ -62,7 +62,14 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 
 **Inventory (Phase 4 completion)**
 - `inventory_items` snapshots per menu item (stock qty, low-stock threshold, unit) — set via product create/edit or `PATCH /api/products/:id/inventory`; low-stock items get a warning badge in the Products table
-- **Merchant dashboard** — `GET /api/dashboard`: today's revenue, order count, pending/ready orders, and top-selling items with 7-day trends; the new home screen after login (role-aware: kitchen/delivery see order stats, managers see revenue)
+
+**Analytics dashboard (Phase 4 R3)**
+- `GET /api/dashboard` returns today's revenue/orders, open fulfillment load, **top items**, a **zero-filled 7-day revenue & order-volume trend**, and a **status breakdown** over the same window — all tenant-scoped
+- The dashboard renders it with a **dependency-free SVG chart kit** (area trend with draw-in animation + hover readout, rounded order bars, status donut) that adapts to light/dark and per-tenant brand accents; `npm run seed:orders` backfills a realistic 7-day history so charts are live on a fresh install
+
+**Marketing site & per-tenant branding (Phase 4 R3)**
+- **CRAV-style landing page** at `/` — animated gradient hero with floating food orbs, brand marquee, how-it-works steps, feature grid, phone storefront mockup, and scroll-reveal animations (reduced-motion aware), all on the light/dark design tokens
+- **Per-tenant brand theming** — each workspace stores a `brand` theme (`primaryColor`, `accentColor`, `tagline`, `announcement`, logo) in its settings; the **public storefront** (`/m/:slug`) themes its hero, chips and buttons from it, and the new **Settings → Storefront branding** editor (colour pickers + quick presets + live preview) updates it instantly; only public-safe brand fields ever leave the API
 
 **Localization (Phase 5 foundation)**
 - **English/Bangla i18n toggle** — dependency-free `I18nProvider` with EN/BN dictionaries, localStorage persistence, `<html lang>` sync, and graceful English fallback for untranslated keys; nav, login, page headers, order statuses, and action buttons all switch instantly — a key differentiator for the Dhaka market
@@ -130,7 +137,7 @@ Customer storefront checkout & tracking · CRAV-inspired landing page + per-tena
 │   │   ├── routes/           # auth, products, promotions, orders, menu, uploads, public, dashboard
 │   │   ├── utils/            # promotion engine, pagination
 │   │   ├── test/             # Test environment setup
-│   │   └── __tests__/        # 20 suites · 180 tests
+│   │   └── __tests__/        # 20 suites · 187 tests
 │   ├── migrations/           # Versioned schema migrations (001–005)
 │   ├── scripts/              # CLI utilities (seed, migrate runner, v1→v2 copy)
 │   └── Dockerfile
@@ -269,7 +276,7 @@ Full media/import/S3 setup details: [`docs/05-media-import-public-menu.md`](docs
 
 ```bash
 cd backend
-npm test                      # Vitest — 180 tests across 20 suites (2 S3 tests skip locally, run in CI/MinIO)
+npm test                      # Vitest — 187 tests across 20 suites (2 S3 tests skip locally, run in CI/MinIO)
 npm run test:coverage         # with coverage report
 npm run lint                  # ESLint
 
@@ -323,7 +330,7 @@ The workflow exposes a `workflow_dispatch` trigger so CI can always be run manua
 | **2** | Authentication & RBAC | Register/login/verify/reset, rotating refresh tokens + reuse detection, TOTP 2FA, 6-role RBAC, session management | ✅ **Done** |
 | **3** | Multi-tenant SaaS | Tenant workspaces + members/roles, tenant-scoping middleware (fail-closed), CSRF protection, Dhaka seed data (20 workspaces, 89 items) | ✅ **Done** |
 | **4** | Menu & Media | Menu catalog (categories/variants/add-ons), image pipeline (sharp → WebP, S3/CDN), bulk **CSV + XLSX** import, public menu API, **delete endpoints, HTTP caching + pagination, soft delete + optimistic locking, inventory, merchant dashboard, MinIO CI tier** | ✅ **Done** |
-| **5** | Ordering & fulfillment | **✅ Shipped:** order status workflow (role-gated transitions, cancel rules), English/Bangla i18n, Deliveroo design system · **⬜ Next sprints:** storefront checkout (cart → order → tracking), CRAV-inspired landing page, per-tenant brand theming, QR table menus, WhatsApp notifications | 🟡 **In progress** |
+| **5** | Ordering & fulfillment | **✅ Shipped:** order status workflow (role-gated transitions, cancel rules), English/Bangla i18n, Deliveroo design system, CRAV-inspired landing page, per-tenant brand theming · **⬜ Next sprints:** storefront checkout (cart → order → tracking), QR table menus, WhatsApp notifications | 🟡 **In progress** |
 | **6** | Payments | bKash, Nagad, SSLCommerz, Stripe — tender tracking + split payments | ⬜ Planned |
 | **7** | Analytics | Merchant dashboard — revenue, peak hours, top items, daily closeout | ⬜ Planned |
 | **8** | Admin portal & SaaS ops | Platform admin console, subscription management, invoicing (VAT/NBR-ready) | ⬜ Planned |

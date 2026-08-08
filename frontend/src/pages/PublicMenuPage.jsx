@@ -5,8 +5,9 @@ import { Skeleton } from '../components/ui';
 
 /**
  * Public storefront menu (Phase 4) — consumes the read-only public API
- * (`/api/public/restaurants/:slug/menu`), no auth required. A taste of the
- * Wolt/Deliveroo-style customer experience for any active restaurant.
+ * (`/api/public/restaurants/:slug/menu`), no auth required. Since Phase 4 R3
+ * the page themes itself from the tenant's brand settings (colours +
+ * tagline) so every workspace looks like its own brand.
  */
 const PAGE_SIZE = 50;
 
@@ -25,6 +26,10 @@ const mergeCategories = (existing, incoming) => {
   }
   return [...map.values()];
 };
+
+/** Safe hex or a sensible default — storefront never breaks on odd brand data. */
+const brandColor = (value, fallback) =>
+  /^#[0-9a-fA-F]{6}$/.test(value || '') ? value : fallback;
 
 export default function PublicMenuPage() {
   const { slug } = useParams();
@@ -114,15 +119,19 @@ export default function PublicMenuPage() {
   }
 
   const { restaurant, categories } = state.data;
+  const brand = restaurant.brand || {};
+  const primary = brandColor(brand.primaryColor, '#00b3a5');
+  const accent = brandColor(brand.accentColor, '#f5d300');
   const active = categories.find((c) => c.id === activeCat) || categories[0];
   const price = (n) => `৳ ${Number(n).toFixed(2)}`;
+  const catCount = categories.filter((c) => c.items.length > 0).length;
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg, #f5fbfa)' }}>
-      {/* Hero — Deliveroo-style teal gradient */}
+    <div style={{ minHeight: '100vh', background: 'var(--bg, #f5fbfa)', '--brand': primary, '--brand-accent': accent }}>
+      {/* Hero — themed by the tenant's brand settings */}
       <div
         style={{
-          background: 'linear-gradient(135deg, #008a7f 0%, #00b3a5 55%, #00e0cf 100%)',
+          background: `linear-gradient(135deg, var(--brand) 0%, color-mix(in srgb, var(--brand) 58%, var(--brand-accent)) 100%)`,
           color: '#fff',
           padding: '52px 20px 40px',
           position: 'relative',
@@ -132,7 +141,7 @@ export default function PublicMenuPage() {
         <div
           style={{
             position: 'absolute', right: -60, top: -60, width: 260, height: 260, borderRadius: '50%',
-            background: 'rgba(245, 211, 0, 0.18)',
+            background: 'rgba(255,255,255,0.14)',
           }}
         />
         <div style={{ maxWidth: 900, margin: '0 auto', display: 'flex', gap: 20, alignItems: 'center', position: 'relative' }}>
@@ -155,8 +164,13 @@ export default function PublicMenuPage() {
           )}
           <div style={{ display: 'grid', gap: 4 }}>
             <h1 style={{ margin: 0, fontSize: 30, fontWeight: 800 }}>{restaurant.name}</h1>
+            {brand.tagline && (
+              <div style={{ color: 'rgba(255,255,255,0.95)', fontSize: 15, fontWeight: 600 }}>
+                {brand.tagline}
+              </div>
+            )}
             <div style={{ color: 'rgba(255,255,255,0.9)', fontSize: 14 }}>
-              Open · {categories.filter((c) => c.items.length > 0).length} categories · live from the public menu API
+              Open · {catCount} categories · live from the public menu API
             </div>
           </div>
         </div>
@@ -172,21 +186,21 @@ export default function PublicMenuPage() {
                 key={c.id ?? 'other'}
                 onClick={() => setActiveCat(c.id)}
                 style={{
-                  border: '1px solid var(--border-strong, #b9e0da)',
-                  background: c.id === activeCat ? 'var(--primary, #00b3a5)' : '#fff',
+                  border: `1px solid ${c.id === activeCat ? 'var(--brand)' : 'var(--border-strong, #b9e0da)'}`,
+                  background: c.id === activeCat ? 'var(--brand)' : '#fff',
                   color: c.id === activeCat ? '#fff' : 'var(--text, #123b36)',
                   borderRadius: 999,
                   padding: '8px 18px',
                   fontSize: 13,
                   fontWeight: 700,
                   cursor: 'pointer',
-                  boxShadow: c.id === activeCat ? '0 4px 12px rgba(0,179,165,0.3)' : 'none',
+                  boxShadow: c.id === activeCat ? '0 4px 12px color-mix(in srgb, var(--brand) 35%, transparent)' : 'none',
                   transition: 'all .18s ease',
                 }}
                 onMouseEnter={(e) => {
                   if (c.id !== activeCat) {
                     e.currentTarget.style.transform = 'translateY(-2px)';
-                    e.currentTarget.style.borderColor = 'var(--primary, #00b3a5)';
+                    e.currentTarget.style.borderColor = 'var(--brand)';
                   }
                 }}
                 onMouseLeave={(e) => {
@@ -292,19 +306,19 @@ export default function PublicMenuPage() {
               onClick={showMore}
               disabled={fetchingMore}
               style={{
-                border: '1px solid var(--border-strong, #b9e0da)',
-                background: 'var(--primary, #00b3a5)',
+                border: '1px solid var(--brand)',
+                background: 'var(--brand)',
                 color: '#fff',
                 borderRadius: 999,
                 padding: '10px 26px',
                 fontSize: 14,
                 fontWeight: 700,
                 cursor: fetchingMore ? 'wait' : 'pointer',
-                boxShadow: '0 6px 16px rgba(0,179,165,0.28)',
+                boxShadow: '0 6px 16px color-mix(in srgb, var(--brand) 35%, transparent)',
                 transition: 'transform .15s ease, box-shadow .15s ease',
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 10px 22px rgba(0,179,165,0.35)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,179,165,0.28)'; }}
+              onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 10px 22px color-mix(in srgb, var(--brand) 45%, transparent)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 6px 16px color-mix(in srgb, var(--brand) 35%, transparent)'; }}
             >
               {fetchingMore ? 'Loading…' : `Show more (${total - loadedCount(state.data)} more)`}
             </button>

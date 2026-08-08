@@ -96,6 +96,77 @@ describe('requireTenant middleware', () => {
   });
 });
 
+describe('PATCH /api/tenants/:id — brand theming (Phase 4 R3)', () => {
+  it('accepts a brand theme and persists it into settings', async () => {
+    const res = await request(app)
+      .patch(`/api/tenants/${tenantA.id}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({
+        brand: {
+          primaryColor: '#e4002b',
+          accentColor: '#ffd400',
+          tagline: 'Taste the fire',
+          announcement: 'New: 2 pc combo offer',
+        },
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.brand).toMatchObject({
+      primaryColor: '#e4002b',
+      accentColor: '#ffd400',
+      tagline: 'Taste the fire',
+      announcement: 'New: 2 pc combo offer',
+    });
+
+    const fresh = await Tenant.findByPk(tenantA.id);
+    expect(fresh.settings.brand.tagline).toBe('Taste the fire');
+  });
+
+  it('rejects invalid brand colors with 400', async () => {
+    const bad = await request(app)
+      .patch(`/api/tenants/${tenantA.id}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ brand: { primaryColor: 'red' } });
+    expect(bad.status).toBe(400);
+
+    const short = await request(app)
+      .patch(`/api/tenants/${tenantA.id}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ brand: { accentColor: '#fff' } });
+    expect(short.status).toBe(400);
+  });
+
+  it('merges brand into existing settings without clobbering them', async () => {
+    await tenantA.update({ settings: { cuisine: 'Fast Food' } });
+    const res = await request(app)
+      .patch(`/api/tenants/${tenantA.id}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ brand: { tagline: 'Fresh & fast' } });
+    expect(res.status).toBe(200);
+    const fresh = await Tenant.findByPk(tenantA.id);
+    expect(fresh.settings.cuisine).toBe('Fast Food');
+    expect(fresh.settings.brand.tagline).toBe('Fresh & fast');
+  });
+
+  it('requires manage:settings — a cashier member is rejected', async () => {
+    const cashier = await User.create({
+      name: 'Brand Cashier',
+      email: 'brandcashier@example.com',
+      password: await bcrypt.hash('password123', 10),
+      platform_role: 'member',
+    });
+    await UserTenant.create({ user_id: cashier.id, tenant_id: tenantA.id, role: 'cashier' });
+    const token = (
+      await request(app).post('/api/auth/login').send({ email: 'brandcashier@example.com', password: 'password123' })
+    ).body.accessToken;
+
+    const res = await request(app)
+      .patch(`/api/tenants/${tenantA.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ brand: { tagline: 'Nope' } });
+    expect(res.status).toBe(403);
+  });
+});
+
 describe('tenant-aware API', () => {
   it('GET /api/auth/me reflects the active tenant', async () => {
     const res = await request(app)

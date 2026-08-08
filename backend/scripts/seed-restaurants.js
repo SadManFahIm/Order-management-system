@@ -23,7 +23,7 @@ import {
   ItemAddon,
   InventoryItem,
 } from '../src/models/index.js';
-import { RESTAURANT_SEEDS } from './data/restaurants.js';
+import { RESTAURANT_SEEDS, RESTAURANT_BRANDS } from './data/restaurants.js';
 
 const { values } = parseArgs({
   options: { slug: { type: 'string' } },
@@ -54,7 +54,23 @@ try {
   let variants = 0;
   let addons = 0;
 
+  // Brand theme (Phase 4 R3): defaults for the storefront, keyed by slug.
+  // Merchants can override later via the branding settings UI — the seeder
+  // only fills a missing brand, never overwrites a customisation.
+  const brandFor = (slug) => {
+    const brand = RESTAURANT_BRANDS[slug] ?? null;
+    if (!brand) return null;
+    // Only persist fields that are actually set in the seed data.
+    const clean = {};
+    for (const key of ['primaryColor', 'accentColor', 'tagline']) {
+      if (brand[key]) clean[key] = brand[key];
+    }
+    return Object.keys(clean).length ? clean : null;
+  };
+
   for (const seed of seeds) {
+    const brand = brandFor(seed.slug);
+    const baseSettings = { description: seed.description, cuisine: seed.cuisine ?? null };
     let tenant = await Tenant.findOne({ where: { slug: seed.slug } });
     if (!tenant) {
       tenant = await Tenant.create({
@@ -62,7 +78,7 @@ try {
         slug: seed.slug,
         status: 'active',
         plan_id: starter?.id ?? null,
-        settings: { description: seed.description, cuisine: seed.cuisine ?? null },
+        settings: brand ? { ...baseSettings, brand } : baseSettings,
       });
       const now = new Date();
       await Subscription.findOrCreate({
@@ -76,9 +92,16 @@ try {
       });
       created += 1;
     } else {
+      const existing =
+        tenant.settings && typeof tenant.settings === 'object' ? tenant.settings : {};
+      // Merge, never clobber: description/cuisine refresh from seed, but an
+      // existing brand customisation is preserved.
       await tenant.update({
         name: seed.name,
-        settings: { description: seed.description, cuisine: seed.cuisine ?? null },
+        settings: {
+          ...baseSettings,
+          brand: existing.brand ?? brand,
+        },
       });
       updated += 1;
     }

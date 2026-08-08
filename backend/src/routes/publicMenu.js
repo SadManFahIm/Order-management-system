@@ -54,12 +54,22 @@ async function findPublicTenant(slug) {
 
 /** Whitelist serializer — only storefront-safe fields leave the API. */
 function serializeTenant(tenant) {
+  // Brand theme (Phase 4 R3): only the public-safe fields the storefront
+  // needs to theme itself. Full settings/sensitive data never leave.
+  const brand = tenant.settings?.brand;
   return {
     id: tenant.id,
     name: tenant.name,
     slug: tenant.slug,
     logoUrl: tenant.logo_url,
     status: tenant.status,
+    brand: brand
+      ? {
+          primaryColor: brand.primaryColor || null,
+          accentColor: brand.accentColor || null,
+          tagline: brand.tagline || null,
+        }
+      : null,
   };
 }
 
