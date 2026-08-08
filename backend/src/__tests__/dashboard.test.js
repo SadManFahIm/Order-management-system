@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import app from '../app.js';
 import sequelize from '../config/db.js';
 import { resetTestDb } from '../test/resetDb.js';
-import { User, Tenant, UserTenant, Product, Order, OrderItem } from '../models/index.js';
+import { User, Tenant, UserTenant, Product } from '../models/index.js';
 
 /**
  * Merchant dashboard (Phase 4 completion) — today's revenue/orders, open
@@ -88,6 +88,60 @@ describe('GET /api/dashboard', () => {
       .set('Authorization', `Bearer ${cashierToken}`);
     expect(res.status).toBe(200);
     expect(res.body.today.orders).toBe(2);
+  });
+
+  it('returns a zero-filled 7-day trend and full status breakdown', async () => {
+    const res = await request(app)
+      .get('/api/dashboard')
+      .set('Authorization', `Bearer ${managerToken}`);
+    expect(res.status).toBe(200);
+
+    // Always 7 buckets (today + 6 back), even when there is no history yet.
+    expect(res.body.trend).toHaveLength(7);
+    const last = res.body.trend[6];
+    expect(last.orders).toBe(2);
+    expect(last.revenue).toBe(600);
+    // Zero-filled leading days — charts render a complete axis.
+    expect(res.body.trend.slice(0, 6).every((d) => d.orders === 0 && d.revenue === 0)).toBe(true);
+
+    // Every lifecycle status is present with a count.
+    expect(res.body.statusBreakdown).toEqual([
+      { status: 'placed', count: 2 },
+      { status: 'preparing', count: 0 },
+      { status: 'ready', count: 0 },
+      { status: 'delivered', count: 0 },
+      { status: 'canceled', count: 0 },
+    ]);
+  });
+
+  it('trend and status breakdown track the fulfillment lifecycle', async () => {
+    // Place a third order and drive it through to delivered via the API.
+    const placed = await placeOrder(managerToken, [
+      {
+        product_id: (await Product.findOne({ where: { tenant_id: tenantA.id, name: 'Dash Fries' } })).id,
+        quantity: 1,
+      },
+    ]);
+    const orderId = placed.body.id;
+
+    const step = (status) =>
+      request(app)
+        .patch(`/api/orders/${orderId}/status`)
+        .set('Authorization', `Bearer ${managerToken}`)
+        .send({ status });
+
+    expect((await step('preparing')).status).toBe(200);
+    expect((await step('ready')).status).toBe(200);
+    expect((await step('delivered')).status).toBe(200);
+
+    const res = await request(app)
+      .get('/api/dashboard')
+      .set('Authorization', `Bearer ${managerToken}`);
+    expect(res.body.today.orders).toBe(3);
+    expect(res.body.today.revenue).toBe(700); // +1 Fries (100)
+    expect(res.body.statusBreakdown.find((s) => s.status === 'placed').count).toBe(2);
+    expect(res.body.statusBreakdown.find((s) => s.status === 'delivered').count).toBe(1);
+    expect(res.body.trend[6].orders).toBe(3);
   });
 
   it('requires authentication', async () => {

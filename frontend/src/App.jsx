@@ -14,12 +14,15 @@ import OrdersListPage from './pages/OrdersListPage';
 import NewOrderPage from './pages/NewOrderPage';
 import DashboardPage from './pages/DashboardPage';
 import PublicMenuPage from './pages/PublicMenuPage';
+import LandingPage from './pages/LandingPage';
+import SettingsPage from './pages/SettingsPage';
 
 export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/verify-email" element={<VerifyEmailPage />} />
@@ -41,6 +44,7 @@ export default function App() {
                       <Route path="/promotions" element={<PromotionsPage />} />
                       <Route path="/orders" element={<OrdersListPage />} />
                       <Route path="/orders/new" element={<NewOrderPage />} />
+                      <Route path="/settings" element={<SettingsPage />} />
                     </Routes>
                   </main>
                 </div>

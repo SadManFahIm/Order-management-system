@@ -263,3 +263,111 @@ export const RESTAURANT_SEEDS = [
     ],
   },
 ];
+
+/**
+ * Per-tenant brand themes (Phase 4 R3) — the storefront themes itself from
+ * `settings.brand`. Keyed by restaurant slug; the seeder merges this into
+ * each tenant's settings (never clobbering merchant customisations).
+ */
+export const RESTAURANT_BRANDS = {
+  'kfc-dhaka': {
+    primaryColor: '#e4002b',
+    accentColor: '#ffd400',
+    tagline: 'It’s finger lickin’ good — fresh in Dhaka',
+  },
+  'pizza-hut-dhaka': {
+    primaryColor: '#d3112a',
+    accentColor: '#f5b81b',
+    tagline: 'Hot, fresh pizza delivered to your door',
+  },
+  'dominos-pizza': {
+    primaryColor: '#0b5ca8',
+    accentColor: '#e31837',
+    tagline: 'Delivering hot pizza in 30 minutes or free',
+  },
+  chillox: {
+    primaryColor: '#f26522',
+    accentColor: '#ffc800',
+    tagline: 'Dhaka’s original smash-burger joint',
+  },
+  'takeout-dhaka': {
+    primaryColor: '#00b3a5',
+    accentColor: '#f5d300',
+    tagline: 'Your neighbourhood favourites, one tap away',
+  },
+  'sultans-dine': {
+    primaryColor: '#7b3f00',
+    accentColor: '#e8a33d',
+    tagline: 'Kacchi & Mughlai, the way it should be',
+  },
+  'star-kabab': {
+    primaryColor: '#c8102e',
+    accentColor: '#ffd700',
+    tagline: 'Sheekh kabab & chaap, grilled to perfection',
+  },
+  madchef: {
+    primaryColor: '#e23744',
+    accentColor: '#ffd500',
+    tagline: 'Burgers with an attitude',
+  },
+  'cheez-bd': {
+    primaryColor: '#f7a600',
+    accentColor: '#7a1e1e',
+    tagline: 'Slabs of molten cheesy goodness',
+  },
+  'herfy-bd': {
+    primaryColor: '#e4002b',
+    accentColor: '#f5c518',
+    tagline: 'Saudi-style burgers, now in Dhaka',
+  },
+  'bfc-dhaka': {
+    primaryColor: '#c8102e',
+    accentColor: '#ffc72c',
+    tagline: 'Crispy chicken, big flavour',
+  },
+  'barcode-restaurant': {
+    primaryColor: '#111827',
+    accentColor: '#22d3c2',
+    tagline: 'Gourmet café by day, dinner house by night',
+  },
+  'american-burger': {
+    primaryColor: '#d21034',
+    accentColor: '#f5d300',
+    tagline: 'Classic American smash burgers',
+  },
+  'secret-recipe': {
+    primaryColor: '#b4302e',
+    accentColor: '#f2a93b',
+    tagline: 'Asian fusion with a secret twist',
+  },
+  'handi-dhaka': {
+    primaryColor: '#c96f0a',
+    accentColor: '#6b2d14',
+    tagline: 'Slow-cooked handi classics',
+  },
+  'la-mode-dhaka': {
+    primaryColor: '#8e2de2',
+    accentColor: '#ff8fd0',
+    tagline: 'Desserts & brunch, beautifully plated',
+  },
+  'shake-shack-bangla': {
+    primaryColor: '#f5a623',
+    accentColor: '#7ac142',
+    tagline: 'Shakes, burgers & flat-top fries',
+  },
+  'bella-italia': {
+    primaryColor: '#1d7a3e',
+    accentColor: '#e11d48',
+    tagline: 'Wood-fired pizza, true Italian style',
+  },
+  'tokyo-house': {
+    primaryColor: '#b91c1c',
+    accentColor: '#111111',
+    tagline: 'Ramen, sushi & izakaya bites',
+  },
+  'gloria-jeans': {
+    primaryColor: '#5b1e2e',
+    accentColor: '#e2a84d',
+    tagline: 'Specialty coffee, roasted for you',
+  },
+};

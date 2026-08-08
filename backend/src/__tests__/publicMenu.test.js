@@ -91,7 +91,37 @@ describe('GET /api/public/restaurants/:slug', () => {
       slug: 'public-a',
       logoUrl: null,
       status: 'active',
+      brand: null,
     });
+  });
+
+  it('exposes only the public-safe brand whitelist when a brand is set', async () => {
+    await tenantA.update({
+      settings: {
+        description: 'internal note that must never leak',
+        brand: {
+          primaryColor: '#e4002b',
+          accentColor: '#ffd400',
+          tagline: 'Taste the fire',
+          heroImage: 'https://cdn.example.com/hero.jpg',
+          // sensitive extras stored with the brand must NOT surface
+          ownerPhone: '+8801XXXXXXXXX',
+        },
+      },
+    });
+
+    const res = await request(app).get('/api/public/restaurants/public-a');
+    expect(res.status).toBe(200);
+    expect(res.body.brand).toEqual({
+      primaryColor: '#e4002b',
+      accentColor: '#ffd400',
+      tagline: 'Taste the fire',
+    });
+    const json = JSON.stringify(res.body);
+    expect(json).not.toContain('heroImage');
+    expect(json).not.toContain('ownerPhone');
+    expect(json).not.toContain('description');
+    expect(json).not.toContain('settings');
   });
 
   it('404s for unknown slugs', async () => {

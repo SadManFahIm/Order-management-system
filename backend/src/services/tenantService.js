@@ -38,6 +38,8 @@ export async function assertTenantAccess(user, tenantId, permission) {
 }
 
 export function serializeTenant(tenant) {
+  const settings =
+    tenant.settings && typeof tenant.settings === 'object' ? tenant.settings : {};
   return {
     id: tenant.id,
     name: tenant.name,
@@ -45,7 +47,8 @@ export function serializeTenant(tenant) {
     logoUrl: tenant.logo_url,
     status: tenant.status,
     planId: tenant.plan_id,
-    settings: tenant.settings,
+    settings,
+    brand: settings.brand || null,
   };
 }
 
@@ -123,6 +126,12 @@ export async function updateTenant(user, tenantId, fields, req) {
   if (fields.name !== undefined) allowed.name = fields.name;
   if (fields.logoUrl !== undefined) allowed.logo_url = fields.logoUrl;
   if (fields.settings !== undefined) allowed.settings = fields.settings;
+  if (fields.brand !== undefined) {
+    // Merge the brand theme into settings (never clobber the rest of it).
+    const current =
+      tenant.settings && typeof tenant.settings === 'object' ? tenant.settings : {};
+    allowed.settings = { ...current, brand: fields.brand };
+  }
   await tenant.update(allowed);
   await audit({
     action: 'tenant.updated',
