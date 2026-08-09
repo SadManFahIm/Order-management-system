@@ -3,6 +3,8 @@ import { AppError } from '../middleware/errorHandler.js';
 import Order from '../models/Order.js';
 import OrderItem from '../models/OrderItem.js';
 import Payment from '../models/Payment.js';
+import Product from '../models/Product.js';
+import InventoryItem from '../models/InventoryItem.js';
 import { PAYMENT_METHODS, METHOD_LABELS } from './paymentsService.js';
 import { sendEmail } from './notifications/email.js';
 
@@ -198,4 +200,218 @@ export async function sendCloseoutEmail({ tenant, date, to }) {
     attachments: [{ filename: `closeout-${data.date}.csv`, content: buildCloseoutCsv(data), contentType: 'text/csv' }],
   });
   return { ...result, date: data.date, orders: data.orders.length, to: recipient };
+}
+
+/**
+ * VAT report (Phase 6) — Bangladesh NBR-ready compliance view.
+ *
+ * Menu pricing is VAT-inclusive (the BD norm), so each line's gross amount
+ * is split by the item's own `vat_rate`: VAT = gross × rate/(100+rate),
+ * net = gross − VAT. Rates default from `tenant.settings.vat.defaultRate`
+ * (or 5%) when an item no longer exists or has no rate. `from`/`to` default
+ * to the current Dhaka day; both are YYYY-MM-DD (inclusive).
+ */
+export async function buildVatReport(tenant, from, to) {
+  const startStr = from || dhakaDate();
+  const endStr = to || startStr;
+  const { start } = dayBounds(startStr);
+  const { end } = dayBounds(endStr);
+  const defaultRate = Number(tenant.settings?.vat?.defaultRate ?? 5) || 5;
+
+  const orders = await Order.findAll({
+    where: { tenant_id: tenant.id, createdAt: { [Op.gte]: start, [Op.lt]: end } },
+    attributes: ['id'],
+    order: [['id', 'ASC']],
+  });
+  const orderIds = orders.map((o) => o.id);
+
+  if (orderIds.length === 0) {
+    return {
+      from: startStr,
+      to: endStr,
+      defaultRate,
+      items: [],
+      totals: { gross: 0, vat: 0, net: 0 },
+    };
+  }
+
+  const [lines, products] = await Promise.all([
+    OrderItem.findAll({
+      where: { tenant_id: tenant.id, order_id: { [Op.in]: orderIds } },
+    }),
+    Product.findAll({
+      where: { tenant_id: tenant.id },
+      attributes: ['id', 'name', 'vat_rate'],
+    }),
+  ]);
+
+  const rateByProduct = new Map();
+  for (const p of products) {
+    const rate = Number(p.vat_rate);
+    rateByProduct.set(p.id, Number.isFinite(rate) && rate >= 0 ? rate : defaultRate);
+  }
+
+  // Group by product (denormalised name as fallback for removed items).
+  const byItem = new Map();
+  for (const line of lines) {
+    const id = line.product_id ?? `legacy:${line.item_name}`;
+    const entry =
+      byItem.get(id) ||
+      (() => {
+        const e = {
+          itemId: id,
+          itemName: line.item_name || 'Unknown item',
+          rate: rateByProduct.get(line.product_id) ?? defaultRate,
+          quantity: 0,
+          gross: 0,
+        };
+        byItem.set(id, e);
+        return e;
+      })();
+    entry.quantity += Number(line.quantity) || 0;
+    entry.gross += Number(line.line_total) || 0;
+  }
+
+  let totalGross = 0;
+  let totalVat = 0;
+  const items = [...byItem.values()].map((e) => {
+    const gross = Math.round(e.gross * 100) / 100;
+    const vat = Math.round((gross * e.rate) / (100 + e.rate) * 100) / 100;
+    const net = Math.round((gross - vat) * 100) / 100;
+    totalGross += gross;
+    totalVat += vat;
+    return {
+      itemId: e.itemId,
+      itemName: e.itemName,
+      vatRate: e.rate,
+      quantity: e.quantity,
+      gross,
+      vat,
+      net,
+    };
+  });
+  items.sort((a, b) => b.gross - a.gross);
+
+  return {
+    from: startStr,
+    to: endStr,
+    defaultRate,
+    items,
+    totals: {
+      gross: Math.round(totalGross * 100) / 100,
+      vat: Math.round(totalVat * 100) / 100,
+      net: Math.round((totalGross - totalVat) * 100) / 100,
+    },
+  };
+}
+
+/** The VAT report as a CSV document (per-item rows + totals footer). */
+export function buildVatCsv(data) {
+  const header = ['item_name', 'vat_rate_pct', 'quantity', 'gross_bdt', 'vat_bdt', 'net_bdt'];
+  const rows = data.items.map((i) => [
+    i.itemName, i.vatRate, i.quantity, i.gross.toFixed(2), i.vat.toFixed(2), i.net.toFixed(2),
+  ]);
+  const footer = ['TOTAL', '', '', data.totals.gross.toFixed(2), data.totals.vat.toFixed(2), data.totals.net.toFixed(2)];
+  return [header, ...rows, footer].map((r) => r.map(csvCell).join(',')).join('\r\n');
+}
+
+/**
+ * Nightly merchant digest (Phase 6) — what a restaurant owner wants to see
+ * first thing in the morning: today's top sellers and anything running low.
+ * Rendered inside the nightly closeout email + pushed to the WhatsApp
+ * webhook so the digest reaches the owner wherever they are.
+ */
+export async function buildDigest(tenantId, dateStr) {
+  const { start, end } = dayBounds(dateStr);
+
+  const [orders, lowStock] = await Promise.all([
+    Order.findAll({
+      where: { tenant_id: tenantId, createdAt: { [Op.gte]: start, [Op.lt]: end } },
+      attributes: ['id'],
+    }),
+    InventoryItem.findAll({ where: { tenant_id: tenantId } }),
+  ]);
+
+  const orderIds = orders.map((o) => o.id);
+  let topSellers = [];
+  if (orderIds.length > 0) {
+    const lines = await OrderItem.findAll({
+      where: { tenant_id: tenantId, order_id: { [Op.in]: orderIds } },
+    });
+    const byName = new Map();
+    for (const line of lines) {
+      const name = line.item_name || 'Unknown item';
+      const entry = byName.get(name) || { itemName: name, quantity: 0, revenue: 0 };
+      entry.quantity += Number(line.quantity) || 0;
+      entry.revenue += Number(line.line_total) || 0;
+      byName.set(name, entry);
+    }
+    topSellers = [...byName.values()]
+      .sort((a, b) => b.quantity - a.quantity)
+      .slice(0, 5)
+      .map((t) => ({
+        ...t,
+        quantity: t.quantity,
+        revenue: Math.round(t.revenue * 100) / 100,
+      }));
+  }
+
+  const low = lowStock
+    .filter((i) => Number(i.stock_qty) <= Number(i.low_stock_at))
+    .sort((a, b) => Number(a.stock_qty) - Number(b.stock_qty))
+    .slice(0, 8)
+    .map((i) => ({
+      itemName: i.name,
+      stockQty: Number(i.stock_qty) || 0,
+      lowStockAt: Number(i.low_stock_at) || 0,
+      unit: i.unit || 'pcs',
+    }));
+
+  return { date: dateStr, topSellers, lowStock: low };
+}
+
+/** HTML block for the digest (top sellers + low-stock) embedded in the email. */
+export function renderDigestHtml(digest) {
+  const sellers = digest.topSellers
+    .map(
+      (t, i) => `<tr><td class="rank">${i + 1}</td><td>${csvCell(t.itemName)}</td><td class="num">${t.quantity}</td><td class="num">৳ ${Number(t.revenue).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td></tr>`
+    )
+    .join('');
+  const low = digest.lowStock
+    .map(
+      (i) => `<tr><td>${csvCell(i.itemName)}</td><td class="num">${i.stockQty} / ${i.lowStockAt} ${i.unit}</td></tr>`
+    )
+    .join('');
+  return `
+  <h2>🥇 Top sellers</h2>
+  ${sellers ? `<table><thead><tr><th>#</th><th>Item</th><th class="num">Qty</th><th class="num">Revenue</th></tr></thead><tbody>${sellers}</tbody></table>` : '<div class="empty">No sales this day.</div>'}
+  <h2>⚠️ Low stock</h2>
+  ${low ? `<table><thead><tr><th>Item</th><th class="num">Stock / threshold</th></tr></thead><tbody>${low}</tbody></table>` : '<div class="empty">All items above their low-stock threshold. ✅</div>'}`;
+}
+
+/**
+ * Sends the nightly merchant digest along with the closeout email: the email
+ * body gains the digest sections, and (if configured) the WhatsApp webhook
+ * gets a `digest.daily` push. Returns { email, webhook } results.
+ */
+export async function sendNightlyDigest({ tenant, date }) {
+  const data = await buildCloseout(tenant.id, date);
+  const digest = await buildDigest(tenant.id, date);
+  const recipient = String(tenant.settings?.reports?.closeoutEmail || '').trim();
+
+  let email = null;
+  if (recipient) {
+    const html = renderCloseoutHtml(data, tenant.name || 'Restaurant').replace(
+      '<div class="foot">',
+      `${renderDigestHtml(digest)}<div class="foot">`
+    );
+    const result = await sendEmail({
+      to: recipient,
+      subject: `Daily digest — ${data.date} — ${tenant.name || 'Restaurant'}`,
+      html,
+      attachments: [{ filename: `closeout-${data.date}.csv`, content: buildCloseoutCsv(data), contentType: 'text/csv' }],
+    });
+    email = { ...result, date: data.date, orders: data.orders.length, to: recipient };
+  }
+  return { email, digest, closeout: data };
 }

@@ -38,7 +38,7 @@ export const RESTAURANT_SEEDS = [
     items: [
       { name: 'Margherita (Medium)', price: 650, weight_gm: 600, description: 'Tomato sauce, mozzarella, basil', category: 'Pizza', prep_minutes: 18 },
       { name: 'Pepperoni Feast (Large)', price: 1150, weight_gm: 1000, description: 'Loaded pepperoni with extra cheese', category: 'Pizza', prep_minutes: 20 },
-      { name: 'Chicken Supreme (Medium)', price: 980, weight_gm: 650, description: 'Grilled chicken, capsicum, onion, mushroom', category: 'Pizza', prep_minutes: 18, variants: [{ name: 'Medium', price_adjustment: 0 }, { name: 'Large', price_adjustment: 250 }], addons: [{ name: 'Extra Cheese', price: 120 }, { name: 'Extra Topping', price: 150 }] },
+      { name: 'Chicken Supreme (Medium)', price: 980, weight_gm: 650, description: 'Grilled chicken, capsicum, onion, mushroom', category: 'Pizza', prep_minutes: 18, vat_rate: 15, variants: [{ name: 'Medium', price_adjustment: 0 }, { name: 'Large', price_adjustment: 250 }], addons: [{ name: 'Extra Cheese', price: 120 }, { name: 'Extra Topping', price: 150 }] },
       { name: 'Garlic Breadsticks', price: 280, weight_gm: 300, description: 'Oven-baked with garlic butter', category: 'Sides', prep_minutes: 10 },
       { name: 'Spicy Chicken Wings (6 pc)', price: 420, weight_gm: 350, description: 'Tossed in tangy buffalo sauce', category: 'Sides', prep_minutes: 12 },
       { name: 'Choco Lava Cake', price: 220, weight_gm: 120, description: 'Warm chocolate molten cake', category: 'Desserts', prep_minutes: 8 },
@@ -102,7 +102,7 @@ export const RESTAURANT_SEEDS = [
     items: [
       { name: 'Kacchi (1 plate)', price: 450, weight_gm: 600, description: 'Fragrant basmati with mutton & potato', category: 'Rice Dishes', prep_minutes: 20, variants: [{ name: '1 Plate', price_adjustment: 0 }, { name: '1.5 Plate', price_adjustment: 200 }] },
       { name: 'Chicken Roast', price: 320, weight_gm: 350, description: 'Slow-roasted whole chicken leg', category: 'Grills', prep_minutes: 15 },
-      { name: 'Beef Tehari', price: 380, weight_gm: 550, description: 'Spiced beef with aromatic rice', category: 'Rice Dishes', prep_minutes: 18 },
+      { name: 'Beef Tehari', price: 380, weight_gm: 550, description: 'Spiced beef with aromatic rice', category: 'Rice Dishes', prep_minutes: 18, vat_rate: 15 },
       { name: 'Borhani', price: 80, weight_gm: 250, description: 'Traditional minty yogurt drink', category: 'Drinks', prep_minutes: 3 },
       { name: 'Chicken Kacchi (1 plate)', price: 350, weight_gm: 550, description: 'Kacchi with tender chicken', category: 'Rice Dishes', prep_minutes: 20 },
     ],
@@ -113,7 +113,7 @@ export const RESTAURANT_SEEDS = [
     description: 'Street-food legend since 1982.',
     items: [
       { name: 'Chicken Tikka (2 pc)', price: 240, weight_gm: 300, description: 'Charcoal-grilled chicken tikka' },
-      { name: 'Beef Seekh Kabab', price: 280, weight_gm: 320, description: 'Spiced minced beef seekh kabab' },
+      { name: 'Beef Seekh Kabab', price: 280, weight_gm: 320, description: 'Spiced minced beef seekh kabab', vat_rate: 15 },
       { name: 'Chicken Chaap', price: 260, weight_gm: 300, description: 'Slow-cooked chicken in rich gravy' },
       { name: 'Paratha', price: 40, weight_gm: 120, description: 'Flaky layered flatbread' },
       { name: 'Shami Kabab', price: 180, weight_gm: 250, description: 'Crispy lentil-beef kabab' },

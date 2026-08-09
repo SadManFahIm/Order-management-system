@@ -195,6 +195,34 @@ describe('GET /api/dashboard', () => {
     expect(res.body.trendStats.dayOverDay.pct).toBeNull(); // previous day empty
   });
 
+  it('projects a 3-day forecast and a month-over-month delta (Phase 6)', async () => {
+    const res = await request(app)
+      .get('/api/dashboard')
+      .set('Authorization', `Bearer ${managerToken}`);
+    expect(res.status).toBe(200);
+
+    // Forecast: one trailing 7-day moving-average point per window day + a
+    // 3-day linear projection past the last actual.
+    expect(res.body.forecast.movingAverage).toHaveLength(7);
+    expect(res.body.forecast.movingAverage[6].value).toBe(100); // (6×0 + 700)/7
+    expect(res.body.forecast.projection).toHaveLength(3);
+    for (const p of res.body.forecast.projection) {
+      expect(p.forecast).toBe(true);
+      expect(p.revenue).toBeGreaterThanOrEqual(0);
+      expect(typeof p.date).toBe('string');
+    }
+    // Forecast days are strictly AFTER the last actual day (UTC date math).
+    const lastActual = res.body.closeoutTrend[6].date;
+    const [fy, fm, fd] = res.body.forecast.projection[0].date.split('-').map(Number);
+    const [ly, lm, ld] = lastActual.split('-').map(Number);
+    expect(Date.UTC(fy, fm - 1, fd)).toBeGreaterThan(Date.UTC(ly, lm - 1, ld));
+
+    // Month-over-month: all 3 orders are this Dhaka month → 700 vs 0.
+    expect(res.body.monthOverMonth.currentRevenue).toBe(700);
+    expect(res.body.monthOverMonth.previousRevenue).toBe(0);
+    expect(res.body.monthOverMonth.pct).toBeNull();
+  });
+
   it('supports ?days=30 and clamps out-of-range values', async () => {
     const thirty = await request(app)
       .get('/api/dashboard?days=30')

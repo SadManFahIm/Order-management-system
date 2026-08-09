@@ -215,16 +215,31 @@ const METHOD_LABELS_SHORT = {
  * Closeout trend (Phase 5) — stacked bars of revenue per Dhaka day, split by
  * payment method, so both the daily curve and the method mix over time are
  * visible in one chart. Hover pins the day readout (revenue + per-method).
+ *
+ * Phase 6: when `forecast` is passed, a dotted 7-day moving-average line
+ * traces the baseline and a dashed polyline projects the next 3 days.
  */
-export function CloseoutTrendChart({ data, height = 240 }) {
+export function CloseoutTrendChart({ data, forecast = null, height = 240 }) {
   const [hover, setHover] = useState(null);
   const active = hover ?? Math.max(data.length - 1, 0);
   const H = height;
   const innerW = W - PAD.l - PAD.r;
   const innerH = H - PAD.t - PAD.b;
   const methods = Object.keys(METHOD_COLORS);
-  const max = Math.max(...data.map((d) => Number(d.revenue) || 0), 1);
-  const slot = innerW / data.length;
+  const projection = forecast?.projection || [];
+  const movingAverage = forecast?.movingAverage || [];
+
+  // x positions span actuals + projection so the forecast sits to the right
+  // of the last bar instead of overflowing the plot area.
+  const totalSlots = Math.max(data.length + projection.length - 1, 1);
+  const slot = innerW / totalSlots;
+  const x = (i) => PAD.l + i * slot;
+  const allValues = [
+    ...data.map((d) => Number(d.revenue) || 0),
+    ...projection.map((p) => Number(p.revenue) || 0),
+    ...movingAverage.map((m) => Number(m.value) || 0),
+  ];
+  const max = Math.max(...allValues, 1);
   const barW = Math.min(slot * 0.52, 34);
   const y = (v) => PAD.t + innerH - (v / max) * innerH;
 
@@ -236,6 +251,27 @@ export function CloseoutTrendChart({ data, height = 240 }) {
   const mixEntries = methods
     .map((m) => ({ m, v: Number(activeDay.methodMix?.[m]) || 0 }))
     .filter((x) => x.v > 0);
+
+  // Dotted 7-day moving-average polyline (aligned to the actuals).
+  const maLine =
+    movingAverage.length > 0
+      ? movingAverage
+          .map(
+            (m, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(Number(m.value) || 0).toFixed(1)}`
+          )
+          .join(' ')
+      : null;
+
+  // Dashed projection: last actual point → each forecast point.
+  const projPts = projection.length > 0
+    ? [
+        [x(data.length - 1), y(Number(data[data.length - 1].revenue) || 0)],
+        ...projection.map((p, k) => [x(data.length - 1 + k + 1), y(Number(p.revenue) || 0)]),
+      ]
+    : [];
+  const projLine = projPts
+    .map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`)
+    .join(' ');
 
   return (
     <div className="oms-chart">
@@ -251,7 +287,7 @@ export function CloseoutTrendChart({ data, height = 240 }) {
       <svg
         viewBox={`0 0 ${W} ${H}`}
         role="img"
-        aria-label="Revenue per day by payment method"
+        aria-label="Revenue per day by payment method with forecast"
         className="oms-chart__svg"
         onMouseLeave={() => setHover(null)}
       >
@@ -277,7 +313,7 @@ export function CloseoutTrendChart({ data, height = 240 }) {
                 return (
                   <rect
                     key={m}
-                    x={PAD.l + slot * i + (slot - barW) / 2}
+                    x={x(i) + (slot - barW) / 2}
                     y={yTop}
                     width={barW}
                     height={Math.max(yBot - yTop, v > 0 ? 2 : 0)}
@@ -288,7 +324,7 @@ export function CloseoutTrendChart({ data, height = 240 }) {
                 );
               })}
               <text
-                x={PAD.l + slot * i + slot / 2}
+                x={x(i) + slot / 2}
                 y={H - 8}
                 textAnchor="middle"
                 className={`oms-chart__axis ${i === active ? 'oms-chart__axis--active' : ''}`}
@@ -298,6 +334,33 @@ export function CloseoutTrendChart({ data, height = 240 }) {
             </g>
           );
         })}
+
+        {maLine && (
+          <path d={maLine} fill="none" stroke="var(--accent)" strokeWidth="1.6" strokeDasharray="1 4" strokeLinecap="round" opacity="0.85" />
+        )}
+        {projLine && (
+          <path d={projLine} fill="none" stroke="var(--primary)" strokeWidth="2" strokeDasharray="5 5" strokeLinecap="round" />
+        )}
+        {projection.map((p, k) => (
+          <g key={p.date}>
+            <circle
+              cx={x(data.length - 1 + k + 1)}
+              cy={y(Number(p.revenue) || 0)}
+              r={4}
+              fill="var(--surface)"
+              stroke="var(--primary)"
+              strokeWidth="2"
+            />
+            <text
+              x={x(data.length - 1 + k + 1)}
+              y={H - 8}
+              textAnchor="middle"
+              className="oms-chart__axis"
+            >
+              F{k + 1}
+            </text>
+          </g>
+        ))}
       </svg>
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 12 }}>
         {mixEntries.map(({ m, v }) => (
@@ -308,6 +371,18 @@ export function CloseoutTrendChart({ data, height = 240 }) {
         ))}
         {mixEntries.length === 0 && (
           <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>No revenue this day</span>
+        )}
+        {maLine && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--text-muted)' }}>
+            <span style={{ width: 16, height: 0, borderTop: '2px dotted var(--accent)' }} />
+            7-day avg
+          </span>
+        )}
+        {projLine && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--text-muted)' }}>
+            <span style={{ width: 16, height: 0, borderTop: '2px dashed var(--primary)' }} />
+            Forecast
+          </span>
         )}
       </div>
     </div>

@@ -34,6 +34,8 @@ const Product = sequelize.define(
     // Optimistic lock (migration 003) — bumped on every update; clients send
     // the version they based their edit on and get 409 on a stale write.
     version: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
+    // VAT rate percent (migration 009) — VAT-inclusive pricing, NBR-ready.
+    vat_rate: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 5 },
   },
   {
     tableName: 'menu_items',

@@ -64,6 +64,7 @@ describe('migration runner', () => {
       '006_tables.js',
       '007_order_table_no.js',
       '008_payments.js',
+      '009_vat_and_digest.js',
     ]);
   });
 
@@ -95,11 +96,24 @@ describe('migration runner', () => {
   it('reports every migration as applied', async () => {
     const status = await migrationStatus(sequelize);
     expect(status.every((row) => row.state === 'applied')).toBe(true);
-    expect(status).toHaveLength(8);
+    expect(status).toHaveLength(9);
+  });
+
+  it('adds menu_items.vat_rate via migration 009', async () => {
+    const columns = await sequelize.getQueryInterface().describeTable('menu_items');
+    expect(columns).toHaveProperty('vat_rate');
+    // Defaults to the BD food rate (5%), NOT NULL.
+    // SQLite reports defaults as strings; PG as numbers.
+    expect(Number(columns.vat_rate.defaultValue)).toBe(5);
+    expect(columns.vat_rate.allowNull).toBe(false);
   });
 
   it('rolls back only the most recent migration, then re-applies', async () => {
     const qi = sequelize.getQueryInterface();
+
+    // Down 009: removes menu_items.vat_rate (VAT compliance).
+    expect(await migrateDown(sequelize)).toBe(1);
+    expect((await qi.describeTable('menu_items')).vat_rate).toBeUndefined();
 
     // Down 008: drops `payments` and removes orders.payment_method.
     expect(await migrateDown(sequelize)).toBe(1);
@@ -110,8 +124,9 @@ describe('migration runner', () => {
     expect(await migrateDown(sequelize)).toBe(1);
     expect((await qi.describeTable('orders')).table_no).toBeUndefined();
 
-    // Re-applying restores both.
-    expect(await migrateUp(sequelize)).toBe(2);
+    // Re-applying restores all three.
+    expect(await migrateUp(sequelize)).toBe(3);
+    expect((await qi.describeTable('menu_items')).vat_rate).toBeDefined();
     expect(await qi.tableExists('payments')).toBe(true);
     expect((await qi.describeTable('orders')).payment_method).toBeDefined();
     expect((await qi.describeTable('orders')).table_no).toBeDefined();

@@ -13,6 +13,8 @@
  *    logged (without secrets) instead of swallowed silently.
  */
 
+import { createHmac } from 'node:crypto';
+
 const WEBHOOK_TIMEOUT_MS = 2500;
 
 /** Builds a wa.me deep link for a phone number + pre-filled message. */
@@ -201,13 +203,14 @@ async function postWebhook(config, payload) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
   try {
+    const body = JSON.stringify(payload);
     const res = await fetch(config.webhookUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...(config.secret ? { Authorization: `Bearer ${config.secret}` } : {}),
       },
-      body: JSON.stringify(payload),
+      body,
       signal: controller.signal,
     });
     if (!res.ok) {
@@ -218,4 +221,83 @@ async function postWebhook(config, payload) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Nightly merchant digest push (Phase 6).
+ *
+ * Posts the day's top sellers + low-stock list to the tenant's WhatsApp
+ * webhook as a `digest.daily` event — signed with HMAC-SHA256 of the body
+ * (`X-Webhook-Signature`) when a secret is configured so the receiving
+ * gateway can verify it came from us. Fire-and-forget, never rejects;
+ * failures are logged without secrets.
+ */
+export async function sendDigestWebhook(tenant, digest) {
+  try {
+    const config = whatsappConfig(tenant);
+    if (!config.enabled || !config.webhookUrl) return { sent: false, reason: 'disabled' };
+
+    const payload = {
+      event: 'digest.daily',
+      tenantId: tenant.id,
+      tenantSlug: tenant.slug,
+      date: digest.date,
+      topSellers: digest.topSellers,
+      lowStock: digest.lowStock,
+      message: digestToText(digest),
+    };
+    const body = JSON.stringify(payload);
+    const signature = config.secret
+      ? createHmac('sha256', config.secret).update(body).digest('hex')
+      : null;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
+    try {
+      const res = await fetch(config.webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(config.secret ? { Authorization: `Bearer ${config.secret}` } : {}),
+          ...(signature ? { 'X-Webhook-Signature': signature } : {}),
+        },
+        body,
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        console.warn(`[whatsapp] digest webhook responded ${res.status}`);
+        return { sent: false, reason: `http-${res.status}` };
+      }
+      return { sent: true, signature: Boolean(signature) };
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (err) {
+    console.warn(
+      `[whatsapp] digest push failed (${err?.name || 'error'}): ${err?.message || 'unknown'}`
+    );
+    return { sent: false, reason: 'error' };
+  }
+}
+
+/** WhatsApp-friendly text form of the digest (top sellers + low stock). */
+export function digestToText(digest) {
+  const lines = [`📊 Daily digest — ${digest.date}`];
+  if (digest.topSellers?.length) {
+    lines.push('🏆 Top sellers:');
+    for (const t of digest.topSellers.slice(0, 5)) {
+      lines.push(`• ${t.itemName} ×${t.quantity} (৳${Number(t.revenue).toFixed(2)})`);
+    }
+  } else {
+    lines.push('🏆 No sales recorded this day.');
+  }
+  if (digest.lowStock?.length) {
+    lines.push('⚠️ Low stock:');
+    for (const i of digest.lowStock.slice(0, 8)) {
+      lines.push(`• ${i.itemName} — ${i.stockQty}/${i.lowStockAt} ${i.unit}`);
+    }
+  } else {
+    lines.push('✅ Stock levels healthy.');
+  }
+  return lines.join('\n');
 }

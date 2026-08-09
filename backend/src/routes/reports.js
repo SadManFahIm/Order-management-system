@@ -7,6 +7,8 @@ import { resolveTenant, requireTenant } from '../middleware/tenant.js';
 import {
   buildCloseout,
   buildCloseoutCsv,
+  buildVatReport,
+  buildVatCsv,
   renderCloseoutHtml,
   sendCloseoutEmail,
 } from '../services/reportsService.js';
@@ -50,6 +52,25 @@ router.get(
     const data = await buildCloseout(req.tenant.id, req.query.date);
     res.set('Content-Type', 'text/html; charset=utf-8');
     res.send(renderCloseoutHtml(data, req.tenant.name || 'Restaurant'));
+  })
+);
+
+/** GET /api/reports/vat?from=&to= — VAT compliance (per-item VAT split). */
+router.get(
+  '/vat',
+  asyncHandler(async (req, res) => {
+    res.json(await buildVatReport(req.tenant, req.query.from, req.query.to));
+  })
+);
+
+/** GET /api/reports/vat.csv — the same VAT report as a downloadable CSV. */
+router.get(
+  '/vat.csv',
+  asyncHandler(async (req, res) => {
+    const data = await buildVatReport(req.tenant, req.query.from, req.query.to);
+    res.set('Content-Type', 'text/csv; charset=utf-8');
+    res.set('Content-Disposition', `attachment; filename="vat-${data.from}-to-${data.to}.csv"`);
+    res.send(buildVatCsv(data));
   })
 );
 
