@@ -6,7 +6,7 @@
 
 The Order Management System is evolving from a single-tenant order CRUD app into a commercial, cloud-based **restaurant ordering SaaS** for the Dhaka market (KFC, Pizza Hut, Domino's, Chillox, Sultan's Dine, Star Kabab, Madchef, and hundreds more — all data-driven, never hard-coded). This repository is the **V2 platform**: security hardening, multi-tenancy, RBAC, engineering tooling, testing, CI/CD, and a growing customer-facing storefront — built incrementally on the existing, working v1 features.
 
-**Current status:** Phases 1–4 **done** ✅ (incl. Phase 4 completion rounds 2 & 3: XLSX import, soft delete + optimistic locking, public menu pagination, inventory, merchant dashboard with live analytics charts, CRAV-style landing page, and per-tenant storefront branding) · Phase 5 (ordering & fulfillment) **foundation shipped** ✅ — order status workflow, **fully translated Bangla landing + storefront**, **QR table menus (printable + downloadable + table-aware orders)**, and the Deliveroo-style design system are live; the customer-facing checkout flow is the next sprint.
+**Current status:** Phases 1–4 **done** ✅ (incl. Phase 4 completion rounds 2 & 3: XLSX import, soft delete + optimistic locking, public menu pagination, inventory, merchant dashboard with live analytics charts, CRAV-style landing page, and per-tenant storefront branding) · Phase 5 (ordering & fulfillment) **foundation shipped** ✅ — order status workflow, **fully translated Bangla landing + storefront**, **QR table menus (printable + downloadable + table-aware orders)**, **kitchen/delivery order filters (status/table/open-first)**, **WhatsApp order alerts (webhook + wa.me)**, and the Deliveroo-style design system are live; the customer-facing checkout flow is the next sprint.
 
 ---
 
@@ -18,7 +18,7 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 | **Phase 2** — Auth & RBAC | Register/login/verify/reset flows, rotating refresh tokens with reuse detection, TOTP 2FA, role-based access control (admin/owner/manager/cashier/kitchen/delivery), session management | Full auth + RBAC test suites |
 | **Phase 3** — Multi-tenant SaaS | Tenant workspaces, team members & roles, plans/subscriptions/feature flags, tenant-scoping middleware (fail-closed isolation), CSRF protection, Dhaka seed data (20 workspaces, 89 menu items) | Tenant isolation + CSRF suites |
 | **Phase 4** — Menu & Media | Menu catalog (categories/variants/add-ons), image pipeline (sharp → WebP, S3-compatible storage, CDN-ready), bulk **CSV + XLSX** import, public menu API with HTTP caching + pagination, **DELETE endpoints**, **soft delete + optimistic locking**, **inventory**, **merchant dashboard with analytics charts**, **CRAV-style landing page**, **per-tenant storefront branding**, **MinIO S3 test tier in CI** | 21 suites · 204 tests passing |
-| **Phase 5 (foundation)** — Ordering | **Order fulfillment workflow** (placed → preparing → ready → delivered, role-gated, cancel rules), **fully translated English/Bangla i18n** (landing, storefront & merchant app), **QR table menus** (tables CRUD + printable QR sheet + per-table **PNG download** + hide/show + public tables API), **table-aware orders** (orders carry `table_no`, validated against the workspace tables, shown to kitchen/delivery), Deliveroo-inspired design system | 210 tests passing (SQLite) + PG · live UI verified |
+| **Phase 5 (foundation)** — Ordering | **Order fulfillment workflow** (placed → preparing → ready → delivered, role-gated, cancel rules), **fully translated English/Bangla i18n** (landing, storefront & merchant app), **QR table menus** (tables CRUD + printable QR sheet + per-table **PNG download** + hide/show + public tables API), **table-aware orders** (orders carry `table_no`, validated against the workspace tables, shown to kitchen/delivery), **order filters** (status / table / open-first sort), **WhatsApp order alerts** (webhook on new orders + wa.me manual links), Deliveroo-inspired design system | 224 tests passing (SQLite) + PG · live UI verified |
 
 ---
 
@@ -84,6 +84,15 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 - Orders carry a physical **`table_no`** (migration 007) — validated against the workspace's active tables at creation (unknown/inactive/other-tenant tables → `400 INVALID_TABLE`), then stored denormalised so history survives table renames/deletes
 - **New Order page** gets a dine-in **table selector** (populated from `/api/tables`); the **Orders list** shows a `🪑 Table N` badge per order so kitchen/delivery see exactly where the order belongs — demo orders seeded with table numbers
 
+**Kitchen/delivery order filters (Phase 5)**
+- `GET /api/orders` accepts **`?status=`**, **`?table_no=`** (or `none` for no-table) and **`?sort=open`** — open-first ordering surfaces `placed → preparing → ready` before finished orders, so the busiest work is at the top
+- The **Orders page** gets a filter bar (status dropdown, table dropdown populated from `/api/tables`, newest/open-first sort, default **open-first** for the fulfillment view)
+
+**WhatsApp order alerts (Phase 5)**
+- **Webhook** — with WhatsApp enabled + a `webhookUrl` (Twilio, WATI, Infobip or any gateway), every new order is POSTed as JSON (`event: order.created` with order no, table, customer, items, total) authenticated by an optional Bearer secret; **fire-and-forget** with a short timeout — a dead gateway never delays or breaks order creation
+- **wa.me manual flow** — Settings → WhatsApp lets merchants set their number, toggle alerts, and hit **Send test alert** (posts a test payload or returns the manual `wa.me` link when no webhook is set); the Orders list shows a **💬 WhatsApp** action per order that opens a pre-filled message for that exact order
+- Config lives in `tenant.settings.whatsapp`, validated (phone + URL), and only the public-safe `{ enabled, number }` whitelist leaves the API in the tenant list
+
 **Design system**
 - Deliveroo-inspired UI: theme engine with light/dark mode + design tokens, shared UI kit (Button, Card, Input, Table, Modal, Toast, Skeleton, Badge, EmptyState…), workspace switcher, glassy navbar, playful motion (bounce, lift, shimmer). See [`docs/06-design-system.md`](docs/06-design-system.md)
 
@@ -147,7 +156,7 @@ Customer storefront checkout & tracking · WhatsApp notifications · payments (b
 │   │   ├── routes/           # auth, products, promotions, orders, menu, uploads, public, dashboard, tables
 │   │   ├── utils/            # promotion engine, pagination
 │   │   ├── test/             # Test environment setup
-│   │   └── __tests__/        # 21 suites · 210 tests
+│   │   └── __tests__/        # 22 suites · 224 tests
 │   ├── migrations/           # Versioned schema migrations (001–007)
 │   ├── scripts/              # CLI utilities (seed, migrate runner, v1→v2 copy)
 │   └── Dockerfile

@@ -1,4 +1,5 @@
 import express from 'express';
+import sequelize from '../config/db.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -10,23 +11,50 @@ import PromotionSlab from '../models/PromotionSlab.js';
 import Order from '../models/Order.js';
 import OrderItem from '../models/OrderItem.js';
 import Table from '../models/Table.js';
+import Tenant from '../models/Tenant.js';
 import { applyPromotionsToCart } from '../utils/promotionEngine.js';
 import { parsePagination } from '../utils/pagination.js';
 import { createOrderSchema } from '../validators/order.js';
+import { sendOrderAlert } from '../services/whatsappService.js';
 
 const router = express.Router();
 router.use(authMiddleware, attachPermissionCheck, resolveTenant, requireTenant);
 
-/** GET /api/orders?limit=&offset= — paginated list (backward-compatible: returns an array). */
+const VALID_STATUSES = ['placed', 'preparing', 'ready', 'delivered', 'canceled'];
+
+// `sort=open` surfaces active fulfillment orders (placed → preparing → ready)
+// before finished ones — the default kitchen/delivery view.
+const OPEN_FIRST_ORDER = [
+  [
+    sequelize.literal(
+      "CASE status WHEN 'placed' THEN 0 WHEN 'preparing' THEN 1 WHEN 'ready' THEN 2 WHEN 'delivered' THEN 3 WHEN 'canceled' THEN 4 ELSE 5 END"
+    ),
+    'ASC',
+  ],
+  ['id', 'DESC'],
+];
+
+/** GET /api/orders?limit=&offset=&status=&table_no=&sort=open — filtered list. */
 router.get(
   '/',
   requirePermission('view:orders'),
   asyncHandler(async (req, res) => {
     const { limit, offset } = parsePagination(req.query);
 
+    const where = { tenant_id: req.tenant.id };
+    if (typeof req.query.status === 'string' && VALID_STATUSES.includes(req.query.status)) {
+      where.status = req.query.status;
+    }
+    if (req.query.table_no === 'none') {
+      where.table_no = null; // delivery/takeaway orders with no table
+    } else if (req.query.table_no !== undefined) {
+      const tableNo = Number(req.query.table_no);
+      if (Number.isInteger(tableNo) && tableNo > 0) where.table_no = tableNo;
+    }
+
     const { rows, count } = await Order.findAndCountAll({
-      where: { tenant_id: req.tenant.id },
-      order: [['id', 'DESC']],
+      where,
+      order: req.query.sort === 'open' ? OPEN_FIRST_ORDER : [['id', 'DESC']],
       limit,
       offset,
       include: [
@@ -206,6 +234,13 @@ router.post(
         { model: OrderItem, as: 'items', include: [{ model: Product }] },
       ],
     });
+
+    // WhatsApp order alert (Phase 5): fire-and-forget, never blocks/delays
+    // order creation — the service swallows every failure internally.
+    if (req.tenant?.id) {
+      const tenant = await Tenant.findByPk(req.tenant.id);
+      if (tenant) void sendOrderAlert(tenant, fullOrder, fullOrder.items || []);
+    }
 
     res.status(201).json(fullOrder);
   })

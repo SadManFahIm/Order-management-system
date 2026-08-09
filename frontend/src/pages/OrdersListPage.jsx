@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import api from '../api';
+import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../i18n';
-import { PageHeader, Card, Table, Button, Badge, Skeleton, useToast } from '../components/ui';
+import { PageHeader, Card, Table, Button, Badge, Select, Skeleton, useToast } from '../components/ui';
 
 const fmt = (n) => `৳ ${Number(n).toFixed(2)}`;
 
@@ -12,6 +13,8 @@ const STATUS_TONE = {
   delivered: 'success',
   canceled: 'danger',
 };
+
+const STATUS_ORDER = ['placed', 'preparing', 'ready', 'delivered', 'canceled'];
 
 // Next step in the happy path, or null when terminal/canceled.
 const NEXT_STATUS = {
@@ -24,10 +27,33 @@ const NEXT_STATUS = {
 
 const statusLabel = (t, status) => t(`orders.${status}`);
 
+/** wa.me deep link with a pre-filled order alert (WhatsApp notifications). */
+function whatsappLinkFor(number, order) {
+  const digits = String(number || '').replace(/[^\d]/g, '');
+  if (!digits) return null;
+  const lines = [
+    `🆕 New order #${order.order_no || order.id}`,
+  ];
+  if (order.table_no) lines.push(`🪑 Table ${order.table_no}`);
+  if (order.customer_name) lines.push(`👤 ${order.customer_name}`);
+  (order.items || []).slice(0, 8).forEach((it) => lines.push(`• ${it.item_name} ×${it.quantity}`));
+  lines.push(`💰 ${fmt(order.grand_total)}`);
+  lines.push(`📌 Status: ${order.status}`);
+  return `https://wa.me/${digits}?text=${encodeURIComponent(lines.join('\n'))}`;
+}
+
 export default function OrdersListPage() {
   const [orders, setOrders] = useState(null);
+  const [tables, setTables] = useState([]);
+  const [filters, setFilters] = useState({ status: '', tableNo: '', sort: 'open' });
   const toast = useToast();
   const { t } = useI18n();
+  const { tenants, activeTenantId } = useAuth();
+
+  const active = tenants.find((tn) => Number(tn.id) === Number(activeTenantId));
+  // Whitelisted by /api/auth/tenants: { enabled, number } — never the secret.
+  const waConfig = active?.whatsapp || {};
+  const waNumber = waConfig.enabled ? waConfig.number : '';
 
   const mounted = useRef(true);
   useEffect(() => {
@@ -35,13 +61,19 @@ export default function OrdersListPage() {
     // cleanup would otherwise leave the ref false forever.
     mounted.current = true;
     load();
+    api.get('/tables').then((res) => { if (mounted.current) setTables(res.data || []); }).catch(() => {});
     return () => { mounted.current = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const load = async () => {
     try {
-      const res = await api.get('/orders');
+      const params = {};
+      if (filters.status) params.status = filters.status;
+      if (filters.tableNo === 'none') params.table_no = 'none';
+      else if (filters.tableNo !== '') params.table_no = Number(filters.tableNo);
+      if (filters.sort === 'open') params.sort = 'open';
+      const res = await api.get('/orders', { params });
       if (mounted.current) setOrders(res.data);
     } catch {
       if (mounted.current) {
@@ -50,6 +82,17 @@ export default function OrdersListPage() {
       }
     }
   };
+
+  // Refetch whenever a filter changes (skip the initial mount fetch above).
+  const firstRun = useRef(true);
+  useEffect(() => {
+    if (firstRun.current) {
+      firstRun.current = false;
+      return undefined;
+    }
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
 
   const setStatus = async (o, status) => {
     try {
@@ -82,6 +125,43 @@ export default function OrdersListPage() {
           </Button>
         }
       />
+
+      {/* Filter bar — kitchen/delivery view: open orders surface first. */}
+      <div className="oms-order-filters">
+        <label className="oms-order-filters__field">
+          <span>{t('orders.filterStatus')}</span>
+          <Select value={filters.status} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}>
+            <option value="">{t('orders.allStatuses')}</option>
+            {STATUS_ORDER.map((s) => (
+              <option key={s} value={s}>{statusLabel(t, s)}</option>
+            ))}
+          </Select>
+        </label>
+        <label className="oms-order-filters__field">
+          <span>{t('orders.filterTable')}</span>
+          <Select value={filters.tableNo} onChange={(e) => setFilters((f) => ({ ...f, tableNo: e.target.value }))}>
+            <option value="">{t('orders.allTables')}</option>
+            <option value="none">{t('orders.noTable')}</option>
+            {tables.filter((tb) => tb.is_active).map((tb) => (
+              <option key={tb.id} value={tb.table_no}>
+                {tb.name ? `${tb.name} (${tb.table_no})` : t('orders.table', tb.table_no)}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <label className="oms-order-filters__field">
+          <span>{t('orders.filterSort')}</span>
+          <Select value={filters.sort} onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value }))}>
+            <option value="open">{t('orders.sortOpen')}</option>
+            <option value="newest">{t('orders.sortNewest')}</option>
+          </Select>
+        </label>
+        {waNumber && (
+          <div className="oms-order-filters__wa">
+            💬 WhatsApp alerts {waConfig.enabled ? 'on' : ''}
+          </div>
+        )}
+      </div>
 
       <Card bodyPadding={false}>
         {orders === null ? (
@@ -130,8 +210,21 @@ export default function OrdersListPage() {
                 );
               if (key === 'actions') {
                 const next = NEXT_STATUS[o.status];
+                const waLink = whatsappLinkFor(waNumber, o);
                 return (
-                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                    {waLink && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        to={waLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={`WhatsApp #${o.order_no || o.id}`}
+                      >
+                        💬 {t('orders.notifyWa')}
+                      </Button>
+                    )}
                     {next && (
                       <Button size="sm" variant="primary" onClick={() => onAdvance(o)}>
                         {statusLabel(t, next)}

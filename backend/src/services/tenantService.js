@@ -10,6 +10,7 @@ import {
 import { hasPermission } from '../config/roles.js';
 import { audit } from './auditService.js';
 import { publicUser } from './authService.js';
+import { sendTestAlert } from './whatsappService.js';
 
 /** True if the user is a platform admin (bypasses membership checks). */
 const isPlatformAdmin = (user) => user?.platform_role === 'platform_admin';
@@ -132,6 +133,12 @@ export async function updateTenant(user, tenantId, fields, req) {
       tenant.settings && typeof tenant.settings === 'object' ? tenant.settings : {};
     allowed.settings = { ...current, brand: fields.brand };
   }
+  if (fields.whatsapp !== undefined) {
+    // WhatsApp alerts config lives in settings too — merge like brand.
+    const current =
+      tenant.settings && typeof tenant.settings === 'object' ? tenant.settings : {};
+    allowed.settings = { ...current, whatsapp: fields.whatsapp };
+  }
   await tenant.update(allowed);
   await audit({
     action: 'tenant.updated',
@@ -142,6 +149,21 @@ export async function updateTenant(user, tenantId, fields, req) {
     req,
   });
   return serializeTenant(tenant);
+}
+
+/** Send a test WhatsApp alert to the workspace's configured webhook. */
+export async function sendWhatsAppTest(user, tenantId, req) {
+  const { tenant } = await assertTenantAccess(user, tenantId, 'manage:settings');
+  const result = await sendTestAlert(tenant);
+  await audit({
+    action: 'tenant.whatsapp_test_sent',
+    actorId: user.id,
+    tenantId: tenant.id,
+    entityType: 'Tenant',
+    entityId: tenant.id,
+    req,
+  });
+  return result;
 }
 
 /** Platform-admin only: activate / suspend / archive a workspace. */
