@@ -136,9 +136,7 @@ router.get(
   asyncHandler(async (req, res) => {
     if (req.user.platform_role === 'platform_admin') {
       const all = await Tenant.findAll({ order: [['id', 'ASC']] });
-      return res.json(
-        all.map((t) => ({ id: t.id, name: t.name, slug: t.slug, role: 'platform_admin' }))
-      );
+      return res.json(all.map((t) => slimTenant(t, 'platform_admin')));
     }
     const memberships = await UserTenant.findAll({
       where: { user_id: req.user.id },
@@ -146,15 +144,25 @@ router.get(
       order: [['id', 'ASC']],
     });
     res.json(
-      memberships.map((m) => ({
-        id: m.tenant_id,
-        name: m.Tenant?.name,
-        slug: m.Tenant?.slug,
-        role: m.role,
-      }))
+      memberships.map((m) => slimTenant(m.Tenant, m.role))
     );
   })
 );
+
+/** Slim tenant row for /api/auth/tenants — includes just enough for the
+ * switcher + the WhatsApp-alert affordance, never the full settings. */
+function slimTenant(t, role) {
+  if (!t) return null;
+  const wa = t.settings?.whatsapp;
+  return {
+    id: t.id,
+    name: t.name,
+    slug: t.slug,
+    role,
+    // Whitelist only — the webhook secret never leaves the server here.
+    whatsapp: wa ? { enabled: Boolean(wa.enabled), number: wa.number || null } : null,
+  };
+}
 
 /** POST /api/auth/staff — provision a staff member into a tenant. */
 router.post(

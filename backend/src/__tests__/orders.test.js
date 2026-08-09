@@ -394,3 +394,52 @@ describe('POST /api/orders — table-aware (QR table menu)', () => {
     expect(res.body.error.code).toBe('VALIDATION_ERROR');
   });
 });
+
+describe('GET /api/orders — filters (kitchen/delivery view)', () => {
+  const place = (payload = {}) =>
+    request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ customer_name: 'Filter Guest', ...payload, items: [{ product_id: 1, quantity: 1 }] });
+
+  it('filters by status', async () => {
+    await place();
+    const placed = await place();
+    await request(app)
+      .patch(`/api/orders/${placed.body.id}/status`)
+      .set('Authorization', `Bearer ${managerToken}`)
+      .send({ status: 'canceled' });
+
+    const res = await request(app)
+      .get('/api/orders?status=placed')
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.length).toBeGreaterThan(0);
+    expect(res.body.every((o) => o.status === 'placed')).toBe(true);
+    expect(res.body.some((o) => o.id === placed.body.id)).toBe(false);
+  });
+
+  it('filters by table number', async () => {
+    await place({ table_no: 5 });
+    const res = await request(app)
+      .get('/api/orders?table_no=5')
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.length).toBeGreaterThan(0);
+    expect(res.body.every((o) => o.table_no === 5)).toBe(true);
+  });
+
+  it('sort=open surfaces active fulfillment orders first', async () => {
+    await place(); // placed (open)
+    const res = await request(app)
+      .get('/api/orders?sort=open&limit=50')
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    const statuses = res.body.map((o) => o.status);
+    // No finished order may appear before an open one.
+    const rank = (s) => ({ placed: 0, preparing: 1, ready: 2, delivered: 3, canceled: 4 }[s] ?? 5);
+    for (let i = 1; i < statuses.length; i += 1) {
+      expect(rank(statuses[i - 1])).toBeLessThanOrEqual(rank(statuses[i]));
+    }
+  });
+});

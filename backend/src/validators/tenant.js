@@ -28,10 +28,29 @@ export const brandSchema = z.object({
   announcement: z.string().trim().max(160).optional(),
 });
 
+/**
+ * WhatsApp order alerts (Phase 5). Lives inside `tenant.settings.whatsapp`.
+ * `number` is the merchant's WhatsApp (for wa.me links); `webhookUrl`
+ * receives a POST per new order when `enabled` (Twilio/WATI/Infobip/any
+ * gateway); `secret` is sent as a Bearer token to authenticate the hook.
+ */
+export const whatsappSchema = z.object({
+  enabled: z.boolean().optional(),
+  number: z
+    .string()
+    .trim()
+    .regex(/^[+]?[0-9\s-]{7,17}$/, 'Must be a valid phone number (e.g. +8801712345678)')
+    .optional()
+    .or(z.literal('')),
+  webhookUrl: z.string().url('Must be a valid URL').max(500).optional().or(z.literal('')),
+  secret: z.string().trim().max(200).optional().or(z.literal('')),
+});
+
 export const updateTenantSchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
   logoUrl: z.string().url().max(500).nullable().optional(),
   brand: brandSchema.optional(),
+  whatsapp: whatsappSchema.optional(),
   settings: z.record(z.unknown()).optional(),
 });
 

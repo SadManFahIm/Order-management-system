@@ -49,6 +49,19 @@ router.post(
   })
 );
 
+/** POST /api/tenants/:id/whatsapp/test — send a test alert to the webhook. */
+router.post(
+  '/:id/whatsapp/test',
+  asyncHandler(async (req, res) => {
+    const result = await tenantService.sendWhatsAppTest(
+      req.user,
+      Number(req.params.id),
+      req
+    );
+    res.json(result);
+  })
+);
+
 /** PATCH /api/tenants/:id — update name / logo / settings. */
 router.patch(
   '/:id',

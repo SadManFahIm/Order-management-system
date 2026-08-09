@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import api from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../i18n';
-import { PageHeader, Card, Button, Field, Input, Textarea, Skeleton, useToast } from '../components/ui';
+import { PageHeader, Card, Button, Field, Input, Textarea, Switch, Skeleton, useToast } from '../components/ui';
 
 const PRESETS = [
   { name: 'KFC red', primary: '#e4002b', accent: '#ffd400' },
@@ -23,6 +23,10 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [tenant, setTenant] = useState(null);
   const [brand, setBrand] = useState(DEFAULT_BRAND);
+  const [wa, setWa] = useState({ enabled: false, number: '', webhookUrl: '', secret: '' });
+  const [waSaving, setWaSaving] = useState(false);
+  const [waTesting, setWaTesting] = useState(false);
+  const [waManualLink, setWaManualLink] = useState(null);
   const mounted = useRef(true);
 
   const active = tenants.find((x) => Number(x.id) === Number(activeTenantId));
@@ -43,6 +47,12 @@ export default function SettingsPage() {
           ...(res.data.brand || {}),
           logoUrl: res.data.logoUrl || '',
         });
+        setWa({
+          enabled: Boolean(res.data.settings?.whatsapp?.enabled),
+          number: res.data.settings?.whatsapp?.number || '',
+          webhookUrl: res.data.settings?.whatsapp?.webhookUrl || '',
+          secret: res.data.settings?.whatsapp?.secret || '',
+        });
         setLoading(false);
       })
       .catch(() => {
@@ -54,6 +64,44 @@ export default function SettingsPage() {
   }, [activeTenantId]);
 
   const set = (key, value) => setBrand((b) => ({ ...b, [key]: value }));
+  const updateWa = (key, value) => setWa((w) => ({ ...w, [key]: value }));
+
+  const saveWhatsApp = async () => {
+    setWaSaving(true);
+    try {
+      await api.patch(`/tenants/${activeTenantId}`, {
+        whatsapp: {
+          enabled: wa.enabled,
+          number: wa.number.trim(),
+          webhookUrl: wa.webhookUrl.trim(),
+          secret: wa.secret.trim(),
+        },
+      });
+      toast.success(t('settings.waSaved'));
+    } catch (err) {
+      toast.error(err?.response?.data?.error?.message || 'Could not save WhatsApp settings');
+    } finally {
+      setWaSaving(false);
+    }
+  };
+
+  const testWhatsApp = async () => {
+    setWaTesting(true);
+    setWaManualLink(null);
+    try {
+      const res = await api.post(`/tenants/${activeTenantId}/whatsapp/test`);
+      if (res.data.sent) {
+        toast.success(t('settings.waTestOk'));
+      } else {
+        setWaManualLink(res.data.waLink || null);
+        toast.success(t('settings.waTestManual'));
+      }
+    } catch {
+      toast.error('Test alert failed');
+    } finally {
+      setWaTesting(false);
+    }
+  };
 
   const save = async () => {
     setSaving(true);
@@ -159,6 +207,42 @@ export default function SettingsPage() {
           <StorefrontPreview brand={brand} name={tenant.name} logoUrl={tenant.logoUrl} />
         </Card>
       </div>
+
+      {/* WhatsApp order alerts (Phase 5) */}
+      <Card title={t('settings.waTitle')} subtitle={t('settings.waDesc')}>
+        <div style={{ display: 'grid', gap: 16 }}>
+          <Switch
+            id="wa-enabled"
+            label={t('settings.waEnabled')}
+            checked={wa.enabled}
+            onChange={(e) => updateWa('enabled', e.target.checked)}
+          />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <Field label={t('settings.waNumber')} hint={t('settings.waNumberHint')}>
+              <Input value={wa.number} maxLength={20} onChange={(e) => updateWa('number', e.target.value)} placeholder="+8801712345678" />
+            </Field>
+            <Field label={t('settings.waWebhook')} hint={t('settings.waWebhookHint')}>
+              <Input value={wa.webhookUrl} maxLength={500} onChange={(e) => updateWa('webhookUrl', e.target.value)} placeholder="https://gateway.example.com/hook" />
+            </Field>
+          </div>
+          <Field label={t('settings.waSecret')} hint={t('settings.waSecretHint')}>
+            <Input value={wa.secret} maxLength={200} onChange={(e) => updateWa('secret', e.target.value)} placeholder="shared-secret" />
+          </Field>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Button variant="primary" onClick={saveWhatsApp} disabled={waSaving}>
+              {waSaving ? t('common.loading') : t('settings.waSave')}
+            </Button>
+            <Button variant="outline" onClick={testWhatsApp} disabled={waTesting}>
+              {waTesting ? t('common.loading') : t('settings.waTest')}
+            </Button>
+            {waManualLink && (
+              <a href={waManualLink} target="_blank" rel="noreferrer">
+                <Button variant="ghost">{t('settings.waSendLink')} ↗</Button>
+              </a>
+            )}
+          </div>
+        </div>
+      </Card>
     </div>
   );
 }
