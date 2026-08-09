@@ -11,22 +11,24 @@ import Payment from '../models/Payment.js';
  * storefront/order screen.
  */
 
-export const PAYMENT_METHODS = ['cash', 'bkash', 'nagad', 'card'];
+export const PAYMENT_METHODS = ['cash', 'bkash', 'nagad', 'card', 'online'];
 
 export const METHOD_LABELS = {
   cash: 'Cash',
   bkash: 'bKash',
   nagad: 'Nagad',
   card: 'Card',
+  online: 'Online',
   other: 'Other',
 };
 
-/** Default config — cash on, mobile wallets off until enabled. */
+/** Default config — cash on, mobile wallets + online off until enabled. */
 const DEFAULT_METHODS = {
   cash: { enabled: true },
   bkash: { enabled: false, number: '' },
   nagad: { enabled: false, number: '' },
   card: { enabled: false },
+  online: { enabled: false },
 };
 
 /** Reads the tenant's payment-method config from settings (never throws). */
@@ -65,6 +67,11 @@ export function assertMethodEnabled(tenant, method) {
     );
   }
   return method;
+}
+
+/** True when the workspace accepts online payments (hosted gateway). */
+export function onlineEnabled(tenant) {
+  return enabledPaymentMethods(tenant).includes('online');
 }
 
 /**

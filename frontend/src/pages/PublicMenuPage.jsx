@@ -368,8 +368,13 @@ export default function PublicMenuPage() {
           </div>
         )}
 
-        <div style={{ marginTop: 40, textAlign: 'center', fontSize: 13, color: 'var(--text-muted, #7d9a95)' }}>
-          <Link to="/login" style={{ color: 'inherit' }}>{t('store.merchantSignIn')}</Link> · {t('store.poweredBy')}
+        <div style={{ marginTop: 40, textAlign: 'center', fontSize: 13, color: 'var(--text-muted, #7d9a95)', display: 'grid', gap: 6 }}>
+          <Link to="/track" style={{ color: 'var(--brand)', fontWeight: 700 }}>
+            🛎️ {t('store.trackOrder')} →
+          </Link>
+          <div>
+            <Link to="/login" style={{ color: 'inherit' }}>{t('store.merchantSignIn')}</Link> · {t('store.poweredBy')}
+          </div>
         </div>
       </div>
     </div>

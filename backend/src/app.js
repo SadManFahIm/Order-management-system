@@ -40,6 +40,8 @@ import publicMenuRoutes from './routes/publicMenu.js';
 import dashboardRoutes from './routes/dashboard.js';
 import tableRoutes from './routes/tables.js';
 import paymentRoutes from './routes/payments.js';
+import webhookRoutes from './routes/webhooks.js';
+import reportRoutes from './routes/reports.js';
 
 import { storageDriver, localStatic } from './config/storage.js';
 
@@ -68,6 +70,11 @@ app.use(
     },
   })
 );
+
+// Payment gateway webhooks (SSLCommerz/Stripe) must see the RAW body to
+// verify signatures — mount them BEFORE the global JSON parser. They are
+// public by design (gateways call them); authenticity comes from signatures.
+app.use('/api/webhooks', webhookRoutes);
 
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
@@ -112,6 +119,7 @@ app.use('/api/public', apiLimiter, publicMenuRoutes);
 app.use('/api/dashboard', apiLimiter, dashboardRoutes);
 app.use('/api/tables', apiLimiter, tableRoutes);
 app.use('/api/payments', apiLimiter, paymentRoutes);
+app.use('/api/reports', apiLimiter, reportRoutes);
 
 // 404 + centralized error handling
 app.use(notFound);

@@ -17,6 +17,8 @@ import PublicMenuPage from './pages/PublicMenuPage';
 import LandingPage from './pages/LandingPage';
 import SettingsPage from './pages/SettingsPage';
 import TableQRPage from './pages/TableQRPage';
+import ReportsPage from './pages/ReportsPage';
+import TrackOrderPage from './pages/TrackOrderPage';
 
 export default function App() {
   return (
@@ -31,6 +33,9 @@ export default function App() {
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           {/* Public storefront menu — no auth; renders from the public API. */}
           <Route path="/m/:slug" element={<PublicMenuPage />} />
+          {/* Public customer tracking — no auth; phone-verified lookup. */}
+          <Route path="/track" element={<TrackOrderPage />} />
+          <Route path="/track/:orderNo" element={<TrackOrderPage />} />
           <Route
             path="/*"
             element={
@@ -46,6 +51,7 @@ export default function App() {
                       <Route path="/orders" element={<OrdersListPage />} />
                       <Route path="/orders/new" element={<NewOrderPage />} />
                       <Route path="/tables" element={<TableQRPage />} />
+                      <Route path="/reports" element={<ReportsPage />} />
                       <Route path="/settings" element={<SettingsPage />} />
                     </Routes>
                   </main>

@@ -28,6 +28,7 @@ export default function NewOrderPage() {
     { key: 'bkash', label: 'bKash' },
     { key: 'nagad', label: 'Nagad' },
     { key: 'card', label: 'Card' },
+    { key: 'online', label: 'Online (SSLCommerz)' },
   ].filter((m) => pmFlags[m.key]);
 
   // If the workspace disabled the currently selected method, fall back to
@@ -92,6 +93,12 @@ export default function NewOrderPage() {
     };
     try {
       const res = await api.post('/orders', payload);
+      // Online payment: the order is placed as pending and the customer is
+      // sent to the hosted gateway (SSLCommerz/Stripe) to pay.
+      if (res.data.paymentUrl) {
+        window.location.href = res.data.paymentUrl;
+        return;
+      }
       toast.success(`Order #${res.data.id} created`);
       const s = {
         subtotal: res.data.subtotal,

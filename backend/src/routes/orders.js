@@ -18,6 +18,7 @@ import { parsePagination } from '../utils/pagination.js';
 import { createOrderSchema } from '../validators/order.js';
 import { sendOrderAlert, sendStatusNotification } from '../services/whatsappService.js';
 import { assertMethodEnabled, createPaymentForOrder } from '../services/paymentsService.js';
+import { createOnlinePayment } from '../services/paymentGateway.js';
 
 const router = express.Router();
 router.use(authMiddleware, attachPermissionCheck, resolveTenant, requireTenant);
@@ -257,10 +258,21 @@ router.post(
     );
 
     // Payment record — cash is paid on the spot, wallets start pending.
-    await createPaymentForOrder(tenantConfig, order, {
+    const payment = await createPaymentForOrder(tenantConfig, order, {
       method,
       reference: payment_reference || null,
     });
+
+    // Online payments (SSLCommerz/Stripe): build the hosted checkout session
+    // so the cashier/customer can redirect and pay. The gateway stamps the
+    // payment's reference (tran_id / session id) for webhook confirmation.
+    let paymentUrl = null;
+    let gateway = null;
+    if (method === 'online') {
+      const session = await createOnlinePayment({ tenant: tenantConfig, order, payment });
+      paymentUrl = session.paymentUrl;
+      gateway = session.gateway;
+    }
 
     const fullOrder = await Order.findByPk(order.id, {
       include: [
@@ -273,7 +285,12 @@ router.post(
     // order creation — the service swallows every failure internally.
     if (tenantConfig) void sendOrderAlert(tenantConfig, fullOrder, fullOrder.items || []);
 
-    res.status(201).json(fullOrder);
+    const body = fullOrder.toJSON();
+    if (paymentUrl) {
+      body.paymentUrl = paymentUrl;
+      body.gateway = gateway;
+    }
+    res.status(201).json(body);
   })
 );
 

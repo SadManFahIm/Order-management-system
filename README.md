@@ -6,7 +6,7 @@
 
 The Order Management System is evolving from a single-tenant order CRUD app into a commercial, cloud-based **restaurant ordering SaaS** for the Dhaka market (KFC, Pizza Hut, Domino's, Chillox, Sultan's Dine, Star Kabab, Madchef, and hundreds more — all data-driven, never hard-coded). This repository is the **V2 platform**: security hardening, multi-tenancy, RBAC, engineering tooling, testing, CI/CD, and a growing customer-facing storefront — built incrementally on the existing, working v1 features.
 
-**Current status:** Phases 1–4 **done** ✅ (incl. Phase 4 completion rounds 2 & 3: XLSX import, soft delete + optimistic locking, public menu pagination, inventory, merchant dashboard with live analytics charts, CRAV-style landing page, and per-tenant storefront branding) · Phase 5 (ordering & fulfillment) **foundation shipped** ✅ — order status workflow, **fully translated Bangla landing + storefront**, **QR table menus (printable + downloadable + table-aware orders)**, **kitchen/delivery order filters (status/table/open-first)**, **WhatsApp order alerts + customer status notifications (webhook + wa.me)**, **bKash/Nagad payment records** (payments table, per-tenant payment methods, revenue-by-method analytics), and the Deliveroo-style design system are live; the customer-facing checkout flow is the next sprint.
+**Current status:** Phases 1–4 **done** ✅ (incl. Phase 4 completion rounds 2 & 3: XLSX import, soft delete + optimistic locking, public menu pagination, inventory, merchant dashboard with live analytics charts, CRAV-style landing page, and per-tenant storefront branding) · Phase 5 (ordering & fulfillment) **foundation shipped** ✅ — order status workflow, **fully translated Bangla landing + storefront**, **QR table menus (printable + downloadable + table-aware orders)**, **kitchen/delivery order filters (status/table/open-first)**, **WhatsApp order alerts + customer status notifications (webhook + wa.me)**, **bKash/Nagad payment records + SSLCommerz/Stripe gateway integration** (payments table, per-tenant payment methods, hosted checkout sessions, signed webhooks), **daily closeout report** (JSON + CSV, Dhaka-day), **customer order tracking page** (order no + phone, public API), revenue-by-method analytics, and the Deliveroo-style design system are live; the customer-facing checkout/cart flow is the next sprint.
 
 ---
 
@@ -18,7 +18,7 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 | **Phase 2** — Auth & RBAC | Register/login/verify/reset flows, rotating refresh tokens with reuse detection, TOTP 2FA, role-based access control (admin/owner/manager/cashier/kitchen/delivery), session management | Full auth + RBAC test suites |
 | **Phase 3** — Multi-tenant SaaS | Tenant workspaces, team members & roles, plans/subscriptions/feature flags, tenant-scoping middleware (fail-closed isolation), CSRF protection, Dhaka seed data (20 workspaces, 89 menu items) | Tenant isolation + CSRF suites |
 | **Phase 4** — Menu & Media | Menu catalog (categories/variants/add-ons), image pipeline (sharp → WebP, S3-compatible storage, CDN-ready), bulk **CSV + XLSX** import, public menu API with HTTP caching + pagination, **DELETE endpoints**, **soft delete + optimistic locking**, **inventory**, **merchant dashboard with analytics charts**, **CRAV-style landing page**, **per-tenant storefront branding**, **MinIO S3 test tier in CI** | 21 suites · 204 tests passing |
-| **Phase 5 (foundation)** — Ordering | **Order fulfillment workflow** (placed → preparing → ready → delivered, role-gated, cancel rules), **fully translated English/Bangla i18n** (landing, storefront & merchant app), **QR table menus** (tables CRUD + printable QR sheet + per-table **PNG download** + hide/show + public tables API), **table-aware orders** (orders carry `table_no`, validated against the workspace tables, shown to kitchen/delivery), **order filters** (status / table / open-first sort), **WhatsApp order alerts + customer status notifications** (webhook on new orders & status changes + wa.me manual links), **bKash/Nagad payment records** (`payments` table + `orders.payment_method`, per-tenant payment methods with receiving numbers, cashier confirm/refund with trxID, revenue-by-method analytics), Deliveroo-inspired design system | **241 tests** passing (SQLite) + PG · live UI verified |
+| **Phase 5 (foundation)** — Ordering | **Order fulfillment workflow** (placed → preparing → ready → delivered, role-gated, cancel rules), **fully translated English/Bangla i18n** (landing, storefront & merchant app), **QR table menus** (tables CRUD + printable QR sheet + per-table **PNG download** + hide/show + public tables API), **table-aware orders** (orders carry `table_no`, validated against the workspace tables, shown to kitchen/delivery), **order filters** (status / table / open-first sort), **WhatsApp order alerts + customer status notifications** (webhook on new orders & status changes + wa.me manual links), **bKash/Nagad payment records** (`payments` table + `orders.payment_method`, per-tenant payment methods with receiving numbers, cashier confirm/refund with trxID, revenue-by-method analytics), **SSLCommerz/Stripe gateway integration** (hosted checkout + signed webhooks), **daily closeout report** (JSON + CSV, Dhaka-day bounds), **customer order tracking** (public API + EN/BN progress stepper), Deliveroo-inspired design system | **261 tests** passing (SQLite) + PG · live UI verified |
 
 ---
 
@@ -99,6 +99,18 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 - **Per-tenant payment methods** — Settings → Payment methods: enable **Cash / bKash / Nagad / Card** and set the receiving numbers (bKash/Nagad); order creation validates the method against the workspace's enabled set (fail-closed `INVALID_PAYMENT_METHOD`, cash is the default), and the **New Order page** shows only the enabled methods + an optional trxID field
 - **Revenue by method** — the merchant dashboard now breaks down paid revenue by payment method (Cash / bKash / Nagad / Card) over the last 7 days; demo orders seed realistic payment records (trxIDs included)
 
+**SSLCommerz / Stripe gateway integration (Phase 5)**
+- **`paymentGateway` service** — env-configured (`PAYMENT_GATEWAY=sslcommerz|stripe` + provider credentials, no hardcoded secrets); creates a **hosted checkout session** for `online` orders and verifies the **signed webhook callback** before marking a payment paid (SSLCommerz signature / Stripe `Stripe-Signature` HMAC, raw body) — `/api/webhooks/*` mounts before the JSON body parser
+- **Graceful fallback** — if no gateway is configured, `online` orders fail with a clear `PAYMENT_GATEWAY_NOT_CONFIGURED` error (and `online` stays disabled per-tenant until enabled in Settings → Payment methods); the New Order page shows **Online (SSLCommerz)** only when the workspace enables it and returns `paymentUrl` on success for redirect
+
+**Daily closeout report (Phase 5)**
+- **`GET /api/reports/closeout?date=YYYY-MM-DD`** — one day's reconciliation view (Dhaka UTC+6 day bounds): totals (orders, canceled, paid revenue, pending, refunded, avg order), **revenue by payment method**, and the full order list
+- **`GET /api/reports/closeout.csv`** — the same day as a downloadable CSV (`closeout-YYYY-MM-DD.csv`) for matching against the physical register / bKash app statement; **Reports** page in the nav has a date picker, stat cards, per-method breakdown and CSV download button (EN/বাংলা)
+
+**Customer order tracking (Phase 5)**
+- **`GET /api/public/track?orderNo=&phone=`** — public, unauthenticated lookup that returns only a **privacy-safe whitelist** (status, table, payment status, total, restaurant name/slug, items) — never the customer phone, address, or internal fields; wrong order no / phone returns a uniform `404` (no enumeration)
+- **Track Order page** (`/track`) — EN/বাংলা form + progress stepper (Placed → Preparing → Ready → Delivered) with live status; linked from the public storefront footer, and the merchant app keeps its own authenticated views
+
 **Design system**
 - Deliveroo-inspired UI: theme engine with light/dark mode + design tokens, shared UI kit (Button, Card, Input, Table, Modal, Toast, Skeleton, Badge, EmptyState…), workspace switcher, glassy navbar, playful motion (bounce, lift, shimmer). See [`docs/06-design-system.md`](docs/06-design-system.md)
 
@@ -115,7 +127,7 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 - `cd frontend && npx playwright test`: boots the real API on a scratch DB + the Vite app and drives login, product CRUD, order creation, and the fulfillment UI through the actual browser · runs in CI (dedicated `e2e` job)
 
 ### Roadmap (V2)
-Customer storefront checkout & tracking · online payment gateways (SSLCommerz, Stripe) + split payments · deeper analytics dashboards · SaaS admin portal · hardening (performance, observability, load) · production release.
+Customer storefront checkout (cart → order) · online payment **split payments** · deeper analytics dashboards · SaaS admin portal · hardening (performance, observability, load) · production release.
 
 > Full audit and phased roadmap: [`docs/01-codebase-audit.md`](docs/01-codebase-audit.md) · [`docs/02-v2-roadmap.md`](docs/02-v2-roadmap.md) · [`docs/03-database-schema.md`](docs/03-database-schema.md)
 
@@ -159,10 +171,11 @@ Customer storefront checkout & tracking · online payment gateways (SSLCommerz, 
 │   │   ├── config/           # Validated environment config + DB + storage
 │   │   ├── middleware/       # Auth, RBAC, tenant, CSRF, rate limits, errors
 │   │   ├── models/           # Sequelize models (aligned to migrations)
-│   │   ├── routes/           # auth, products, promotions, orders, menu, uploads, public, dashboard, tables, payments
+│   │   ├── routes/           # auth, products, promotions, orders, menu, uploads, public, dashboard, tables, payments, webhooks, reports
+│   │   ├── services/         # payments, gateway, whatsapp, tenant, storage
 │   │   ├── utils/            # promotion engine, pagination
 │   │   ├── test/             # Test environment setup
-│   │   └── __tests__/        # 23 suites · 241 tests
+│   │   └── __tests__/        # 26 suites · 261 tests
 │   ├── migrations/           # Versioned schema migrations (001–008)
 │   ├── scripts/              # CLI utilities (seed, migrate runner, v1→v2 copy)
 │   └── Dockerfile
@@ -355,9 +368,9 @@ The workflow exposes a `workflow_dispatch` trigger so CI can always be run manua
 | **2** | Authentication & RBAC | Register/login/verify/reset, rotating refresh tokens + reuse detection, TOTP 2FA, 6-role RBAC, session management | ✅ **Done** |
 | **3** | Multi-tenant SaaS | Tenant workspaces + members/roles, tenant-scoping middleware (fail-closed), CSRF protection, Dhaka seed data (20 workspaces, 89 items) | ✅ **Done** |
 | **4** | Menu & Media | Menu catalog (categories/variants/add-ons), image pipeline (sharp → WebP, S3/CDN), bulk **CSV + XLSX** import, public menu API, **delete endpoints, HTTP caching + pagination, soft delete + optimistic locking, inventory, merchant dashboard, MinIO CI tier** | ✅ **Done** |
-| **5** | Ordering & fulfillment | **✅ Shipped:** order status workflow (role-gated transitions, cancel rules), English/Bangla i18n, Deliveroo design system, CRAV-inspired landing page, per-tenant brand theming, QR table menus, table-aware orders, order filters, WhatsApp alerts + customer status notifications · **⬜ Next sprints:** storefront checkout (cart → order → tracking) | 🟡 **In progress** |
-| **6** | Payments | **✅ Shipped (foundation):** bKash/Nagad/cash **payment records** — `payments` table, per-tenant payment methods, cashier confirm/refund with trxID, revenue-by-method analytics · **⬜ Next:** online gateways (SSLCommerz, Stripe), split payments | 🟡 **In progress** |
-| **7** | Analytics | Merchant dashboard — revenue, peak hours, top items, daily closeout | ⬜ Planned |
+| **5** | Ordering & fulfillment | **✅ Shipped:** order status workflow (role-gated transitions, cancel rules), English/Bangla i18n, Deliveroo design system, CRAV-inspired landing page, per-tenant brand theming, QR table menus, table-aware orders, order filters, WhatsApp alerts + customer status notifications, **customer order tracking page + public tracking API** · **⬜ Next sprints:** storefront checkout (cart → order) | 🟡 **In progress** |
+| **6** | Payments | **✅ Shipped:** bKash/Nagad/cash **payment records** + **SSLCommerz/Stripe gateway integration** (hosted checkout, signed webhooks, graceful unconfigured fallback), **daily closeout report** (JSON + CSV) · **⬜ Next:** split payments | 🟡 **In progress** |
+| **7** | Analytics | Merchant dashboard — revenue, peak hours, top items, **daily closeout shipped** · ⬜ Next: deeper trend analytics | 🟡 **In progress** |
 | **8** | Admin portal & SaaS ops | Platform admin console, subscription management, invoicing (VAT/NBR-ready) | ⬜ Planned |
 | **9** | Hardening | Performance, observability, load testing (k6), offline-first POS | ⬜ Planned |
 | **10** | Production release | Cutover, monitoring, go-live | ⬜ Planned |

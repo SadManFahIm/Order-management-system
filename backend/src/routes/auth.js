@@ -169,6 +169,7 @@ function slimTenant(t, role) {
       bkash: pm?.bkash?.enabled ?? false,
       nagad: pm?.nagad?.enabled ?? false,
       card: pm?.card?.enabled ?? false,
+      online: pm?.online?.enabled ?? false,
     },
   };
 }
