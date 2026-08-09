@@ -223,6 +223,18 @@ Customer storefront checkout (cart → order) · online payment **split payments
 - Node.js **20+** (see `.nvmrc`)
 - npm 10+
 
+### Fastest path (one command from the repo root)
+
+```bash
+npm install --prefix backend && npm install --prefix frontend   # first time only
+npm run seed:demo    # optional: bootstrap the demo dataset (admin + 20 restaurants + order history)
+npm run dev          # starts backend (:4000) + frontend (:5173) together
+```
+
+Open http://localhost:5173 and sign in with `admin@oms.dev` / `Str0ngPass!42` (overridable via `SEED_PASSWORD`). Ctrl+C in the terminal stops both servers.
+
+> Repo-root scripts: `dev` / `dev:backend` / `dev:frontend` · `seed:demo` · `db:migrate` · `db:migrate:status` · `test:backend` · `test:e2e`. The full list lives in `package.json` at the root.
+
 ### 1. Backend
 
 ```bash
