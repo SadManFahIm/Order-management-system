@@ -156,6 +156,8 @@ try {
           enabled: true,
           category_id: item.category ? categoryIds[item.category] ?? null : null,
           prep_minutes: item.prep_minutes ?? null,
+          // VAT-inclusive rate percent (Phase 6 compliance); default 5%.
+          vat_rate: item.vat_rate ?? 5,
         });
         items += 1;
       } else {
@@ -164,6 +166,10 @@ try {
         const updates = {};
         if (categoryId !== null && product.category_id === null) updates.category_id = categoryId;
         if (item.prep_minutes != null && product.prep_minutes === null) updates.prep_minutes = item.prep_minutes;
+        // Phase 6: refresh the VAT rate from the seed (migration default is 5%).
+        if (item.vat_rate != null && Number(product.vat_rate) !== Number(item.vat_rate)) {
+          updates.vat_rate = item.vat_rate;
+        }
         if (Object.keys(updates).length > 0) await product.update(updates);
       }
 

@@ -151,6 +151,12 @@ export async function updateTenant(user, tenantId, fields, req) {
       tenant.settings && typeof tenant.settings === 'object' ? tenant.settings : {};
     allowed.settings = { ...current, reports: fields.reports };
   }
+  if (fields.vat !== undefined) {
+    // VAT defaults — merge like brand/whatsapp.
+    const current =
+      tenant.settings && typeof tenant.settings === 'object' ? tenant.settings : {};
+    allowed.settings = { ...current, vat: fields.vat };
+  }
   await tenant.update(allowed);
   await audit({
     action: 'tenant.updated',

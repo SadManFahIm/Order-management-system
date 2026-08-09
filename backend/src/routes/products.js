@@ -59,7 +59,7 @@ router.post(
   '/',
   canManageMenu,
   asyncHandler(async (req, res) => {
-    const { name, description, price, weight_gm, enabled, category_id, prep_minutes, image_url } =
+    const { name, description, price, weight_gm, enabled, category_id, prep_minutes, image_url, vat_rate } =
       req.body;
 
     if (!name || typeof name !== 'string') {
@@ -70,6 +70,9 @@ router.post(
     }
     if (!Number.isInteger(weight_gm) || weight_gm <= 0) {
       throw new AppError(400, 'VALIDATION_ERROR', 'weight_gm must be a positive integer');
+    }
+    if (vat_rate !== undefined && (typeof vat_rate !== 'number' || vat_rate < 0 || vat_rate > 100)) {
+      throw new AppError(400, 'VALIDATION_ERROR', 'vat_rate must be between 0 and 100');
     }
 
     // The category must belong to the same tenant (fail-closed).
@@ -92,6 +95,7 @@ router.post(
       category_id: category_id ?? null,
       prep_minutes: prep_minutes ?? null,
       image_url: image_url ?? null,
+      vat_rate: vat_rate ?? 5,
     });
 
     // Optional inventory snapshot rides on the create payload.
@@ -181,8 +185,15 @@ router.put(
     });
     if (!p) throw new AppError(404, 'NOT_FOUND', 'Product not found');
 
-    const { name, description, price, weight_gm, enabled, category_id, prep_minutes, image_url } =
+    const { name, description, price, weight_gm, enabled, category_id, prep_minutes, image_url, vat_rate } =
       req.body;
+
+    if (
+      vat_rate !== undefined &&
+      (typeof vat_rate !== 'number' || vat_rate < 0 || vat_rate > 100)
+    ) {
+      throw new AppError(400, 'VALIDATION_ERROR', 'vat_rate must be between 0 and 100');
+    }
 
     // Optimistic lock — only enforced when the client supplies a version
     // (legacy callers that never send one keep working).
@@ -216,6 +227,7 @@ router.put(
     if (enabled !== undefined) p.enabled = enabled;
     if (prep_minutes !== undefined) p.prep_minutes = prep_minutes;
     if (image_url !== undefined) p.image_url = image_url;
+    if (vat_rate !== undefined) p.vat_rate = vat_rate;
     p.version = (p.version ?? 1) + 1;
     await p.save();
 

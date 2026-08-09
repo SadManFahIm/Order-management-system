@@ -76,6 +76,7 @@ export default function DashboardPage() {
 
   const ts = data.trendStats || {};
   const dod = ts.dayOverDay || {};
+  const mom = data.monthOverMonth || {};
   const dodTone = dod.delta > 0 ? 'success' : dod.delta < 0 ? 'danger' : 'neutral';
   const dodLabel =
     dod.pct !== null && dod.pct !== undefined
@@ -233,7 +234,7 @@ export default function DashboardPage() {
           {loading && !data ? (
             <Skeleton height={240} />
           ) : (
-            <CloseoutTrendChart data={data.closeoutTrend || []} />
+            <CloseoutTrendChart data={data.closeoutTrend || []} forecast={data.forecast} />
           )}
         </Card>
 
@@ -249,6 +250,31 @@ export default function DashboardPage() {
               <span style={{ fontSize: 13.5, fontWeight: 650 }}>{t('dash.dayOverDay')}</span>
               <Badge tone={dodTone}>{dodLabel}</Badge>
             </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <span style={{ fontSize: 13.5, color: 'var(--text-muted)', fontWeight: 600 }}>{t('dash.monthOverMonth')}</span>
+              <span style={{ fontWeight: 700, fontSize: 14, fontVariantNumeric: 'tabular-nums' }}>
+                {fmtTaka(mom.currentRevenue || 0)}
+                {mom.pct !== null && mom.pct !== undefined ? (
+                  <Badge tone={mom.pct >= 0 ? 'success' : 'danger'} style={{ marginLeft: 8 }}>
+                    {mom.pct >= 0 ? '▲' : '▼'} {Math.abs(mom.pct)}%
+                  </Badge>
+                ) : null}
+              </span>
+            </div>
+          </div>
+          <div
+            style={{
+              marginTop: 12,
+              paddingTop: 12,
+              borderTop: '1px solid var(--border)',
+              fontSize: 12.5,
+              color: 'var(--text-muted)',
+            }}
+          >
+            {t('dash.forecastHint')}{' '}
+            {(data.forecast?.projection || [])
+              .map((p) => fmtTaka(p.revenue))
+              .join(' · ')}
           </div>
         </Card>
       </div>

@@ -80,6 +80,15 @@ export const paymentMethodsSchema = z.object({
  * `closeoutEmail` is where the report is delivered, and `autoSendCloseout`
  * schedules it nightly at `hour` (0–23, Dhaka time) when enabled.
  */
+/**
+ * VAT configuration (Phase 5, NBR-ready). Lives inside `tenant.settings.vat`:
+ * `defaultRate` is the workspace-wide VAT % used by the VAT report for items
+ * without their own `vat_rate` (Bangladesh: 5% food / 15% standard).
+ */
+export const vatSettingsSchema = z.object({
+  defaultRate: z.coerce.number().min(0).max(100).optional(),
+});
+
 export const reportsSettingsSchema = z.object({
   closeoutEmail: z.string().trim().email().max(254).optional().or(z.literal('')),
   autoSendCloseout: z
@@ -97,6 +106,7 @@ export const updateTenantSchema = z.object({
   whatsapp: whatsappSchema.optional(),
   paymentMethods: paymentMethodsSchema.optional(),
   reports: reportsSettingsSchema.optional(),
+  vat: vatSettingsSchema.optional(),
   settings: z.record(z.unknown()).optional(),
 });
 

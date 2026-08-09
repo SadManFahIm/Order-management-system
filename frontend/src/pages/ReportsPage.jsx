@@ -47,6 +47,13 @@ export default function ReportsPage() {
   const [emailing, setEmailing] = useState(false);
   const mounted = useRef(true);
 
+  // VAT compliance report (Phase 6) — per-item VAT split over a range.
+  const [vatFrom, setVatFrom] = useState(todayLocal());
+  const [vatTo, setVatTo] = useState(todayLocal());
+  const [vatData, setVatData] = useState(null);
+  const [vatError, setVatError] = useState(false);
+  const [vatDownloading, setVatDownloading] = useState(false);
+
   useEffect(() => {
     mounted.current = true;
     setData(null);
@@ -63,6 +70,23 @@ export default function ReportsPage() {
       mounted.current = false;
     };
   }, [date]);
+
+  useEffect(() => {
+    mounted.current = true;
+    setVatData(null);
+    setVatError(false);
+    api
+      .get('/reports/vat', { params: { from: vatFrom, to: vatTo } })
+      .then((res) => {
+        if (mounted.current) setVatData(res.data);
+      })
+      .catch(() => {
+        if (mounted.current) setVatError(true);
+      });
+    return () => {
+      mounted.current = false;
+    };
+  }, [vatFrom, vatTo]);
 
   const downloadCsv = async () => {
     setDownloading(true);
@@ -94,6 +118,28 @@ export default function ReportsPage() {
       if (win) win.onload = () => win.print?.();
     } catch {
       toast.error(t('reports.couldNotLoad'));
+    }
+  };
+
+  const downloadVatCsv = async () => {
+    setVatDownloading(true);
+    try {
+      const res = await api.get('/reports/vat.csv', {
+        params: { from: vatFrom, to: vatTo },
+        responseType: 'blob',
+      });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `vat-${vatFrom}-to-${vatTo}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error(t('reports.couldNotLoad'));
+    } finally {
+      setVatDownloading(false);
     }
   };
 
@@ -217,6 +263,60 @@ export default function ReportsPage() {
             )}
           </Card>
 
+          {/* VAT compliance (Phase 6) */}
+          <Card
+            title={t('reports.vatTitle')}
+            subtitle={t('reports.vatSub')}
+            style={{ marginTop: 16 }}
+            actions={
+              <Button variant="outline" size="sm" onClick={downloadVatCsv} disabled={vatDownloading || !vatData}>
+                {vatDownloading ? t('common.loading') : `⬇ ${t('reports.vatCsv')}`}
+              </Button>
+            }
+          >
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', marginBottom: 16, flexWrap: 'wrap' }}>
+              <Field label={t('reports.vatFrom')}>
+                <Input type="date" value={vatFrom} onChange={(e) => setVatFrom(e.target.value || todayLocal())} style={{ width: 180 }} />
+              </Field>
+              <Field label={t('reports.vatTo')}>
+                <Input type="date" value={vatTo} onChange={(e) => setVatTo(e.target.value || todayLocal())} style={{ width: 180 }} />
+              </Field>
+              <div style={{ display: 'flex', gap: 10, paddingBottom: 2 }}>
+                <VatStat label={t('reports.vatGross')} value={fmt(vatData?.totals.gross || 0)} />
+                <VatStat label={t('reports.vatVat')} value={fmt(vatData?.totals.vat || 0)} tone="warning" />
+                <VatStat label={t('reports.vatNet')} value={fmt(vatData?.totals.net || 0)} tone="success" />
+              </div>
+            </div>
+            {vatError ? (
+              <div style={{ textAlign: 'center', padding: 28, color: 'var(--text-muted)' }}>{t('reports.couldNotLoad')}</div>
+            ) : !vatData ? (
+              <Skeleton height={120} />
+            ) : (
+              <Table
+                columns={[
+                  { key: 'itemName', label: t('reports.colItem') },
+                  { key: 'vatRate', label: t('reports.colRate'), align: 'right' },
+                  { key: 'quantity', label: t('reports.colQty'), align: 'right' },
+                  { key: 'gross', label: t('reports.vatGross'), align: 'right' },
+                  { key: 'vat', label: t('reports.vatVat'), align: 'right' },
+                  { key: 'net', label: t('reports.vatNet'), align: 'right' },
+                ]}
+                rows={vatData.items}
+                render={(row, key) => {
+                  if (key === 'itemName') return <span className="oms-table__cell-strong">{row.itemName}</span>;
+                  if (key === 'vatRate') return <Badge tone="neutral">{row.vatRate}%</Badge>;
+                  if (['gross', 'vat', 'net'].includes(key)) return <span className="oms-table__cell-strong">{fmt(row[key])}</span>;
+                  return row[key];
+                }}
+                empty={{
+                  icon: <span style={{ fontSize: 22 }}>🧾</span>,
+                  title: t('reports.vatEmpty'),
+                  description: '',
+                }}
+              />
+            )}
+          </Card>
+
           {/* Orders table */}
           <Card title={t('reports.ordersList')} bodyPadding={false} style={{ marginTop: 16 }}>
             <Table
@@ -262,6 +362,34 @@ export default function ReportsPage() {
           </Card>
         </>
       )}
+    </div>
+  );
+}
+
+function VatStat({ label, value, tone }) {
+  return (
+    <div
+      style={{
+        background: 'var(--surface-2)',
+        borderRadius: 12,
+        padding: '10px 14px',
+        minWidth: 120,
+      }}
+    >
+      <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+        {label}
+      </div>
+      <div
+        style={{
+          fontSize: 18,
+          fontWeight: 800,
+          marginTop: 3,
+          fontVariantNumeric: 'tabular-nums',
+          color: tone === 'success' ? 'var(--success)' : tone === 'warning' ? 'var(--warning)' : 'var(--text)',
+        }}
+      >
+        {value}
+      </div>
     </div>
   );
 }

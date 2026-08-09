@@ -170,6 +170,64 @@ describe('GET /api/reports/closeout.pdf', () => {
   });
 });
 
+describe('GET /api/reports/vat (Phase 6)', () => {
+  it('splits VAT-inclusive revenue into VAT + net, per-item rate', async () => {
+    const pizza = await Product.create({
+      tenant_id: tenant.id,
+      name: 'Report Pizza',
+      price: 400,
+      weight_gm: 400,
+      enabled: true,
+      vat_rate: 15,
+    });
+    await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ customer_name: 'Vat Pizza', items: [{ product_id: pizza.id, quantity: 1 }] });
+
+    const res = await request(app)
+      .get(`/api/reports/vat?from=${todayDhaka()}&to=${todayDhaka()}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+
+    const burger = res.body.items.find((i) => i.itemName === 'Report Burger');
+    const pizzaItem = res.body.items.find((i) => i.itemName === 'Report Pizza');
+
+    // Burger at 5% (migration default): 4 × 300 = 1200 gross →
+    // vat = 1200 × 5/105 ≈ 57.14, net ≈ 1142.86.
+    expect(burger).toMatchObject({ vatRate: 5, quantity: 4, gross: 1200 });
+    expect(burger.vat).toBeCloseTo(57.14, 1);
+    expect(burger.net).toBeCloseTo(1142.86, 1);
+
+    // Pizza at 15%: 400 gross → vat = 400 × 15/115 ≈ 52.17.
+    expect(pizzaItem).toMatchObject({ vatRate: 15, quantity: 1, gross: 400 });
+    expect(pizzaItem.vat).toBeCloseTo(52.17, 1);
+    expect(res.body.totals.gross).toBe(1600);
+    expect(res.body.totals.vat).toBeCloseTo(109.31, 1);
+    expect(res.body.totals.net).toBeCloseTo(1490.69, 1);
+  });
+
+  it('requires authentication', async () => {
+    const res = await request(app).get('/api/reports/vat');
+    expect(res.status).toBe(401);
+  });
+});
+
+describe('GET /api/reports/vat.csv', () => {
+  it('downloads per-item VAT rows with a TOTAL footer', async () => {
+    const res = await request(app)
+      .get(`/api/reports/vat.csv?from=${todayDhaka()}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/csv');
+    expect(res.text).toContain('item_name,vat_rate_pct,quantity,gross_bdt,vat_bdt,net_bdt');
+    expect(res.text).toContain('Report Burger');
+    expect(res.text).toContain('Report Pizza');
+    expect(res.text).toContain('TOTAL');
+    expect(res.text).toContain('57.14');
+  });
+});
+
 describe('POST /api/reports/closeout/email', () => {
   it('emails the closeout to the workspace-configured address with a CSV attachment', async () => {
     emailSpy.mockClear();

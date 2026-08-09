@@ -63,7 +63,18 @@ router.get(
     const [y, m, d] = windowStartKey.split('-').map(Number);
     const startOfDhakaWindow = new Date(Date.UTC(y, m - 1, d) - DHAKA_OFFSET_MS);
 
-    const [todayOrders, openOrders, totalProducts, windowOrders, recentLines, paidPayments, closeoutOrders, closeoutPayments] =
+    // Start of the previous Dhaka month — the anchor for month-over-month.
+    const dhakaNowDate = new Date(Date.now() + DHAKA_OFFSET_MS);
+    const currentMonthKey = dhakaNowDate.toISOString().slice(0, 7);
+    const prevMonthDate = new Date(dhakaNowDate);
+    prevMonthDate.setUTCDate(1);
+    prevMonthDate.setUTCMonth(prevMonthDate.getUTCMonth() - 1);
+    const prevMonthKey = prevMonthDate.toISOString().slice(0, 7);
+    const startOfPrevMonthUtc = new Date(
+      Date.UTC(prevMonthDate.getUTCFullYear(), prevMonthDate.getUTCMonth(), 1) - DHAKA_OFFSET_MS
+    );
+
+    const [todayOrders, openOrders, totalProducts, windowOrders, recentLines, paidPayments, closeoutOrders, closeoutPayments, monthOrders] =
       await Promise.all([
         Order.findAll({
           where: { tenant_id: req.tenant.id, createdAt: { [Op.gte]: startOfToday } },
@@ -106,6 +117,12 @@ router.get(
             createdAt: { [Op.gte]: startOfDhakaWindow },
           },
           attributes: ['method', 'amount', 'createdAt'],
+        }),
+        // Month-over-month window: paid orders since the start of the previous
+        // Dhaka month, grouped by YYYY-MM for the delta vs last month.
+        Order.findAll({
+          where: { tenant_id: req.tenant.id, createdAt: { [Op.gte]: startOfPrevMonthUtc } },
+          attributes: ['grand_total', 'payment_status', 'createdAt'],
         }),
       ]);
 
@@ -204,6 +221,72 @@ router.get(
       ),
     }));
 
+    // ── Forecast (Phase 6) ───────────────────────────────────────────────
+    // Trailing 7-day moving average per day (the smooth baseline) + a 3-day
+    // linear-regression projection on the last 7 actuals. The projection is
+    // blended 40/60 with the moving average to tame single-day outliers.
+    const revenues = closeoutTrend.map((d) => d.revenue);
+    const movingAverage = closeoutTrend.map((d, i) => {
+      const win = revenues.slice(Math.max(0, i - 6), i + 1);
+      return {
+        date: d.date,
+        value: Math.round((win.reduce((s, v) => s + v, 0) / win.length) * 100) / 100,
+      };
+    });
+    const n = Math.min(revenues.length, 7);
+    const recent = revenues.slice(-n);
+    let sx = 0;
+    let sy = 0;
+    let sxy = 0;
+    let sxx = 0;
+    recent.forEach((v, i) => {
+      sx += i;
+      sy += v;
+      sxy += i * v;
+      sxx += i * i;
+    });
+    const denom = n * sxx - sx * sx;
+    const slope = n > 1 && denom !== 0 ? (n * sxy - sx * sy) / denom : 0;
+    const intercept = n > 0 ? (sy - slope * sx) / n : 0;
+    const avg7 =
+      recent.reduce((s, v) => s + v, 0) / Math.max(recent.length, 1);
+    const lastKey = closeoutTrend[closeoutTrend.length - 1]?.date;
+    const projection = [];
+    if (lastKey) {
+      // Pure UTC date math — local Date parsing would re-introduce the Dhaka
+      // offset and shift the forecast labels back a day.
+      const [ky, km, kd] = lastKey.split('-').map(Number);
+      const lastDateUtc = Date.UTC(ky, km - 1, kd);
+      for (let k = 1; k <= 3; k += 1) {
+        const date = new Date(lastDateUtc + k * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 10);
+        const proj = intercept + slope * (recent.length - 1 + k);
+        const value = Math.max(0, Math.round((avg7 * 0.4 + proj * 0.6) * 100) / 100);
+        projection.push({ date, revenue: value, forecast: true });
+      }
+    }
+
+    // ── Month-over-month (Dhaka months) ──────────────────────────────────
+    let thisMonthRevenue = 0;
+    let prevMonthRevenue = 0;
+    for (const o of monthOrders) {
+      if (o.payment_status !== 'paid') continue;
+      const key = dhakaDayKey(o.createdAt).slice(0, 7);
+      if (key === currentMonthKey) thisMonthRevenue += Number(o.grand_total || 0);
+      else if (key === prevMonthKey) prevMonthRevenue += Number(o.grand_total || 0);
+    }
+    const monthOverMonth = {
+      currentMonth: currentMonthKey,
+      previousMonth: prevMonthKey,
+      currentRevenue: Math.round(thisMonthRevenue * 100) / 100,
+      previousRevenue: Math.round(prevMonthRevenue * 100) / 100,
+      pct:
+        prevMonthRevenue > 0
+          ? Math.round(((thisMonthRevenue - prevMonthRevenue) / prevMonthRevenue) * 1000) / 10
+          : null,
+    };
+
     // Trend stats — totals, average, best day, and the day-over-day delta.
     const paidRevenue = closeoutTrend.reduce((s, d) => s + d.revenue, 0);
     const totalOrders = closeoutTrend.reduce((s, d) => s + d.orders, 0);
@@ -238,6 +321,8 @@ router.get(
       paymentBreakdown,
       closeoutTrend,
       trendStats,
+      forecast: { movingAverage, projection },
+      monthOverMonth,
     });
   })
 );
