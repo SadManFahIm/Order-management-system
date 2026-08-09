@@ -30,6 +30,7 @@ export default function SettingsPage() {
     bkash: { enabled: false, number: '' },
     nagad: { enabled: false, number: '' },
     card: { enabled: false },
+    online: { enabled: false },
   });
   const [pmSaving, setPmSaving] = useState(false);
   const [waTesting, setWaTesting] = useState(false);
@@ -67,6 +68,7 @@ export default function SettingsPage() {
           bkash: { enabled: Boolean(savedPm.bkash?.enabled), number: savedPm.bkash?.number || '' },
           nagad: { enabled: Boolean(savedPm.nagad?.enabled), number: savedPm.nagad?.number || '' },
           card: { enabled: Boolean(savedPm.card?.enabled) },
+          online: { enabled: Boolean(savedPm.online?.enabled) },
         });
         setLoading(false);
       })
@@ -317,6 +319,12 @@ export default function SettingsPage() {
               enabled={pm.card.enabled}
               onToggle={(v) => updatePm('card', { enabled: v })}
             />
+            <MethodCard
+              label={t('settings.pmOnline')}
+              enabled={pm.online.enabled}
+              onToggle={(v) => updatePm('online', { enabled: v })}
+              hint={t('settings.pmOnlineHint')}
+            />
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
             <Button variant="primary" onClick={savePaymentMethods} disabled={pmSaving}>
@@ -330,7 +338,7 @@ export default function SettingsPage() {
 }
 
 /** One payment-method row: toggle + (for wallets) a receiving number. */
-function MethodCard({ label, enabled, onToggle, number, onNumber, numberLabel, numberHint }) {
+function MethodCard({ label, enabled, onToggle, number, onNumber, numberLabel, numberHint, hint }) {
   return (
     <div
       className="oms-card"
@@ -343,6 +351,9 @@ function MethodCard({ label, enabled, onToggle, number, onNumber, numberLabel, n
           checked={Boolean(enabled)}
           onChange={(e) => onToggle(e.target.checked)}
         />
+        {hint && (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: -6 }}>{hint}</div>
+        )}
         {enabled && number !== undefined && (
           <Field label={numberLabel} hint={numberHint}>
             <Input value={number || ''} maxLength={20} onChange={(e) => onNumber(e.target.value)} placeholder="+8801XXXXXXXXX" />

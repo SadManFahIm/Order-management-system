@@ -63,6 +63,27 @@ const envSchema = z.object({
   MAX_IMAGE_DIMENSION: z.coerce.number().int().positive().default(4096),
   MAX_IMPORT_BYTES: z.coerce.number().int().positive().default(2 * 1024 * 1024),
   MAX_IMPORT_ROWS: z.coerce.number().int().positive().default(2000),
+  // ── Online payment gateway (Phase 5) ───────────────────────────────────
+  // 'none' disables online payments (the default). 'sslcommerz' / 'stripe'
+  // enable the hosted-checkout flow: an order placed with `payment_method:
+  // 'online'` returns a gateway redirect URL, and the gateway's webhook
+  // confirms the payment (flips pending → paid). Sandbox by default — set
+  // the *_SANDBOX flags to '0' only for production credentials.
+  PAYMENT_GATEWAY: z.enum(['none', 'sslcommerz', 'stripe']).default('none'),
+  SSLCOMMERZ_STORE_ID: z.string().optional(),
+  SSLCOMMERZ_STORE_PASSWORD: z.string().optional(),
+  SSLCOMMERZ_SANDBOX: z
+    .string()
+    .optional()
+    .transform((v) => v === '1' || v === 'true'),
+  SSLCOMMERZ_SUCCESS_URL: z.string().default('http://localhost:5173/orders'),
+  SSLCOMMERZ_FAIL_URL: z.string().default('http://localhost:5173/orders'),
+  SSLCOMMERZ_CANCEL_URL: z.string().default('http://localhost:5173/orders'),
+  // Internal test override — lets tests/local mocks stand in for the gateway.
+  SSLCOMMERZ_API_URL: z.string().optional(),
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_API_URL: z.string().default('https://api.stripe.com'),
 });
 
 const parsed = envSchema.safeParse(process.env);

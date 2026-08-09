@@ -61,15 +61,18 @@ const paymentMethodSchema = z.object({
 });
 
 /**
- * Accepted payment methods (cash/bKash/Nagad/card) with the receiving number
- * for mobile wallets. Lives inside `tenant.settings.paymentMethods`; the
- * storefront/order UI only ever sees the enabled whitelist, never secrets.
+ * Accepted payment methods (cash/bKash/Nagad/card/online) with the receiving
+ * number for mobile wallets. Lives inside `tenant.settings.paymentMethods`;
+ * the storefront/order UI only ever sees the enabled whitelist, never
+ * secrets. `online` routes the customer to the hosted gateway (SSLCommerz /
+ * Stripe) when the platform has one configured.
  */
 export const paymentMethodsSchema = z.object({
   cash: paymentMethodSchema.optional(),
   bkash: paymentMethodSchema.optional(),
   nagad: paymentMethodSchema.optional(),
   card: paymentMethodSchema.optional(),
+  online: paymentMethodSchema.optional(),
 });
 
 export const updateTenantSchema = z.object({

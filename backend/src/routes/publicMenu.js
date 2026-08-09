@@ -8,6 +8,9 @@ import Product from '../models/Product.js';
 import ItemVariant from '../models/ItemVariant.js';
 import ItemAddon from '../models/ItemAddon.js';
 import Table from '../models/Table.js';
+import Order from '../models/Order.js';
+import OrderItem from '../models/OrderItem.js';
+import Payment from '../models/Payment.js';
 import { parsePagination } from '../utils/pagination.js';
 
 /**
@@ -185,6 +188,58 @@ router.get(
     if (applyPublicCache(req, res, payload)) return;
     res.set('X-Total-Count', String(totalItems));
     res.json(JSON.parse(payload));
+  })
+);
+
+/** GET /api/public/track?orderNo=&phone= — customer order tracking (Phase 5).
+ *
+ * Public but privacy-safe: the customer must supply the phone the order was
+ * placed with (last 10 digits must match), and only status/items/totals are
+ * returned — never other customers, internal columns or tenant settings. A
+ * mismatch 404s identically to a missing order (no existence oracle). */
+router.get(
+  '/track',
+  asyncHandler(async (req, res) => {
+    const { orderNo, phone } = req.query;
+    if (!orderNo || !phone) {
+      throw new AppError(400, 'VALIDATION_ERROR', 'orderNo and phone are required');
+    }
+    const digits = (v) => String(v || '').replace(/\D/g, '');
+    const phoneTail = digits(phone).slice(-10);
+    if (phoneTail.length < 10) {
+      throw new AppError(400, 'VALIDATION_ERROR', 'phone must be a valid number');
+    }
+
+    const order = await Order.findOne({
+      where: { order_no: String(orderNo).trim() },
+      include: [
+        { model: OrderItem, as: 'items' },
+        { model: Payment, as: 'payments' },
+      ],
+    });
+
+    // Identical 404 for unknown order / wrong phone — never reveal existence.
+    if (!order || digits(order.customer_phone).slice(-10) !== phoneTail) {
+      throw new AppError(404, 'NOT_FOUND', 'Order not found — check the order number and phone');
+    }
+
+    const tenant = order.tenant_id ? await Tenant.findByPk(order.tenant_id) : null;
+    res.json({
+      orderNo: order.order_no,
+      status: order.status,
+      tableNo: order.table_no ?? null,
+      paymentStatus: order.payment_status,
+      paymentMethod: order.payment_method ?? null,
+      total: Math.round(Number(order.grand_total || 0) * 100) / 100,
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt,
+      restaurant: tenant ? { name: tenant.name, slug: tenant.slug } : null,
+      items: (order.items || []).map((i) => ({
+        name: i.item_name,
+        quantity: Number(i.quantity || 0),
+        lineTotal: Math.round(Number(i.line_total || 0) * 100) / 100,
+      })),
+    });
   })
 );
 
