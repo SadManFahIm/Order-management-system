@@ -214,9 +214,18 @@ export async function sendCloseoutEmail({ tenant, date, to }) {
 export async function buildVatReport(tenant, from, to) {
   const startStr = from || dhakaDate();
   const endStr = to || startStr;
+  // YYYY-MM-DD strings compare lexicographically — `from` after `to` is a
+  // user error, not an empty report (a compliance view must not silently
+  // look like zero sales).
+  if (startStr > endStr) {
+    throw new AppError(400, 'VALIDATION_ERROR', '`from` must not be after `to`');
+  }
   const { start } = dayBounds(startStr);
   const { end } = dayBounds(endStr);
-  const defaultRate = Number(tenant.settings?.vat?.defaultRate ?? 5) || 5;
+  // `|| 5` would clobber a legitimate 0% (VAT-exempt) default — parse and
+  // validate instead so 0 stays 0.
+  const parsedDefault = Number(tenant.settings?.vat?.defaultRate ?? 5);
+  const defaultRate = Number.isFinite(parsedDefault) && parsedDefault >= 0 ? parsedDefault : 5;
 
   const orders = await Order.findAll({
     where: { tenant_id: tenant.id, createdAt: { [Op.gte]: start, [Op.lt]: end } },

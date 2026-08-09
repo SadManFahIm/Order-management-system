@@ -207,6 +207,46 @@ describe('GET /api/reports/vat (Phase 6)', () => {
     expect(res.body.totals.net).toBeCloseTo(1490.69, 1);
   });
 
+  it('rejects an inverted range (from after to) with 400', async () => {
+    const res = await request(app)
+      .get('/api/reports/vat?from=2026-08-11&to=2026-08-09')
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(400);
+  });
+
+  it('falls back to the workspace default rate for items without a rate (0% preserved)', async () => {
+    // A real order for a product that is then hard-deleted — the line has no
+    // product to look up a vat_rate from, so the tenant default applies.
+    const ghost = await Product.create({
+      tenant_id: tenant.id,
+      name: 'Ghost Item',
+      price: 100,
+      weight_gm: 100,
+      enabled: true,
+      vat_rate: 5,
+    });
+    await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ customer_name: 'Ghost Buy', items: [{ product_id: ghost.id, quantity: 1 }] });
+    await Product.destroy({ where: { id: ghost.id }, force: true });
+
+    await tenant.update({ settings: { vat: { defaultRate: 0 } } });
+    try {
+      const res = await request(app)
+        .get(`/api/reports/vat?from=${todayDhaka()}&to=${todayDhaka()}`)
+        .set('Authorization', `Bearer ${token}`);
+      expect(res.status).toBe(200);
+      const item = res.body.items.find((i) => i.itemName === 'Ghost Item');
+      // 0% is a legitimate (VAT-exempt) default — it must not become 5.
+      expect(item.vatRate).toBe(0);
+      expect(item.vat).toBe(0);
+      expect(item.net).toBe(100);
+    } finally {
+      await tenant.update({ settings: {} });
+    }
+  });
+
   it('requires authentication', async () => {
     const res = await request(app).get('/api/reports/vat');
     expect(res.status).toBe(401);
@@ -225,6 +265,13 @@ describe('GET /api/reports/vat.csv', () => {
     expect(res.text).toContain('Report Pizza');
     expect(res.text).toContain('TOTAL');
     expect(res.text).toContain('57.14');
+  });
+
+  it('rejects an inverted range on the CSV export too', async () => {
+    const res = await request(app)
+      .get('/api/reports/vat.csv?from=2026-08-11&to=2026-08-09')
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(400);
   });
 });
 

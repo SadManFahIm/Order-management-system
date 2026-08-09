@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import http from 'node:http';
 import bcrypt from 'bcryptjs';
 
 const emailSpy = vi.fn().mockResolvedValue({ messageId: 'stub-sched-1' });
@@ -90,6 +91,49 @@ describe('runCloseoutScheduler', () => {
     expect((await Tenant.findByPk(wrongHour.id)).settings.reports.lastCloseoutSentDate).toBeUndefined();
     expect((await Tenant.findByPk(disabled.id)).settings.reports.lastCloseoutSentDate).toBeUndefined();
     expect((await Tenant.findByPk(noEmail.id)).settings.reports.lastCloseoutSentDate).toBeUndefined();
+  });
+
+  it('pushes a digest.daily webhook carrying the tenant slug', async () => {
+    const captured = {};
+    const server = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        captured.body = body;
+        res.writeHead(200);
+        res.end('ok');
+      });
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address();
+    try {
+      const waTenant = await makeTenant('WhatsApp', {
+        closeoutEmail: 'wa@example.com',
+        autoSendCloseout: { enabled: true, hour: 23 },
+      });
+      await waTenant.update({
+        settings: {
+          reports: { closeoutEmail: 'wa@example.com', autoSendCloseout: { enabled: true, hour: 23 } },
+          whatsapp: { enabled: true, webhookUrl: `http://127.0.0.1:${port}/hook`, secret: 'sched-secret' },
+        },
+      });
+
+      emailSpy.mockClear();
+      await runCloseoutScheduler(FIXED_NOW);
+      // The webhook is fire-and-forget — give the fetch a moment to land.
+      await new Promise((r) => setTimeout(r, 400));
+
+      expect(captured.body).toBeDefined();
+      const payload = JSON.parse(captured.body);
+      expect(payload.event).toBe('digest.daily');
+      expect(payload.tenantId).toBe(waTenant.id);
+      // The scheduler must load `slug` — the receiving gateway correlates
+      // the push by it.
+      expect(payload.tenantSlug).toBe('sched-whatsapp');
+      expect(payload.date).toBe(yesterday);
+    } finally {
+      server.close();
+    }
   });
 
   it('keeps going when one workspace fails to send', async () => {

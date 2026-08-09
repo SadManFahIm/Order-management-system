@@ -20,9 +20,11 @@ export async function runCloseoutScheduler(now = new Date()) {
   const hour = dhakaNow.getUTCHours();
   const yesterday = new Date(dhakaNow.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
+  // `slug` is needed by the digest webhook payload (tenantSlug) so the
+  // receiving gateway can correlate the push to the workspace.
   const tenants = await Tenant.findAll({
     where: { status: { [Op.in]: ['active', 'trial'] } },
-    attributes: ['id', 'name', 'status', 'settings'],
+    attributes: ['id', 'name', 'slug', 'status', 'settings'],
   });
 
   let sent = 0;
@@ -36,12 +38,9 @@ export async function runCloseoutScheduler(now = new Date()) {
     try {
       const { email, digest } = await sendNightlyDigest({ tenant, date: yesterday });
       if (!email) continue;
-      // Fire-and-forget WhatsApp push (signed when a secret is configured).
-      const webhook = await sendDigestWebhook(tenant, digest);
-      if (webhook?.sent) {
-        console.log(`[digest] pushed ${digest.date} digest to WhatsApp webhook (${tenant.name})`);
-      }
-      // Stamp success — the once-per-day guard.
+      // Stamp success immediately after the email — the once-per-day guard.
+      // (Awaiting the webhook here would widen the crash window between the
+      // send and the stamp, risking a duplicate email on restart.)
       const settings = {
         ...(tenant.settings || {}),
         reports: { ...(reports || {}), lastCloseoutSentDate: today },
@@ -49,6 +48,13 @@ export async function runCloseoutScheduler(now = new Date()) {
       await tenant.update({ settings });
       sent += 1;
       console.log(`[closeout] emailed ${email.date} closeout + digest to ${email.to} (${tenant.name})`);
+      // Fire-and-forget WhatsApp push (never rejects; signed when a secret
+      // is configured).
+      void sendDigestWebhook(tenant, digest).then((webhook) => {
+        if (webhook?.sent) {
+          console.log(`[digest] pushed ${digest.date} digest to WhatsApp webhook (${tenant.name})`);
+        }
+      });
     } catch (e) {
       // A failing workspace must never stop the others (or the loop).
       console.error(`[closeout] send failed for workspace ${tenant.id} (${tenant.name}): ${e.message}`);

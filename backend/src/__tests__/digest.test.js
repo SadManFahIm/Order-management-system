@@ -157,6 +157,7 @@ describe('sendDigestWebhook', () => {
       const payload = JSON.parse(captured.body);
       expect(payload.event).toBe('digest.daily');
       expect(payload.tenantId).toBe(tenant.id);
+      expect(payload.tenantSlug).toBe(tenant.slug);
       expect(payload.topSellers).toHaveLength(1);
       expect(payload.lowStock).toHaveLength(1);
       expect(captured.auth).toBe('Bearer digest-secret');
