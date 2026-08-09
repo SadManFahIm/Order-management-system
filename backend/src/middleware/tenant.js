@@ -77,9 +77,17 @@ export const resolveTenant = asyncHandler(async (req, res, next) => {
     return reject(res, 'TENANT_UNAVAILABLE', `This workspace is ${tenant.status}`);
   }
 
-  // slug rides along so routes can build public storefront URLs
-  // (QR table menus) without a second lookup.
-  req.tenant = { id: tenantId, role, status: tenant.status, slug: tenant.slug };
+  // name + settings ride along (server-internal — req.tenant is never
+  // serialized to clients) so routes like reports/orders can read the
+  // workspace name and per-tenant settings without a second lookup.
+  req.tenant = {
+    id: tenantId,
+    role,
+    status: tenant.status,
+    slug: tenant.slug,
+    name: tenant.name,
+    settings: tenant.settings || {},
+  };
   req.user.tenant_role = role;
   req.user.tenant_id = tenantId;
   next();

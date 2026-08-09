@@ -155,6 +155,7 @@ function slimTenant(t, role) {
   if (!t) return null;
   const wa = t.settings?.whatsapp;
   const pm = t.settings?.paymentMethods;
+  const rp = t.settings?.reports;
   return {
     id: t.id,
     name: t.name,
@@ -170,6 +171,12 @@ function slimTenant(t, role) {
       nagad: pm?.nagad?.enabled ?? false,
       card: pm?.card?.enabled ?? false,
       online: pm?.online?.enabled ?? false,
+    },
+    // Closeout email config (the nightly-send settings the Settings page
+    // needs; nothing sensitive).
+    reports: {
+      closeoutEmail: rp?.closeoutEmail || null,
+      autoSendCloseout: rp?.autoSendCloseout || { enabled: false, hour: 23 },
     },
   };
 }

@@ -75,12 +75,28 @@ export const paymentMethodsSchema = z.object({
   online: paymentMethodSchema.optional(),
 });
 
+/**
+ * Daily closeout email (Phase 5). Lives inside `tenant.settings.reports`:
+ * `closeoutEmail` is where the report is delivered, and `autoSendCloseout`
+ * schedules it nightly at `hour` (0–23, Dhaka time) when enabled.
+ */
+export const reportsSettingsSchema = z.object({
+  closeoutEmail: z.string().trim().email().max(254).optional().or(z.literal('')),
+  autoSendCloseout: z
+    .object({
+      enabled: z.boolean().optional(),
+      hour: z.coerce.number().int().min(0).max(23).default(23),
+    })
+    .optional(),
+});
+
 export const updateTenantSchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
   logoUrl: z.string().url().max(500).nullable().optional(),
   brand: brandSchema.optional(),
   whatsapp: whatsappSchema.optional(),
   paymentMethods: paymentMethodsSchema.optional(),
+  reports: reportsSettingsSchema.optional(),
   settings: z.record(z.unknown()).optional(),
 });
 

@@ -1,6 +1,14 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import request from 'supertest';
 import bcrypt from 'bcryptjs';
+
+// Capture emails instead of sending — the adapter is a stub anyway, but a
+// spy lets us assert recipient / subject / attachment content.
+const emailSpy = vi.fn().mockResolvedValue({ messageId: 'stub-test-1' });
+vi.mock('../services/notifications/email.js', () => ({
+  sendEmail: (...args) => emailSpy(...args),
+}));
+
 import app from '../app.js';
 import sequelize from '../config/db.js';
 import { resetTestDb } from '../test/resetDb.js';
@@ -137,5 +145,63 @@ describe('GET /api/reports/closeout.csv', () => {
     expect(res.text).toContain('300.00');
     // The comma field is quoted — still exactly one logical field.
     expect(res.text).toContain('"Comma, Customer"');
+  });
+});
+
+describe('GET /api/reports/closeout.pdf', () => {
+  it('serves the print-ready report as HTML with totals and orders', async () => {
+    const res = await request(app)
+      .get(`/api/reports/closeout.pdf?date=${todayDhaka()}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/html');
+    expect(res.text).toContain('Report Diner — Daily Closeout');
+    expect(res.text).toContain('Cash One');
+    expect(res.text).toContain('৳');
+    expect(res.text).toContain('@media print'); // print-optimized
+    expect(res.text).toContain('Revenue by payment method');
+    // Escapes customer names that contain CSV-special characters.
+    expect(res.text).toContain('Comma, Customer');
+  });
+
+  it('requires authentication', async () => {
+    const res = await request(app).get('/api/reports/closeout.pdf');
+    expect(res.status).toBe(401);
+  });
+});
+
+describe('POST /api/reports/closeout/email', () => {
+  it('emails the closeout to the workspace-configured address with a CSV attachment', async () => {
+    emailSpy.mockClear();
+    await request(app)
+      .patch(`/api/tenants/${tenant.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ reports: { closeoutEmail: 'owner@report.test', autoSendCloseout: { enabled: true, hour: 23 } } });
+
+    const res = await request(app)
+      .post('/api/reports/closeout/email')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ date: todayDhaka() });
+    expect(res.status).toBe(200);
+    expect(res.body.sent).toBe(true);
+    expect(res.body.to).toBe('owner@report.test');
+
+    expect(emailSpy).toHaveBeenCalledTimes(1);
+    const call = emailSpy.mock.calls[0][0];
+    expect(call.to).toBe('owner@report.test');
+    expect(call.subject).toContain(todayDhaka());
+    expect(call.attachments).toHaveLength(1);
+    expect(call.attachments[0].filename).toBe(`closeout-${todayDhaka()}.csv`);
+    expect(call.attachments[0].content).toContain('order_no,time');
+  });
+
+  it('lets an explicit `to` override the workspace setting', async () => {
+    emailSpy.mockClear();
+    const res = await request(app)
+      .post('/api/reports/closeout/email')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ date: todayDhaka(), to: 'boss@report.test' });
+    expect(res.status).toBe(200);
+    expect(emailSpy.mock.calls[0][0].to).toBe('boss@report.test');
   });
 });

@@ -22,7 +22,9 @@
     "db:migrate:down": "node scripts/migrate.js down",
     "db:migrate:status": "node scripts/migrate.js status",
     "db:migrate:v1": "node scripts/migrate-v1-to-v2.js",
-    "db:reset": "node scripts/reset-db.js"
+    "db:reset": "node scripts/reset-db.js",
+    "gateway:sandbox": "node scripts/gateway-sandbox.mjs",
+    "gateway:e2e": "node scripts/gateway-e2e.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1105.0",

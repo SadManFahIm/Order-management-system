@@ -44,6 +44,7 @@ export default function ReportsPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [emailing, setEmailing] = useState(false);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -82,6 +83,32 @@ export default function ReportsPage() {
     }
   };
 
+  const openPdf = async () => {
+    // The .pdf endpoint serves print-ready HTML — the browser's print dialog
+    // (Save as PDF) makes the actual PDF, with perfect Bangla rendering.
+    // Fetched through the authed client (a bare window.open would hit 401).
+    try {
+      const res = await api.get('/reports/closeout.pdf', { params: { date }, responseType: 'blob' });
+      const url = URL.createObjectURL(res.data);
+      const win = window.open(url, '_blank', 'noopener');
+      if (win) win.onload = () => win.print?.();
+    } catch {
+      toast.error(t('reports.couldNotLoad'));
+    }
+  };
+
+  const emailCloseout = async () => {
+    setEmailing(true);
+    try {
+      await api.post('/reports/closeout/email', { date });
+      toast.success(t('reports.emailSent'), t('reports.emailSentDesc'));
+    } catch {
+      toast.error(t('reports.emailFailed'));
+    } finally {
+      setEmailing(false);
+    }
+  };
+
   const stats = data
     ? [
         { label: t('reports.totalOrders'), value: String(data.totals.orders) },
@@ -99,9 +126,17 @@ export default function ReportsPage() {
         title={t('reports.page')}
         desc={t('reports.pageDesc')}
         actions={
-          <Button variant="outline" onClick={downloadCsv} disabled={downloading || !data}>
-            {downloading ? t('common.loading') : `⬇ ${t('reports.downloadCsv')}`}
-          </Button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Button variant="outline" onClick={emailCloseout} disabled={emailing || !data}>
+              {emailing ? t('common.loading') : `📧 ${t('reports.emailCloseout')}`}
+            </Button>
+            <Button variant="outline" onClick={openPdf} disabled={!data}>
+              🖨️ {t('reports.downloadPdf')}
+            </Button>
+            <Button variant="outline" onClick={downloadCsv} disabled={downloading || !data}>
+              {downloading ? t('common.loading') : `⬇ ${t('reports.downloadCsv')}`}
+            </Button>
+          </div>
         }
       />
 
