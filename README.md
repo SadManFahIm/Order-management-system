@@ -18,7 +18,7 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 | **Phase 2** — Auth & RBAC | Register/login/verify/reset flows, rotating refresh tokens with reuse detection, TOTP 2FA, role-based access control (admin/owner/manager/cashier/kitchen/delivery), session management | Full auth + RBAC test suites |
 | **Phase 3** — Multi-tenant SaaS | Tenant workspaces, team members & roles, plans/subscriptions/feature flags, tenant-scoping middleware (fail-closed isolation), CSRF protection, Dhaka seed data (20 workspaces, 89 menu items) | Tenant isolation + CSRF suites |
 | **Phase 4** — Menu & Media | Menu catalog (categories/variants/add-ons), image pipeline (sharp → WebP, S3-compatible storage, CDN-ready), bulk **CSV + XLSX** import, public menu API with HTTP caching + pagination, **DELETE endpoints**, **soft delete + optimistic locking**, **inventory**, **merchant dashboard with analytics charts**, **CRAV-style landing page**, **per-tenant storefront branding**, **MinIO S3 test tier in CI** | 21 suites · 204 tests passing |
-| **Phase 5 (foundation)** — Ordering | **Order fulfillment workflow** (placed → preparing → ready → delivered, role-gated, cancel rules), **fully translated English/Bangla i18n** (landing, storefront & merchant app), **QR table menus** (tables CRUD + printable QR sheet + per-table **PNG download** + hide/show + public tables API), **table-aware orders** (orders carry `table_no`, validated against the workspace tables, shown to kitchen/delivery), **order filters** (status / table / open-first sort), **WhatsApp order alerts + customer status notifications** (webhook on new orders & status changes + wa.me manual links), **bKash/Nagad payment records** (`payments` table + `orders.payment_method`, per-tenant payment methods with receiving numbers, cashier confirm/refund with trxID, revenue-by-method analytics), **SSLCommerz/Stripe gateway integration** (hosted checkout + signed webhooks), **local gateway sandbox harness** (mock SSLCommerz/Stripe with real signatures, `npm run gateway:sandbox` + `gateway:e2e`), **daily closeout report** (JSON + CSV + print/PDF + nightly email scheduler), **customer order tracking** (public API + EN/BN progress stepper), **real mail provider** (nodemailer SMTP, `MAIL_DRIVER`), **closeout trend dashboard** (7/30-day Dhaka revenue curve + method mix + day-over-day + **3-day forecast + month-over-month**), **VAT compliance report** (migration 009), **nightly merchant digest** (closeout email + signed WhatsApp push), **gateway sandbox E2E in CI**, Deliveroo-inspired design system | **288 tests** passing (SQLite) + PG · live UI verified |
+| **Phase 5 (foundation)** — Ordering | **Order fulfillment workflow** (placed → preparing → ready → delivered, role-gated, cancel rules), **fully translated English/Bangla i18n** (landing, storefront & merchant app), **QR table menus** (tables CRUD + printable QR sheet + per-table **PNG download** + hide/show + public tables API), **table-aware orders** (orders carry `table_no`, validated against the workspace tables, shown to kitchen/delivery), **order filters** (status / table / open-first sort), **WhatsApp order alerts + customer status notifications** (webhook on new orders & status changes + wa.me manual links), **bKash/Nagad payment records** (`payments` table + `orders.payment_method`, per-tenant payment methods with receiving numbers, cashier confirm/refund with trxID, revenue-by-method analytics), **SSLCommerz/Stripe gateway integration** (hosted checkout + signed webhooks), **local gateway sandbox harness** (mock SSLCommerz/Stripe with real signatures, `npm run gateway:sandbox` + `gateway:e2e`), **daily closeout report** (JSON + CSV + print/PDF + nightly email scheduler), **customer order tracking** (public API + EN/BN progress stepper), **real mail provider** (nodemailer SMTP, `MAIL_DRIVER`), **closeout trend dashboard** (7/30-day Dhaka revenue curve + method mix + day-over-day + **3-day forecast + month-over-month**), **VAT compliance report** (migration 009), **nightly merchant digest** (closeout email + signed WhatsApp push), **gateway sandbox E2E in CI**, Deliveroo-inspired design system | **293 tests** passing (SQLite) + PG · live UI verified |
 
 ---
 
@@ -32,13 +32,13 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 
 **Authentication, RBAC & security (Phase 2)**
 - Register / login / verify-email / password-reset flows · rotating refresh tokens (httpOnly, SameSite cookie) with **session revocation + reuse detection** · optional **TOTP 2FA**
-- Role-based access control (platform_admin / owner / manager / cashier / kitchen / delivery) with permission-gated routes and fine-grained `req.userHas()` checks · auth audit logging
+- Role-based access control (platform_admin / owner / manager / cashier / kitchen / delivery) with permission-gated routes and fine-grained `req.userHas()` checks · auth audit logging · **registered customers honor granted workspace roles** — an owner can invite a customer-created account (cashier/kitchen/manager/…) and the tenant membership outranks the account-level `customer` role (verified by an end-to-end new-user order-flow test)
 - CSRF protection (Origin / `Sec-Fetch-Site` verification) · Helmet headers · CORS allowlist · rate limiting · zod validation · centralized error envelope with request IDs
 
 **Ordering & fulfillment (Phase 5 foundation)**
 - **Order status workflow** — `PATCH /api/orders/:id/status` advances orders through `placed → preparing → ready → delivered`; transitions are sequential and role-gated (`fulfill:orders` for kitchen, `deliver:orders` for delivery, `manage:orders` for managers)
 - **Cancel rules** — managers can cancel `placed`/`preparing` orders; terminal/canceled orders cannot transition (409)
-- **Orders UI** — Status column with color-coded badges + one-click advance/cancel actions, tenant-scoped and RBAC-aware
+- **Orders UI** — Status column with color-coded badges + one-click advance/cancel actions, tenant-scoped and **RBAC-aware buttons** (the action set mirrors the backend matrix exactly: cashier sees only payment confirmation, kitchen sees fulfill, delivery sees deliver, owner/manager see advance + cancel — roles never see buttons that would 403)
 - Server-side pricing with per-item discount, subtotal, discount, and grand total
 
 **Menu management (Phase 4)**
@@ -121,7 +121,7 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 - **Forecast (Phase 6)** — the same endpoint now returns a **`forecast`** object: a trailing **7-day moving average** per day (dotted baseline on the chart) and a **3-day linear-regression projection** (dashed extension past the last actual, blended 40/60 with the moving average to tame outliers), plus **`monthOverMonth`** — this Dhaka month's paid revenue vs the previous month with a % delta; the dashboard shows the projected next-3-days revenue and a “vs last month” stat row
 
 **VAT compliance report (Phase 6)**
-- **`GET /api/reports/vat?from=YYYY-MM-DD&to=YYYY-MM-DD`** (JSON) + **`/vat.csv`** — splits **VAT-inclusive** sales into **VAT + net per menu item** using each item's own `vat_rate` (migration 009, default 5%; some items at 15% — `menu_items.vat_rate`, overridable per workspace via `settings.vat.defaultRate`); VAT = gross × rate/(100+rate), the Bangladesh NBR convention; totals (gross/VAT/net), per-item rows, CSV with a TOTAL footer — Reports page has a range picker, summary cards and a VAT CSV button (EN/বাংলা)
+- **`GET /api/reports/vat?from=YYYY-MM-DD&to=YYYY-MM-DD`** (JSON) + **`/vat.csv`** — splits **VAT-inclusive** sales into **VAT + net per menu item** using each item's own `vat_rate` (migration 009, default 5%; some items at 15% — `menu_items.vat_rate`, overridable per workspace via `settings.vat.defaultRate`); VAT = gross × rate/(100+rate), the Bangladesh NBR convention; totals (gross/VAT/net), per-item rows, CSV with a TOTAL footer — Reports page has a range picker, summary cards and a VAT CSV button (EN/বাংলা); hardened edge cases: a **0% VAT-exempt** default is preserved (net = gross) and **inverted `from > to` ranges return 400** instead of a misleadingly empty report
 - **Nightly merchant digest (Phase 6)** — the nightly closeout email now embeds **top sellers + low-stock inventory** sections, and the same digest is pushed to the WhatsApp webhook as a **`digest.daily` event signed with HMAC-SHA256** (`X-Webhook-Signature`) when a secret is configured — the owner sees the day's winners and what to reorder first thing in the morning
 
 **Customer order tracking (Phase 5)**
@@ -176,7 +176,7 @@ Customer storefront checkout (cart → order) · online payment **split payments
 | Backend | Node.js 20 · Express · Sequelize · SQLite (dev, default) → PostgreSQL 16 (V2) · pg · versioned migrations · JWT · zod · sharp · @aws-sdk/client-s3 · multer · csv-parse · exceljs · qrcode |
 | Frontend | React 18 · Vite 7 · Axios · React Router 7 · Playwright (e2e) |
 | Security | Helmet · express-rate-limit · bcrypt · otplib (2FA) · strict CORS · CSRF origin checks |
-| Quality | Vitest · Supertest · ESLint · GitHub Actions CI (5 jobs incl. MinIO + PG) |
+| Quality | Vitest · Supertest · ESLint · GitHub Actions CI (6 jobs incl. MinIO + PG + gateway sandbox) |
 | DevOps | Docker · docker-compose · nginx (SPA + API proxy) |
 
 ---
@@ -196,8 +196,8 @@ Customer storefront checkout (cart → order) · online payment **split payments
 │   │   ├── services/         # payments, gateway, whatsapp, tenant, storage
 │   │   ├── utils/            # promotion engine, pagination
 │   │   ├── test/             # Test environment setup
-│   │   └── __tests__/        # 31 suites · 288 tests
-│   ├── migrations/           # Versioned schema migrations (001–008)
+│   │   └── __tests__/        # 31 suites · 293 tests
+│   ├── migrations/           # Versioned schema migrations (001–009)
 │   ├── scripts/              # CLI utilities (seed, migrate runner, v1→v2 copy)
 │   └── Dockerfile
 ├── frontend/                 # React SPA
@@ -211,7 +211,7 @@ Customer storefront checkout (cart → order) · online payment **split payments
 │   ├── e2e/                  # Playwright browser tests
 │   ├── scripts/              # Screenshot capture tooling
 │   └── Dockerfile
-├── .github/workflows/ci.yml  # CI pipeline (5 jobs)
+├── .github/workflows/ci.yml  # CI pipeline (6 jobs)
 └── docs/                     # Audit + roadmap + architecture docs
 ```
 
@@ -347,7 +347,7 @@ Full media/import/S3 setup details: [`docs/05-media-import-public-menu.md`](docs
 
 ```bash
 cd backend
-npm test                      # Vitest — 187 tests across 20 suites (2 S3 tests skip locally, run in CI/MinIO)
+npm test                      # Vitest — 293 tests across 31 suites (2 skipped locally)
 npm run test:coverage         # with coverage report
 npm run lint                  # ESLint
 
@@ -357,19 +357,20 @@ npm run build                 # production build
 npx playwright test           # browser-level e2e suite
 ```
 
-Coverage highlights: promotion engine (all discount types, date windows, best-discount selection), full auth lifecycle (register, verify, login, refresh rotation + reuse detection, logout, password reset), TOTP 2FA, RBAC + tenant isolation (cross-tenant 403/404, ID injection, suspended/archived workspaces, role switching), CSRF rejection, order creation with promotions + **fulfillment workflow** (role denials, invalid skips, cancel rules, cross-tenant isolation), DELETE endpoints, public menu caching (ETag/304), image pipeline, bulk import (CSV + XLSX, mixed success, duplicate policies, **soft-delete resurrection**), **optimistic-lock version conflicts (409)**, inventory, dashboard aggregates, S3 storage round-trip, v1→v2 migration parity, and models↔migrations drift.
+Coverage highlights: promotion engine (all discount types, date windows, best-discount selection), full auth lifecycle (register, verify, login, refresh rotation + reuse detection, logout, password reset), TOTP 2FA, RBAC + tenant isolation (cross-tenant 403/404, ID injection, suspended/archived workspaces, role switching, **registered-customer → granted cashier role**), CSRF rejection, order creation with promotions + **fulfillment workflow** (role denials, invalid skips, cancel rules, cross-tenant isolation), DELETE endpoints, public menu caching (ETag/304), image pipeline, bulk import (CSV + XLSX, mixed success, duplicate policies, **soft-delete resurrection**), **optimistic-lock version conflicts (409)**, inventory, dashboard aggregates, VAT report edge cases (**0% default preserved, inverted range → 400**), nightly digest (**webhook payload carries the workspace slug**), S3 storage round-trip, v1→v2 migration parity, and models↔migrations drift.
 
 ---
 
 ## 🔄 CI/CD
 
-GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `master` — **5 parallel jobs**:
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `master` — **6 parallel jobs**:
 
 1. **Backend:** `npm ci` → lint → test → `npm audit --audit-level=high`
 2. **Backend — PostgreSQL 16:** real `postgres:16` service → `db:migrate` → `db:migrate:status` → full suite with `DB_DIALECT=postgres` → seed + production-mode boot smoke
 3. **Backend — S3 driver vs MinIO:** runs a MinIO server in-process → bucket setup → real S3 driver round-trip tests
-4. **E2E — Playwright:** installs Chromium → boots scratch backend + Vite → browser suite
-5. **Frontend:** `npm ci` → lint → build → `npm audit` (informational)
+4. **Backend — gateway sandbox E2E:** boots the real backend on a scratch DB pointed at the local sandbox and drives the full online-payment loop for **both** SSLCommerz and Stripe (order → paymentUrl → signed webhook → paid)
+5. **E2E — Playwright:** installs Chromium → boots scratch backend + Vite → browser suite
+6. **Frontend:** `npm ci` → lint → build → `npm audit` (informational)
 
 The workflow exposes a `workflow_dispatch` trigger so CI can always be run manually (`gh workflow run ci.yml`) even when GitHub's webhook events are delayed.
 
@@ -427,7 +428,7 @@ See [`docs/02-v2-roadmap.md`](docs/02-v2-roadmap.md) for the detailed plan with 
 
 1. Fork the repo and create a feature branch from `master`
 2. Run `npm run lint` and `npm test` (backend) before pushing
-3. Open a pull request — CI (5 jobs) must pass
+3. Open a pull request — CI (6 jobs) must pass
 
 ---
 
