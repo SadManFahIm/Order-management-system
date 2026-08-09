@@ -152,16 +152,20 @@ Customer storefront checkout (cart → order) · online payment **split payments
 
 ## 📸 Screenshots
 
-> Live captures from the running app (Deliveroo-inspired teal theme). Re-capture with `cd frontend && node scripts/screenshots.mjs` while the dev servers are up.
+> Live captures from the running app (Deliveroo-inspired teal theme). Re-capture anytime with `cd frontend && node scripts/screenshots.mjs` while the dev servers are up — the script logs in as the seeded admin and captures every page below.
 
 | | |
 |---|---|
-| **Public storefront** — live menu demo at `/m/:slug` | **Login — dark mode** |
-| ![Public storefront](docs/screenshots/public-menu-light.png) | ![Login dark](docs/screenshots/login-dark.png) |
+| **Landing page** — CRAV-style hero, full-page | **Public storefront** — live menu demo at `/m/:slug` |
+| ![Landing](docs/screenshots/landing-light.png) | ![Public storefront](docs/screenshots/public-menu-light.png) |
+| **Dashboard** — closeout trend + 3-day forecast + month-over-month | **Reports** — daily closeout + VAT compliance (NBR-ready) |
+| ![Dashboard](docs/screenshots/dashboard-light.png) | ![Reports](docs/screenshots/reports-light.png) |
+| **QR table menu** — printable table codes | **Customer tracking** — order no + phone |
+| ![QR menu](docs/screenshots/qr-menu-light.png) | ![Tracking](docs/screenshots/track-light.png) |
+| **Login — light mode** | **Login — dark mode** |
+| ![Login light](docs/screenshots/login-light.png) | ![Login dark](docs/screenshots/login-dark.png) |
 | **Products — light mode** | **Products — dark mode** |
 | ![Products light](docs/screenshots/products-light.png) | ![Products dark](docs/screenshots/products-dark.png) |
-| **Login — light mode** | |
-| ![Login light](docs/screenshots/login-light.png) | |
 
 ---
 
