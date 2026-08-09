@@ -67,6 +67,11 @@ export const ROLE_PERMISSIONS = {
 export function effectiveRole(user) {
   if (!user) return 'customer';
   if (user.platform_role === 'platform_admin') return 'platform_admin';
+  // A workspace membership outranks the account-level 'customer' role: owners
+  // invite registered customers into their team (cashier/manager/kitchen/…),
+  // and that tenant role is what must gate their requests. Without this,
+  // staff invited after registering could never place orders or view anything.
+  if (user.tenant_role && ROLES.includes(user.tenant_role)) return user.tenant_role;
   if (user.platform_role === 'customer') return 'customer';
   // Members use their per-tenant role when present, else legacy staff.
   return user.tenant_role || 'staff';

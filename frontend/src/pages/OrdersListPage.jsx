@@ -53,6 +53,15 @@ export default function OrdersListPage() {
   const active = tenants.find((tn) => Number(tn.id) === Number(activeTenantId));
   // Whitelisted by /api/auth/tenants: { enabled, number } — never the secret.
   const waConfig = active?.whatsapp || {};
+  // Mirror backend RBAC (backend/src/config/roles.js) so actions a role
+  // cannot perform are never shown: cashier places orders + confirms
+  // payment, kitchen fulfills (preparing/ready), delivery delivers,
+  // owner/manager manage everything incl. cancel.
+  const role = active?.role;
+  const canPlace = ['owner', 'manager', 'cashier', 'platform_admin', 'staff'].includes(role);
+  const canFulfill = ['owner', 'manager', 'kitchen', 'platform_admin', 'staff'].includes(role);
+  const canDeliver = ['owner', 'manager', 'delivery', 'platform_admin', 'staff'].includes(role);
+  const canManage = ['owner', 'manager', 'platform_admin', 'staff'].includes(role);
   const waNumber = waConfig.enabled ? waConfig.number : '';
 
   const mounted = useRef(true);
@@ -248,7 +257,7 @@ export default function OrdersListPage() {
                           : t('orders.unpaidStatus')}
                       </Badge>
                     </div>
-                    {o.payment_status !== 'paid' && payment && (
+                    {canPlace && o.payment_status !== 'paid' && payment && (
                       <Button size="sm" variant="ghost" onClick={() => markPaid(o)}>
                         ✓ {t('orders.markPaid')}
                       </Button>
@@ -280,12 +289,12 @@ export default function OrdersListPage() {
                         💬 {t('orders.notifyWa')}
                       </Button>
                     )}
-                    {next && (
+                    {next && (next === 'delivered' ? canDeliver : canFulfill) && (
                       <Button size="sm" variant="primary" onClick={() => onAdvance(o)}>
                         {statusLabel(t, next)}
                       </Button>
                     )}
-                    {o.status !== 'canceled' && o.status !== 'delivered' && (
+                    {canManage && o.status !== 'canceled' && o.status !== 'delivered' && (
                       <Button size="sm" variant="danger" onClick={() => onCancel(o)}>
                         {t('common.cancel')}
                       </Button>
