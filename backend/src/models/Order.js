@@ -54,6 +54,10 @@ const Order = sequelize.define(
     // Validated against the workspace's tables at creation, but stored
     // denormalised so history survives table renames/deletes.
     table_no: { type: DataTypes.INTEGER, allowNull: true },
+    // Payment method (cash | bkash | nagad | card | other), migration 008.
+    // Denormalised snapshot — a payment record lives in `payments` with its
+    // own status/reference lifecycle.
+    payment_method: { type: DataTypes.STRING(16), allowNull: true },
   },
   {
     tableName: 'orders',

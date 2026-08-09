@@ -139,6 +139,12 @@ export async function updateTenant(user, tenantId, fields, req) {
       tenant.settings && typeof tenant.settings === 'object' ? tenant.settings : {};
     allowed.settings = { ...current, whatsapp: fields.whatsapp };
   }
+  if (fields.paymentMethods !== undefined) {
+    // Accepted payment methods (cash/bKash/Nagad/card) — merge like brand.
+    const current =
+      tenant.settings && typeof tenant.settings === 'object' ? tenant.settings : {};
+    allowed.settings = { ...current, paymentMethods: fields.paymentMethods };
+  }
   await tenant.update(allowed);
   await audit({
     action: 'tenant.updated',

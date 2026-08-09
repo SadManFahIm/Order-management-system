@@ -6,6 +6,7 @@ import { requirePermission } from '../middleware/rbac.js';
 import { resolveTenant, requireTenant } from '../middleware/tenant.js';
 import Order from '../models/Order.js';
 import OrderItem from '../models/OrderItem.js';
+import Payment from '../models/Payment.js';
 import Product from '../models/Product.js';
 
 const router = express.Router();
@@ -38,26 +39,37 @@ router.get(
     const startOfWindow = new Date(startOfToday);
     startOfWindow.setDate(startOfWindow.getDate() - 6); // last 7 days incl. today
 
-    const [todayOrders, openOrders, totalProducts, windowOrders, recentLines] = await Promise.all([
-      Order.findAll({
-        where: { tenant_id: req.tenant.id, createdAt: { [Op.gte]: startOfToday } },
-        attributes: ['grand_total'],
-      }),
-      Order.count({
-        where: { tenant_id: req.tenant.id, status: { [Op.in]: OPEN_STATUSES } },
-      }),
-      Product.count({ where: { tenant_id: req.tenant.id } }),
-      Order.findAll({
-        where: { tenant_id: req.tenant.id, createdAt: { [Op.gte]: startOfWindow } },
-        attributes: ['grand_total', 'status', 'createdAt'],
-      }),
-      // Latest 500 line items (any status) — plenty for a top-items snapshot.
-      OrderItem.findAll({
-        where: { tenant_id: req.tenant.id },
-        attributes: ['item_name', 'quantity', 'line_total'],
-        limit: 500,
-      }),
-    ]);
+    const [todayOrders, openOrders, totalProducts, windowOrders, recentLines, paidPayments] =
+      await Promise.all([
+        Order.findAll({
+          where: { tenant_id: req.tenant.id, createdAt: { [Op.gte]: startOfToday } },
+          attributes: ['grand_total'],
+        }),
+        Order.count({
+          where: { tenant_id: req.tenant.id, status: { [Op.in]: OPEN_STATUSES } },
+        }),
+        Product.count({ where: { tenant_id: req.tenant.id } }),
+        Order.findAll({
+          where: { tenant_id: req.tenant.id, createdAt: { [Op.gte]: startOfWindow } },
+          attributes: ['grand_total', 'status', 'createdAt'],
+        }),
+        // Latest 500 line items (any status) — plenty for a top-items snapshot.
+        OrderItem.findAll({
+          where: { tenant_id: req.tenant.id },
+          attributes: ['item_name', 'quantity', 'line_total'],
+          limit: 500,
+        }),
+        // Confirmed payments in the same window — revenue by method (bKash/
+        // Nagad/cash/card breakdown for the dashboard).
+        Payment.findAll({
+          where: {
+            tenant_id: req.tenant.id,
+            status: 'paid',
+            createdAt: { [Op.gte]: startOfWindow },
+          },
+          attributes: ['method', 'amount'],
+        }),
+      ]);
 
     const todayRevenue = todayOrders.reduce((sum, o) => sum + Number(o.grand_total || 0), 0);
 
@@ -101,6 +113,23 @@ router.get(
       .slice(0, 5)
       .map((t) => ({ ...t, quantity: t.quantity, revenue: Math.round(t.revenue * 100) / 100 }));
 
+    // Revenue by payment method (paid payments, same 7-day window).
+    const byMethod = new Map();
+    for (const p of paidPayments) {
+      const method = p.method || 'other';
+      const entry = byMethod.get(method) || { method, amount: 0, count: 0 };
+      entry.amount += Number(p.amount || 0);
+      entry.count += 1;
+      byMethod.set(method, entry);
+    }
+    const paymentBreakdown = [...byMethod.values()]
+      .sort((a, b) => b.amount - a.amount)
+      .map((m) => ({
+        method: m.method,
+        amount: Math.round(m.amount * 100) / 100,
+        count: m.count,
+      }));
+
     res.json({
       today: { orders: todayOrders.length, revenue: Math.round(todayRevenue * 100) / 100 },
       openOrders,
@@ -108,6 +137,7 @@ router.get(
       trend,
       statusBreakdown,
       topItems,
+      paymentBreakdown,
     });
   })
 );

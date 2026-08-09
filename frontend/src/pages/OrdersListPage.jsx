@@ -104,6 +104,19 @@ export default function OrdersListPage() {
     }
   };
 
+  // Confirms a pending bKash/Nagad payment (cashier action).
+  const markPaid = async (o) => {
+    const payment = (o.payments || [])[0];
+    if (!payment) return;
+    try {
+      await api.patch(`/payments/${payment.id}`, { status: 'paid' });
+      toast.success(t('orders.markedPaid'));
+      await load();
+    } catch {
+      toast.error(t('orders.couldNotUpdate'));
+    }
+  };
+
   const onAdvance = (o) => {
     const next = NEXT_STATUS[o.status];
     if (next) setStatus(o, next);
@@ -179,6 +192,7 @@ export default function OrdersListPage() {
               { key: 'subtotal', label: 'Subtotal', align: 'right' },
               { key: 'total_discount', label: 'Discount', align: 'right' },
               { key: 'grand_total', label: 'Total', align: 'right' },
+              { key: 'payment', label: t('orders.paymentCol') },
               { key: 'items', label: 'Items', align: 'right' },
               { key: 'status', label: 'Status' },
               { key: 'actions', label: '', align: 'right' },
@@ -201,6 +215,47 @@ export default function OrdersListPage() {
                   fmt(o.total_discount)
                 );
               if (key === 'grand_total') return <span className="oms-table__cell-strong">{fmt(o.grand_total)}</span>;
+              if (key === 'payment') {
+                const method = ['cash', 'bkash', 'nagad', 'card'].includes(o.payment_method)
+                  ? o.payment_method
+                  : 'cash';
+                const methodLabel = t(
+                  `orders.pay${method.charAt(0).toUpperCase()}${method.slice(1)}`
+                );
+                const payment = (o.payments || [])[0];
+                const statusTone =
+                  o.payment_status === 'paid'
+                    ? 'success'
+                    : o.payment_status === 'refunded'
+                    ? 'neutral'
+                    : 'warning';
+                return (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 6,
+                      alignItems: 'flex-start',
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <Badge tone="neutral">{methodLabel}</Badge>
+                      <Badge tone={statusTone}>
+                        {o.payment_status === 'paid'
+                          ? t('orders.paidStatus')
+                          : o.payment_status === 'refunded'
+                          ? t('orders.refundedStatus')
+                          : t('orders.unpaidStatus')}
+                      </Badge>
+                    </div>
+                    {o.payment_status !== 'paid' && payment && (
+                      <Button size="sm" variant="ghost" onClick={() => markPaid(o)}>
+                        ✓ {t('orders.markPaid')}
+                      </Button>
+                    )}
+                  </div>
+                );
+              }
               if (key === 'items') return o.items?.length ?? 0;
               if (key === 'status')
                 return (

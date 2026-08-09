@@ -154,6 +154,7 @@ router.get(
 function slimTenant(t, role) {
   if (!t) return null;
   const wa = t.settings?.whatsapp;
+  const pm = t.settings?.paymentMethods;
   return {
     id: t.id,
     name: t.name,
@@ -161,6 +162,14 @@ function slimTenant(t, role) {
     role,
     // Whitelist only — the webhook secret never leaves the server here.
     whatsapp: wa ? { enabled: Boolean(wa.enabled), number: wa.number || null } : null,
+    // Just the enabled flags — enough for the cashier order form. Cash is
+    // on by default for workspaces that never configured payment methods.
+    paymentMethods: {
+      cash: pm?.cash?.enabled ?? true,
+      bkash: pm?.bkash?.enabled ?? false,
+      nagad: pm?.nagad?.enabled ?? false,
+      card: pm?.card?.enabled ?? false,
+    },
   };
 }
 

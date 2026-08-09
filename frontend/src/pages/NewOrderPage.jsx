@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../api';
+import { useAuth } from '../context/AuthContext';
 import Cart from '../components/Cart';
 import { PageHeader, Card, Field, Input, Textarea, Select, Button, Skeleton, useToast } from '../components/ui';
 
@@ -16,6 +17,27 @@ export default function NewOrderPage() {
   });
   const [tables, setTables] = useState([]);
   const [tableNo, setTableNo] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [paymentRef, setPaymentRef] = useState('');
+  const { tenants, activeTenantId } = useAuth();
+  const active = tenants.find((tn) => Number(tn.id) === Number(activeTenantId));
+  // Whitelisted by /api/auth/tenants: { cash, bkash, nagad, card } flags.
+  const pmFlags = active?.paymentMethods || { cash: true };
+  const pmOptions = [
+    { key: 'cash', label: 'Cash' },
+    { key: 'bkash', label: 'bKash' },
+    { key: 'nagad', label: 'Nagad' },
+    { key: 'card', label: 'Card' },
+  ].filter((m) => pmFlags[m.key]);
+
+  // If the workspace disabled the currently selected method, fall back to
+  // the first enabled one.
+  useEffect(() => {
+    if (pmOptions.length > 0 && !pmOptions.some((m) => m.key === paymentMethod)) {
+      setPaymentMethod(pmOptions[0].key);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pmFlags, paymentMethod]);
 
   const loadProducts = async () => {
     try {
@@ -61,6 +83,8 @@ export default function NewOrderPage() {
     const payload = {
       ...customer,
       table_no: tableNo ? Number(tableNo) : null,
+      payment_method: paymentMethod || 'cash',
+      payment_reference: paymentRef.trim() || undefined,
       items: cart.map((i) => ({
         product_id: i.product.id,
         quantity: i.quantity
@@ -122,6 +146,21 @@ export default function NewOrderPage() {
                 ))}
               </Select>
             </Field>
+
+            <Field label="Payment method" hint="Cash is paid on the spot; bKash/Nagad are confirmed at the counter.">
+              <Select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
+                {pmOptions.map((m) => (
+                  <option key={m.key} value={m.key}>
+                    {m.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            {(paymentMethod === 'bkash' || paymentMethod === 'nagad') && (
+              <Field label="Transaction ID (optional)" hint="bKash/Nagad trxID — capture at the counter.">
+                <Input value={paymentRef} maxLength={120} placeholder="e.g. 8A7B6C5D4E" onChange={(e) => setPaymentRef(e.target.value)} />
+              </Field>
+            )}
           </Card>
 
           <Card title="Menu" subtitle="Click to add items" bodyPadding={false}>

@@ -18,6 +18,7 @@ import ItemVariant from './ItemVariant.js';
 import ItemAddon from './ItemAddon.js';
 import InventoryItem from './InventoryItem.js';
 import Table from './Table.js';
+import Payment from './Payment.js';
 
 // Tenant ↔ Plan / SaaS wiring
 Tenant.belongsTo(Plan, { foreignKey: 'plan_id', as: 'plan' });
@@ -44,4 +45,5 @@ export {
   ItemAddon,
   InventoryItem,
   Table,
+  Payment,
 };
