@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import app from '../app.js';
 import sequelize from '../config/db.js';
 import { resetTestDb } from '../test/resetDb.js';
-import { User, Tenant, UserTenant, Product, MenuCategory, ItemVariant, ItemAddon } from '../models/index.js';
+import { User, Tenant, UserTenant, Product, MenuCategory, ItemVariant, ItemAddon, Table } from '../models/index.js';
 
 /**
  * Public storefront menu API suite (Phase 4).
@@ -66,6 +66,11 @@ beforeAll(async () => {
 
   await ItemVariant.create({ tenant_id: tenantA.id, product_id: itemAvailable.id, name: 'Large', price_adjustment: 50, sort_order: 1 });
   await ItemAddon.create({ tenant_id: tenantA.id, product_id: itemAvailable.id, name: 'Extra Cheese', price: 30, sort_order: 1 });
+
+  // QR table menu (Phase 5 starter): public tables listing.
+  await Table.create({ tenant_id: tenantA.id, table_no: 1, name: 'Window 1', capacity: 2 });
+  await Table.create({ tenant_id: tenantA.id, table_no: 2, name: 'Family', capacity: 6, is_active: false });
+  await Table.create({ tenant_id: tenantB.id, table_no: 1, name: 'Beta Secret', capacity: 4 });
 
   // A member user to prove public routes ignore auth entirely.
   const owner = await User.create({
@@ -283,5 +288,30 @@ describe('GET /api/public/restaurants/:slug/menu', () => {
       .get(`/api/public/restaurants/public-a/menu?categoryId=${categoryDrinks.id}&limit=5`);
     expect(Number(res.headers['x-total-count'])).toBe(1);
     expect(res.body.categories.flatMap((c) => c.items).map((i) => i.name)).toEqual(['Cold Drink']);
+  });
+});
+
+describe('GET /api/public/restaurants/:slug/tables (QR menu)', () => {
+  it('returns only active tables with storefront-safe fields', async () => {
+    const res = await request(app).get('/api/public/restaurants/public-a/tables');
+    expect(res.status).toBe(200);
+    expect(res.body.tables).toEqual([{ tableNo: 1, name: 'Window 1', capacity: 2 }]);
+  });
+
+  it('never leaks another tenant tables or internal columns', async () => {
+    const res = await request(app).get('/api/public/restaurants/public-a/tables');
+    const json = JSON.stringify(res.body);
+    expect(json).not.toContain('Beta Secret');
+    expect(json).not.toContain('tenant_id');
+    expect(json).not.toContain('is_active');
+    expect(json).not.toContain('settings');
+  });
+
+  it('404s for hidden workspaces and caches like the menu', async () => {
+    const hidden = await request(app).get('/api/public/restaurants/hidden-cafe/tables');
+    expect(hidden.status).toBe(404);
+
+    const res = await request(app).get('/api/public/restaurants/public-a/tables');
+    expect(res.headers['cache-control']).toMatch(/public, max-age=\d+/);
   });
 });

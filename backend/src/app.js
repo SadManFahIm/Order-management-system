@@ -26,6 +26,7 @@ import './models/MenuCategory.js';
 import './models/ItemVariant.js';
 import './models/ItemAddon.js';
 import './models/InventoryItem.js';
+import './models/Table.js';
 
 import authRoutes from './routes/auth.js';
 import productRoutes from './routes/products.js';
@@ -36,6 +37,7 @@ import menuRoutes from './routes/menu.js';
 import uploadRoutes from './routes/uploads.js';
 import publicMenuRoutes from './routes/publicMenu.js';
 import dashboardRoutes from './routes/dashboard.js';
+import tableRoutes from './routes/tables.js';
 
 import { storageDriver, localStatic } from './config/storage.js';
 
@@ -106,6 +108,7 @@ app.use('/api/uploads', apiLimiter, uploadRoutes);
 // but slightly relaxed per-IP budget is inherited from apiLimiter defaults.
 app.use('/api/public', apiLimiter, publicMenuRoutes);
 app.use('/api/dashboard', apiLimiter, dashboardRoutes);
+app.use('/api/tables', apiLimiter, tableRoutes);
 
 // 404 + centralized error handling
 app.use(notFound);

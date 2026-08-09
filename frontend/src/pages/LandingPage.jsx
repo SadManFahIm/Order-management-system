@@ -41,13 +41,21 @@ const STORES = [
   { name: 'Gloria Jeans', emoji: '☕' },
 ];
 
+// Titles/descriptions come from i18n keys so the whole grid flips to Bangla.
 const FEATURES = [
-  { emoji: '🧾', title: 'Menu builder', desc: 'Categories, variants, add-ons, prices, photos and stock — one clean editor your whole team can use.' },
-  { emoji: '📦', title: 'Bulk import', desc: 'Load hundreds of items from CSV or Excel with per-row validation and a friendly error report.' },
-  { emoji: '🖼️', title: 'Image pipeline', desc: 'Upload once — sharp resizes to WebP, served from S3-compatible storage through a CDN.' },
-  { emoji: '🛍️', title: 'Public storefront', desc: 'Every workspace gets a live, branded menu page your customers can open on any phone.' },
-  { emoji: '📈', title: 'Live analytics', desc: 'Revenue trends, order volume and top sellers — updated the moment orders land.' },
-  { emoji: '👥', title: 'Team & roles', desc: 'Owner, manager, cashier, kitchen, delivery — scoped access to exactly what each role needs.' },
+  { emoji: '🧾', titleKey: 'landing.featMenuTitle', descKey: 'landing.featMenuDesc' },
+  { emoji: '📦', titleKey: 'landing.featImportTitle', descKey: 'landing.featImportDesc' },
+  { emoji: '🖼️', titleKey: 'landing.featImageTitle', descKey: 'landing.featImageDesc' },
+  { emoji: '🛍️', titleKey: 'landing.featStoreTitle', descKey: 'landing.featStoreDesc' },
+  { emoji: '📈', titleKey: 'landing.featAnalyticsTitle', descKey: 'landing.featAnalyticsDesc' },
+  { emoji: '👥', titleKey: 'landing.featTeamTitle', descKey: 'landing.featTeamDesc' },
+];
+
+// Phone mockup copy is translated too (KFC demo card).
+const DEMO_ITEMS = [
+  { emoji: '🍗', nameKey: 'landing.demoItem1', price: '৳ 320' },
+  { emoji: '🍔', nameKey: 'landing.demoItem2', price: '৳ 260' },
+  { emoji: '🍟', nameKey: 'landing.demoItem3', price: '৳ 150' },
 ];
 
 const STEPS = [
@@ -119,8 +127,9 @@ export default function LandingPage() {
       </section>
 
       {/* ---------- Marquee ---------- */}
-      <div className="landing__marquee" aria-hidden="true">
-        <div className="landing__marquee-track">
+      <div className="landing__marquee">
+        <span className="landing__marquee-label">{t('landing.marqueeLabel')}</span>
+        <div className="landing__marquee-track" aria-hidden="true">
           {[...STORES, ...STORES].map((s, i) => (
             <span key={i} className="landing__marquee-item">{s.emoji} {s.name} <span className="landing__marquee-dot">•</span></span>
           ))}
@@ -148,10 +157,10 @@ export default function LandingPage() {
         <p className="landing__sub reveal">{t('landing.featuresSub')}</p>
         <div className="landing__grid">
           {FEATURES.map((f, i) => (
-            <div className="landing__card reveal" style={{ transitionDelay: `${(i % 3) * 80}ms` }} key={f.title}>
+            <div className="landing__card reveal" style={{ transitionDelay: `${(i % 3) * 80}ms` }} key={f.titleKey}>
               <div className="landing__card-emoji">{f.emoji}</div>
-              <h3>{f.title}</h3>
-              <p>{f.desc}</p>
+              <h3>{t(f.titleKey)}</h3>
+              <p>{t(f.descKey)}</p>
             </div>
           ))}
         </div>
@@ -174,21 +183,17 @@ export default function LandingPage() {
             <div className="landing__phone-hero" style={{ '--brand': '#e4002b', '--accent': '#ffd400' }}>
               <span className="landing__phone-logo">🍗</span>
               <b>KFC Dhaka</b>
-              <small>It’s finger lickin’ good — fresh in Dhaka</small>
+              <small>{t('landing.demoPhoneTag')}</small>
             </div>
             <div className="landing__phone-chips">
-              <span className="is-on">Chicken</span>
-              <span>Burgers</span>
-              <span>Sides</span>
+              <span className="is-on">{t('landing.demoChip1')}</span>
+              <span>{t('landing.demoChip2')}</span>
+              <span>{t('landing.demoChip3')}</span>
             </div>
-            {[
-              { emoji: '🍗', name: 'Hot & Crispy (2 pc)', price: '৳ 320' },
-              { emoji: '🍔', name: 'Zinger Burger', price: '৳ 260' },
-              { emoji: '🍟', name: 'Classic Fries', price: '৳ 150' },
-            ].map((it) => (
-              <div className="landing__phone-item" key={it.name}>
+            {DEMO_ITEMS.map((it) => (
+              <div className="landing__phone-item" key={it.nameKey}>
                 <span className="landing__phone-item-emoji">{it.emoji}</span>
-                <span className="landing__phone-item-name">{it.name}</span>
+                <span className="landing__phone-item-name">{t(it.nameKey)}</span>
                 <span className="landing__phone-item-price">{it.price}</span>
               </div>
             ))}

@@ -40,6 +40,7 @@ const EXPECTED_TABLES = [
   'promotion_slabs',
   'orders',
   'order_items',
+  'tables',
 ];
 
 describe('migration runner', () => {
@@ -59,6 +60,7 @@ describe('migration runner', () => {
       '003_menu_catalog.js',
       '004_order_promotions.js',
       '005_v1_field_bridge.js',
+      '006_tables.js',
     ]);
   });
 
@@ -90,20 +92,21 @@ describe('migration runner', () => {
   it('reports every migration as applied', async () => {
     const status = await migrationStatus(sequelize);
     expect(status.every((row) => row.state === 'applied')).toBe(true);
-    expect(status).toHaveLength(5);
+    expect(status).toHaveLength(6);
   });
 
   it('rolls back only the most recent migration, then re-applies', async () => {
-    // Down: 005 removes the v1 field-bridge columns and its record.
+    // Down: 006 drops the QR table-menu `tables` table and its record.
     expect(await migrateDown(sequelize)).toBe(1);
     const qi = sequelize.getQueryInterface();
-    expect((await qi.describeTable('orders')).customer_name).toBeUndefined();
-    expect((await qi.describeTable('menu_items')).weight_gm).toBeUndefined();
+    expect(await qi.tableExists('tables')).toBe(false);
 
-    // Re-applying restores them.
+    // Re-applying restores it.
     expect(await migrateUp(sequelize)).toBe(1);
-    expect((await qi.describeTable('orders')).customer_name).toBeDefined();
-    expect((await qi.describeTable('menu_items')).weight_gm).toBeDefined();
+    expect(await qi.tableExists('tables')).toBe(true);
+    const columns = await qi.describeTable('tables');
+    expect(columns).toHaveProperty('table_no');
+    expect(columns).toHaveProperty('tenant_id');
   });
 
   it('refuses to roll back a migration that is not the most recent', async () => {

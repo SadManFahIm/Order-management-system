@@ -303,9 +303,20 @@
 
 .landing__marquee {
   overflow: hidden;
-  padding: 18px 0;
+  padding: 18px 0 14px;
   border-block: 1px solid var(--border);
   background: var(--surface);
+}
+
+.landing__marquee-label {
+  display: block;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted, #8fb0ab);
+  margin-bottom: 12px;
 }
 
 .landing__marquee-track {

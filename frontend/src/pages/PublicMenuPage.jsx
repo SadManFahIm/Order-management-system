@@ -1,13 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { Skeleton } from '../components/ui';
+import { useI18n, LANGUAGES } from '../i18n';
 
 /**
  * Public storefront menu (Phase 4) — consumes the read-only public API
  * (`/api/public/restaurants/:slug/menu`), no auth required. Since Phase 4 R3
  * the page themes itself from the tenant's brand settings (colours +
  * tagline) so every workspace looks like its own brand.
+ *
+ * QR table menus (Phase 5 starter): a `?table=N` param shows a table pill in
+ * the hero (that is exactly what the printed QR encodes), and the whole page
+ * chrome flips between English and বাংলা for the local market.
  */
 const PAGE_SIZE = 50;
 
@@ -33,6 +38,9 @@ const brandColor = (value, fallback) =>
 
 export default function PublicMenuPage() {
   const { slug } = useParams();
+  const [searchParams] = useSearchParams();
+  const tableNo = searchParams.get('table');
+  const { t, lang, toggleLang } = useI18n();
   const [state, setState] = useState({ loading: true, error: null, data: null });
   const [activeCat, setActiveCat] = useState(null);
   const [total, setTotal] = useState(0);
@@ -66,9 +74,11 @@ export default function PublicMenuPage() {
     setTotal(0);
     loadPage(0, false).catch((err) => {
       if (!mounted.current) return;
+      // Store a code, translate at render — so a language toggle updates
+      // the message instantly without a refetch.
       setState({
         loading: false,
-        error: err?.response?.status === 404 ? 'Restaurant not found' : 'Could not load menu',
+        error: err?.response?.status === 404 ? 'notFound' : 'load',
         data: null,
       });
     });
@@ -105,13 +115,15 @@ export default function PublicMenuPage() {
     return (
       <div style={{ maxWidth: 480, margin: '120px auto', textAlign: 'center', display: 'grid', gap: 10 }}>
         <div style={{ fontSize: 40 }}>🍽️</div>
-        <h1 style={{ fontSize: 22, margin: 0 }}>{state.error}</h1>
+        <h1 style={{ fontSize: 22, margin: 0 }}>
+          {t(state.error === 'notFound' ? 'store.notFound' : 'store.couldNotLoad')}
+        </h1>
         <p style={{ color: 'var(--text-muted, #7d9a95)', margin: 0 }}>
-          Check the link — the restaurant may not be accepting orders right now.
+          {t('store.checkLink')}
         </p>
         <div style={{ marginTop: 8 }}>
           <Link to="/login" style={{ color: 'var(--primary, #00b3a5)', fontWeight: 700 }}>
-            Merchant sign in →
+            {t('store.merchantSignIn')} →
           </Link>
         </div>
       </div>
@@ -144,6 +156,23 @@ export default function PublicMenuPage() {
             background: 'rgba(255,255,255,0.14)',
           }}
         />
+        {/* Language toggle — customer-facing (English / বাংলা). */}
+        <button
+          onClick={toggleLang}
+          aria-label={lang === 'en' ? 'বাংলায় দেখুন' : 'Switch to English'}
+          title={lang === 'en' ? 'বাংলা' : 'English'}
+          style={{
+            position: 'absolute', top: 18, right: 18,
+            background: 'rgba(255,255,255,0.16)', border: '1px solid rgba(255,255,255,0.35)',
+            color: '#fff', borderRadius: 999, padding: '7px 14px',
+            fontSize: 12.5, fontWeight: 800, cursor: 'pointer', backdropFilter: 'blur(6px)',
+            transition: 'background .15s ease',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.28)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.16)'; }}
+        >
+          {LANGUAGES.find((l) => l.code !== lang)?.short}
+        </button>
         <div style={{ maxWidth: 900, margin: '0 auto', display: 'flex', gap: 20, alignItems: 'center', position: 'relative' }}>
           {restaurant.logoUrl ? (
             <img
@@ -163,14 +192,28 @@ export default function PublicMenuPage() {
             </div>
           )}
           <div style={{ display: 'grid', gap: 4 }}>
-            <h1 style={{ margin: 0, fontSize: 30, fontWeight: 800 }}>{restaurant.name}</h1>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <h1 style={{ margin: 0, fontSize: 30, fontWeight: 800 }}>{restaurant.name}</h1>
+              {tableNo && (
+                <span
+                  title={t('store.scanToOrder')}
+                  style={{
+                    background: 'rgba(255,255,255,0.22)', border: '1px solid rgba(255,255,255,0.45)',
+                    borderRadius: 999, padding: '5px 14px', fontSize: 13, fontWeight: 800,
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                  }}
+                >
+                  🪑 {t('store.table', tableNo)}
+                </span>
+              )}
+            </div>
             {brand.tagline && (
               <div style={{ color: 'rgba(255,255,255,0.95)', fontSize: 15, fontWeight: 600 }}>
                 {brand.tagline}
               </div>
             )}
             <div style={{ color: 'rgba(255,255,255,0.9)', fontSize: 14 }}>
-              Open · {catCount} categories · live from the public menu API
+              {t('store.openLine', catCount)}
             </div>
           </div>
         </div>
@@ -271,7 +314,7 @@ export default function PublicMenuPage() {
                   )}
                   {item.addons.length > 0 && (
                     <div style={{ fontSize: 12, color: 'var(--text-muted, #7d9a95)' }}>
-                      Options: {item.addons.map((a) => `${a.name} +${price(a.price)}`).join(' · ')}
+                      {t('store.options')}: {item.addons.map((a) => `${a.name} +${price(a.price)}`).join(' · ')}
                     </div>
                   )}
                   <div style={{ fontSize: 15, fontWeight: 700 }}>{price(item.price)}</div>
@@ -295,7 +338,7 @@ export default function PublicMenuPage() {
           </div>
         ) : (
           <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted, #7d9a95)' }}>
-            No menu items available right now.
+            {t('store.noItems')}
           </div>
         )}
 
@@ -320,13 +363,13 @@ export default function PublicMenuPage() {
               onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 10px 22px color-mix(in srgb, var(--brand) 45%, transparent)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 6px 16px color-mix(in srgb, var(--brand) 35%, transparent)'; }}
             >
-              {fetchingMore ? 'Loading…' : `Show more (${total - loadedCount(state.data)} more)`}
+              {fetchingMore ? t('store.loading') : t('store.showMore', total - loadedCount(state.data))}
             </button>
           </div>
         )}
 
         <div style={{ marginTop: 40, textAlign: 'center', fontSize: 13, color: 'var(--text-muted, #7d9a95)' }}>
-          <Link to="/login" style={{ color: 'inherit' }}>Merchant sign in</Link> · powered by the public menu API
+          <Link to="/login" style={{ color: 'inherit' }}>{t('store.merchantSignIn')}</Link> · {t('store.poweredBy')}
         </div>
       </div>
     </div>

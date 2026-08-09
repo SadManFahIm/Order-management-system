@@ -725,3 +725,148 @@
   color: var(--preview-primary);
   font-size: 13px;
 }
+
+/* ---------------- QR table menu (Phase 5 starter) ---------------- */
+
+.qr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.qr-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.qr-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
+}
+
+.qr-card__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.qr-card__no {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--primary);
+  line-height: 1;
+}
+
+.qr-card__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+  min-width: 0;
+}
+
+.qr-card__meta b {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.qr-card__code {
+  display: grid;
+  place-items: center;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px;
+}
+
+.qr-card__code img {
+  width: 150px;
+  height: 150px;
+  display: block;
+}
+
+.qr-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.qr-hint {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+/* Print sheet — hidden on screen, full A4 grid when printing. */
+.qr-print-sheet {
+  display: none;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .qr-print-sheet,
+  .qr-print-sheet * {
+    visibility: visible;
+  }
+  .qr-print-sheet {
+    display: block;
+    position: absolute;
+    inset: 0;
+    padding: 24px;
+  }
+  .qr-print-sheet__header {
+    text-align: center;
+    margin-bottom: 20px;
+  }
+  .qr-print-sheet__header h1 {
+    font-size: 22px;
+    margin: 0 0 4px;
+  }
+  .qr-print-sheet__header p {
+    font-size: 12px;
+    color: #555;
+    margin: 0;
+  }
+  .qr-print-sheet__grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
+  .qr-print-sheet__cell {
+    border: 1px dashed #bbb;
+    border-radius: 10px;
+    padding: 10px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .qr-print-sheet__cell img {
+    width: 110px;
+    height: 110px;
+  }
+  .qr-print-sheet__cell b {
+    font-size: 13px;
+  }
+  .qr-print-sheet__cell span {
+    font-size: 11px;
+    color: #444;
+  }
+  .qr-print-sheet__cell small {
+    font-size: 8.5px;
+    color: #888;
+    word-break: break-all;
+  }
+}

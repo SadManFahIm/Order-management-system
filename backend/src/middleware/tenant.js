@@ -77,7 +77,9 @@ export const resolveTenant = asyncHandler(async (req, res, next) => {
     return reject(res, 'TENANT_UNAVAILABLE', `This workspace is ${tenant.status}`);
   }
 
-  req.tenant = { id: tenantId, role, status: tenant.status };
+  // slug rides along so routes can build public storefront URLs
+  // (QR table menus) without a second lookup.
+  req.tenant = { id: tenantId, role, status: tenant.status, slug: tenant.slug };
   req.user.tenant_role = role;
   req.user.tenant_id = tenantId;
   next();
