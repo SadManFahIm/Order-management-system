@@ -141,6 +141,32 @@ jobs:
           path: frontend/playwright-report
           retention-days: 7
 
+  gateway-sandbox:
+    # Online-payment tier — boots the REAL backend against the local gateway
+    # sandbox (mock SSLCommerz + Stripe with real signature math) and drives
+    # the full loop for BOTH gateways (order → pending + paymentUrl → signed
+    # webhook → paid). Proves the gateway integration on every PR without
+    # external credentials; exits non-zero unless both flows pass.
+    name: Backend — gateway sandbox E2E (SSLCommerz + Stripe)
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      JWT_SECRET: ci-only-secret-not-for-production
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Run gateway test-mode E2E (both gateways)
+        run: npm run gateway:e2e
+
   s3-storage:
     # S3-compatible storage tier — runs the image-pipeline driver against a
     # real MinIO instance (put → public URL → remove round-trip). MinIO is

@@ -39,6 +39,7 @@
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.2.0",
+    "nodemailer": "^9.0.5",
     "otplib": "^13.4.1",
     "pg": "^8.22.0",
     "pg-hstore": "^2.3.4",
@@ -53,6 +54,7 @@
     "eslint": "^9.9.0",
     "globals": "^15.9.0",
     "nodemon": "^3.1.0",
+    "smtp-server": "^3.19.3",
     "supertest": "^7.0.0",
     "vitest": "^4.1.10"
   },

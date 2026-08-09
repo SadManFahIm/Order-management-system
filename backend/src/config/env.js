@@ -35,6 +35,20 @@ const envSchema = z.object({
     .default('http://localhost:5173,http://localhost:5174'),
   // Public base URL used to build email links (verification, password reset).
   APP_BASE_URL: z.string().default('http://localhost:5173'),
+  // ── Email delivery (Phase 5) ──────────────────────────────────────────
+  // 'stub' (default) logs emails in dev/test with zero config; 'smtp' sends
+  // real mail through any SMTP server (Gmail, Zoho, Mailgun SMTP, SES SMTP…)
+  // via nodemailer. Production should set MAIL_DRIVER=smtp.
+  MAIL_DRIVER: z.enum(['stub', 'smtp']).default('stub'),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_SECURE: z
+    .string()
+    .optional()
+    .transform((v) => v === '1' || v === 'true'),
+  MAIL_FROM: z.string().default('Orderly <no-reply@orderly.app>'),
   TRUST_PROXY: z
     .string()
     .optional()

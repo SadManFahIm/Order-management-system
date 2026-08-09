@@ -160,6 +160,62 @@ describe('GET /api/dashboard', () => {
     ]);
   });
 
+  it('exposes a Dhaka-day closeout trend with per-day method mix + stats', async () => {
+    const res = await request(app)
+      .get('/api/dashboard')
+      .set('Authorization', `Bearer ${managerToken}`);
+    expect(res.status).toBe(200);
+
+    // 7 buckets by default, zero-filled; today holds the seeded orders
+    // (2 burgers + the fries order from the lifecycle test = 3 / 700).
+    expect(res.body.closeoutTrend).toHaveLength(7);
+    const today = res.body.closeoutTrend[6];
+    expect(today.orders).toBe(3);
+    expect(today.revenue).toBe(700);
+    // All three orders were cash → paid on the spot.
+    expect(today.methodMix).toMatchObject({ cash: 700, bkash: 0, nagad: 0 });
+    // Leading days are zero-filled with a complete method map.
+    expect(res.body.closeoutTrend[0]).toEqual({
+      date: res.body.closeoutTrend[0].date,
+      revenue: 0,
+      orders: 0,
+      methodMix: { cash: 0, bkash: 0, nagad: 0, card: 0, online: 0, other: 0 },
+    });
+
+    expect(res.body.trendStats).toMatchObject({
+      days: 7,
+      totalRevenue: 700,
+      totalOrders: 3,
+      avgPerDay: 100, // 700 / 7
+    });
+    expect(res.body.trendStats.bestDay.revenue).toBe(700);
+    expect(res.body.trendStats.dayOverDay.current).toBe(700);
+    expect(res.body.trendStats.dayOverDay.previous).toBe(0);
+    expect(res.body.trendStats.dayOverDay.delta).toBe(700);
+    expect(res.body.trendStats.dayOverDay.pct).toBeNull(); // previous day empty
+  });
+
+  it('supports ?days=30 and clamps out-of-range values', async () => {
+    const thirty = await request(app)
+      .get('/api/dashboard?days=30')
+      .set('Authorization', `Bearer ${managerToken}`);
+    expect(thirty.status).toBe(200);
+    expect(thirty.body.closeoutTrend).toHaveLength(30);
+    expect(thirty.body.trendStats.days).toBe(30);
+    // Today's revenue still lands on the LAST bucket (Dhaka day).
+    expect(thirty.body.closeoutTrend[29].revenue).toBe(700);
+
+    const clamped = await request(app)
+      .get('/api/dashboard?days=999')
+      .set('Authorization', `Bearer ${managerToken}`);
+    expect(clamped.body.trendStats.days).toBe(30);
+
+    const min = await request(app)
+      .get('/api/dashboard?days=1')
+      .set('Authorization', `Bearer ${managerToken}`);
+    expect(min.body.trendStats.days).toBe(7);
+  });
+
   it('requires authentication', async () => {
     const res = await request(app).get('/api/dashboard');
     expect(res.status).toBe(401);

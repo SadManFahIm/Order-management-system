@@ -193,6 +193,127 @@ export function OrdersBarChart({ data, height = 220 }) {
   );
 }
 
+const METHOD_COLORS = {
+  cash: 'var(--primary)',
+  bkash: '#00a85e',
+  nagad: '#e34c26',
+  card: '#6366f1',
+  online: 'var(--accent)',
+  other: 'var(--text-muted)',
+};
+
+const METHOD_LABELS_SHORT = {
+  cash: 'Cash',
+  bkash: 'bKash',
+  nagad: 'Nagad',
+  card: 'Card',
+  online: 'Online',
+  other: 'Other',
+};
+
+/**
+ * Closeout trend (Phase 5) — stacked bars of revenue per Dhaka day, split by
+ * payment method, so both the daily curve and the method mix over time are
+ * visible in one chart. Hover pins the day readout (revenue + per-method).
+ */
+export function CloseoutTrendChart({ data, height = 240 }) {
+  const [hover, setHover] = useState(null);
+  const active = hover ?? Math.max(data.length - 1, 0);
+  const H = height;
+  const innerW = W - PAD.l - PAD.r;
+  const innerH = H - PAD.t - PAD.b;
+  const methods = Object.keys(METHOD_COLORS);
+  const max = Math.max(...data.map((d) => Number(d.revenue) || 0), 1);
+  const slot = innerW / data.length;
+  const barW = Math.min(slot * 0.52, 34);
+  const y = (v) => PAD.t + innerH - (v / max) * innerH;
+
+  const grid = [0, 0.5, 1].map((f) => ({
+    v: Math.round(max * f),
+    yy: PAD.t + innerH - f * innerH,
+  }));
+  const activeDay = data[active];
+  const mixEntries = methods
+    .map((m) => ({ m, v: Number(activeDay.methodMix?.[m]) || 0 }))
+    .filter((x) => x.v > 0);
+
+  return (
+    <div className="oms-chart">
+      <div className="oms-chart__readout">
+        <span className="oms-chart__readout-label">{activeDay.date}</span>
+        <span className="oms-chart__readout-value">
+          {fmtTaka2(activeDay.revenue)}
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, marginLeft: 8 }}>
+            {activeDay.orders} orders
+          </span>
+        </span>
+      </div>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        role="img"
+        aria-label="Revenue per day by payment method"
+        className="oms-chart__svg"
+        onMouseLeave={() => setHover(null)}
+      >
+        {grid.map((g) => (
+          <g key={g.v}>
+            <line x1={PAD.l} x2={W - PAD.r} y1={g.yy} y2={g.yy} stroke="var(--border)" strokeDasharray="3 5" />
+            <text x={PAD.l - 8} y={g.yy + 3.5} textAnchor="end" className="oms-chart__axis">
+              {fmtTaka(g.v)}
+            </text>
+          </g>
+        ))}
+
+        {data.map((d, i) => {
+          let acc = 0;
+          return (
+            <g key={d.date} onMouseEnter={() => setHover(i)}>
+              {methods.map((m) => {
+                const v = Number(d.methodMix?.[m]) || 0;
+                if (v <= 0) return null;
+                const yTop = y(acc + v);
+                const yBot = y(acc);
+                acc += v;
+                return (
+                  <rect
+                    key={m}
+                    x={PAD.l + slot * i + (slot - barW) / 2}
+                    y={yTop}
+                    width={barW}
+                    height={Math.max(yBot - yTop, v > 0 ? 2 : 0)}
+                    rx={2}
+                    fill={METHOD_COLORS[m]}
+                    opacity={i === active ? 1 : 0.72}
+                  />
+                );
+              })}
+              <text
+                x={PAD.l + slot * i + slot / 2}
+                y={H - 8}
+                textAnchor="middle"
+                className={`oms-chart__axis ${i === active ? 'oms-chart__axis--active' : ''}`}
+              >
+                {dayLabel(d.date)}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 12 }}>
+        {mixEntries.map(({ m, v }) => (
+          <span key={m} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--text-muted)' }}>
+            <span style={{ width: 9, height: 9, borderRadius: 3, background: METHOD_COLORS[m] }} />
+            {METHOD_LABELS_SHORT[m]} · {fmtTaka2(v)}
+          </span>
+        ))}
+        {mixEntries.length === 0 && (
+          <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>No revenue this day</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const STATUS_COLORS = {
   placed: 'var(--primary)',
   preparing: 'var(--accent)',
