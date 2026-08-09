@@ -145,6 +145,12 @@ export async function updateTenant(user, tenantId, fields, req) {
       tenant.settings && typeof tenant.settings === 'object' ? tenant.settings : {};
     allowed.settings = { ...current, paymentMethods: fields.paymentMethods };
   }
+  if (fields.reports !== undefined) {
+    // Daily closeout email config — merge like brand/whatsapp.
+    const current =
+      tenant.settings && typeof tenant.settings === 'object' ? tenant.settings : {};
+    allowed.settings = { ...current, reports: fields.reports };
+  }
   await tenant.update(allowed);
   await audit({
     action: 'tenant.updated',

@@ -3,6 +3,7 @@ import sequelize from './config/db.js';
 import { env } from './config/env.js';
 import { migrateUp } from '../scripts/migrate.js';
 import { ensureBootstrapData } from './config/schemaSync.js';
+import { startCloseoutScheduler } from './services/reportsScheduler.js';
 
 async function start() {
   try {
@@ -19,6 +20,9 @@ async function start() {
     const server = app.listen(env.PORT, () => {
       console.log(`Backend listening on port ${env.PORT} (${env.NODE_ENV})`);
     });
+
+    // Nightly closeout emails (per-tenant, Dhaka hour, once/day).
+    startCloseoutScheduler();
 
     const shutdown = async () => {
       console.log('Shutting down gracefully…');

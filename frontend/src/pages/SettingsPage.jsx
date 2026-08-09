@@ -35,6 +35,8 @@ export default function SettingsPage() {
   const [pmSaving, setPmSaving] = useState(false);
   const [waTesting, setWaTesting] = useState(false);
   const [waManualLink, setWaManualLink] = useState(null);
+  const [reports, setReports] = useState({ closeoutEmail: '', autoSend: false, hour: 23 });
+  const [reportsSaving, setReportsSaving] = useState(false);
   const mounted = useRef(true);
 
   const active = tenants.find((x) => Number(x.id) === Number(activeTenantId));
@@ -69,6 +71,12 @@ export default function SettingsPage() {
           nagad: { enabled: Boolean(savedPm.nagad?.enabled), number: savedPm.nagad?.number || '' },
           card: { enabled: Boolean(savedPm.card?.enabled) },
           online: { enabled: Boolean(savedPm.online?.enabled) },
+        });
+        const savedRp = res.data.settings?.reports || {};
+        setReports({
+          closeoutEmail: savedRp.closeoutEmail || '',
+          autoSend: Boolean(savedRp.autoSendCloseout?.enabled),
+          hour: savedRp.autoSendCloseout?.hour ?? 23,
         });
         setLoading(false);
       })
@@ -114,6 +122,23 @@ export default function SettingsPage() {
       toast.error(err?.response?.data?.error?.message || 'Could not save payment methods');
     } finally {
       setPmSaving(false);
+    }
+  };
+
+  const saveReports = async () => {
+    setReportsSaving(true);
+    try {
+      await api.patch(`/tenants/${activeTenantId}`, {
+        reports: {
+          closeoutEmail: reports.closeoutEmail.trim(),
+          autoSendCloseout: { enabled: reports.autoSend, hour: Number(reports.hour) },
+        },
+      });
+      toast.success(t('settings.savedReports'));
+    } catch (err) {
+      toast.error(err?.response?.data?.error?.message || 'Could not save closeout settings');
+    } finally {
+      setReportsSaving(false);
     }
   };
 
@@ -329,6 +354,57 @@ export default function SettingsPage() {
           <div style={{ display: 'flex', gap: 10 }}>
             <Button variant="primary" onClick={savePaymentMethods} disabled={pmSaving}>
               {pmSaving ? t('common.loading') : t('settings.pmSave')}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      {/* Daily closeout email (Phase 5) — nightly report delivery */}
+      <Card title={t('settings.reports')} subtitle={t('settings.reportsDesc')} style={{ marginTop: 16 }}>
+        <div style={{ display: 'grid', gap: 16 }}>
+          <Field label={t('settings.closeoutEmail')} hint={t('settings.closeoutEmailHint')}>
+            <Input
+              type="email"
+              value={reports.closeoutEmail}
+              onChange={(e) => setReports((r) => ({ ...r, closeoutEmail: e.target.value }))}
+              placeholder="owner@restaurant.com"
+            />
+          </Field>
+          <div
+            className="oms-card"
+            style={{ opacity: reports.autoSend ? 1 : 0.6, transition: 'opacity .2s var(--ease-out)' }}
+          >
+            <div className="oms-card__body" style={{ padding: 16, display: 'grid', gap: 12 }}>
+              <Switch
+                id="reports-auto-send"
+                label={t('settings.autoSend')}
+                checked={reports.autoSend}
+                onChange={(e) => setReports((r) => ({ ...r, autoSend: e.target.checked }))}
+              />
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: -6 }}>
+                {t('settings.autoSendDesc')}
+              </div>
+              {reports.autoSend && (
+                <Field label={t('settings.closeoutHour')}>
+                  <select
+                    className="oms-input"
+                    value={reports.hour}
+                    onChange={(e) => setReports((r) => ({ ...r, hour: Number(e.target.value) }))}
+                    style={{ width: 200 }}
+                  >
+                    {Array.from({ length: 24 }, (_, i) => (
+                      <option key={i} value={i}>
+                        {String(i).padStart(2, '0')}:00
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <Button variant="primary" onClick={saveReports} disabled={reportsSaving}>
+              {reportsSaving ? t('common.loading') : t('settings.pmSave')}
             </Button>
           </div>
         </div>
