@@ -76,18 +76,22 @@ async function seedTenant(tenant) {
     const { items, subtotal, totalDiscount, grandTotal } = applyPromotionsToCart(cartItems, []);
 
     const status = pick(STATUSES);
+    // Dine-in (pickup) orders get a physical table (QR table menu, 1–12);
+    // deliveries don't. Keeps the Orders table looking like a real day.
+    const isDelivery = Math.random() > 0.4;
     await Order.create(
       {
         tenant_id: tenant.id,
         order_no: orderNo(tenant.id, i),
         customer_name: pick(CUSTOMERS).name,
         customer_phone: pick(CUSTOMERS).phone,
-        customer_address: Math.random() > 0.3 ? 'Dhaka, Bangladesh' : null,
+        customer_address: isDelivery ? 'Dhaka, Bangladesh' : null,
+        table_no: isDelivery ? null : rint(1, 12),
         subtotal,
         total_discount: totalDiscount,
         grand_total: grandTotal,
         status,
-        type: Math.random() > 0.4 ? 'delivery' : 'pickup',
+        type: isDelivery ? 'delivery' : 'pickup',
         payment_status: status === 'canceled' ? 'unpaid' : Math.random() > 0.2 ? 'paid' : 'unpaid',
         createdAt,
         updatedAt: createdAt,

@@ -10,5 +10,8 @@ export const createOrderSchema = z.object({
   customer_name: z.string().trim().min(1, 'Customer name is required').max(120),
   customer_phone: z.string().trim().max(30).optional().or(z.literal('')),
   customer_address: z.string().trim().max(500).optional().or(z.literal('')),
+  // Physical table for dine-in orders (QR table menu) — validated against
+  // the workspace's tables in the route (needs tenant context).
+  table_no: z.number().int().positive('table_no must be a positive integer').optional().nullable(),
   items: z.array(orderItemSchema).min(1, 'Order must contain at least one item'),
 });

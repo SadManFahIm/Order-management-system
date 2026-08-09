@@ -50,6 +50,10 @@ const Order = sequelize.define(
       allowNull: false,
       defaultValue: 'unpaid',
     },
+    // Physical table for dine-in orders (QR table menu, migration 007).
+    // Validated against the workspace's tables at creation, but stored
+    // denormalised so history survives table renames/deletes.
+    table_no: { type: DataTypes.INTEGER, allowNull: true },
   },
   {
     tableName: 'orders',

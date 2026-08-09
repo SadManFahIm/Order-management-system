@@ -9,6 +9,7 @@ import Product from '../models/Product.js';
 import Promotion from '../models/Promotion.js';
 import Tenant from '../models/Tenant.js';
 import UserTenant from '../models/UserTenant.js';
+import Table from '../models/Table.js';
 
 let token;
 let kitchenToken;
@@ -93,6 +94,10 @@ beforeAll(async () => {
     end_date: '2099-12-31',
     enabled: true,
   });
+
+  // Tables (QR table menu): 5 active, 9 hidden — for table-aware order tests.
+  await Table.create({ tenant_id: tenant.id, table_no: 5, name: 'Window 5', capacity: 4 });
+  await Table.create({ tenant_id: tenant.id, table_no: 9, name: 'Reserved', capacity: 6, is_active: false });
 });
 
 afterAll(async () => {
@@ -292,6 +297,22 @@ describe('PATCH /api/orders/:id/status (fulfillment lifecycle)', () => {
     expect(lateCancel.status).toBe(409);
   });
 
+  it('cannot place an order with another tenant table (isolation)', async () => {
+    const other = await Tenant.create({ name: 'Table Cafe', slug: 'table-cafe' });
+    await Table.create({ tenant_id: other.id, table_no: 7, name: 'Beta Table', capacity: 4 });
+
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        customer_name: 'Rahim',
+        table_no: 7,
+        items: [{ product_id: 1, quantity: 1 }],
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('INVALID_TABLE');
+  });
+
   it('cannot update an order in another tenant (isolation)', async () => {
     const other = await Tenant.create({ name: 'Other Diner', slug: 'other-diner' });
     const otherManager = await User.create({
@@ -316,5 +337,60 @@ describe('PATCH /api/orders/:id/status (fulfillment lifecycle)', () => {
       .set('Authorization', `Bearer ${otherToken}`)
       .send({ status: 'canceled' });
     expect(res.status).toBe(404);
+  });
+});
+
+describe('POST /api/orders — table-aware (QR table menu)', () => {
+  const base = { customer_name: 'Dine-in Guest', items: [{ product_id: 1, quantity: 1 }] };
+
+  it('stores a valid table number on the order and lists it', async () => {
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ ...base, table_no: 5 });
+    expect(res.status).toBe(201);
+    expect(res.body.table_no).toBe(5);
+
+    const list = await request(app)
+      .get('/api/orders')
+      .set('Authorization', `Bearer ${token}`);
+    const order = list.body.find((o) => o.id === res.body.id);
+    expect(order.table_no).toBe(5);
+  });
+
+  it('allows orders without a table (delivery/pickup)', async () => {
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${token}`)
+      .send(base);
+    expect(res.status).toBe(201);
+    expect(res.body.table_no).toBeNull();
+  });
+
+  it('rejects an unknown table with 400 INVALID_TABLE', async () => {
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ ...base, table_no: 42 });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('INVALID_TABLE');
+  });
+
+  it('rejects a hidden (inactive) table', async () => {
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ ...base, table_no: 9 });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('INVALID_TABLE');
+  });
+
+  it('rejects a non-integer table number via schema validation', async () => {
+    const res = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ ...base, table_no: 'five' });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
   });
 });

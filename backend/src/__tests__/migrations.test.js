@@ -61,6 +61,7 @@ describe('migration runner', () => {
       '004_order_promotions.js',
       '005_v1_field_bridge.js',
       '006_tables.js',
+      '007_order_table_no.js',
     ]);
   });
 
@@ -92,21 +93,18 @@ describe('migration runner', () => {
   it('reports every migration as applied', async () => {
     const status = await migrationStatus(sequelize);
     expect(status.every((row) => row.state === 'applied')).toBe(true);
-    expect(status).toHaveLength(6);
+    expect(status).toHaveLength(7);
   });
 
   it('rolls back only the most recent migration, then re-applies', async () => {
-    // Down: 006 drops the QR table-menu `tables` table and its record.
+    // Down: 007 removes orders.table_no (table-aware orders) and its record.
     expect(await migrateDown(sequelize)).toBe(1);
     const qi = sequelize.getQueryInterface();
-    expect(await qi.tableExists('tables')).toBe(false);
+    expect((await qi.describeTable('orders')).table_no).toBeUndefined();
 
     // Re-applying restores it.
     expect(await migrateUp(sequelize)).toBe(1);
-    expect(await qi.tableExists('tables')).toBe(true);
-    const columns = await qi.describeTable('tables');
-    expect(columns).toHaveProperty('table_no');
-    expect(columns).toHaveProperty('tenant_id');
+    expect((await qi.describeTable('orders')).table_no).toBeDefined();
   });
 
   it('refuses to roll back a migration that is not the most recent', async () => {

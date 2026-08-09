@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import api from '../api';
 import Cart from '../components/Cart';
-import { PageHeader, Card, Field, Input, Textarea, Button, Skeleton, useToast } from '../components/ui';
+import { PageHeader, Card, Field, Input, Textarea, Select, Button, Skeleton, useToast } from '../components/ui';
 
 export default function NewOrderPage() {
   const [products, setProducts] = useState(null);
@@ -14,11 +14,19 @@ export default function NewOrderPage() {
     customer_phone: '',
     customer_address: ''
   });
+  const [tables, setTables] = useState([]);
+  const [tableNo, setTableNo] = useState('');
 
   const loadProducts = async () => {
     try {
-      const res = await api.get('/products');
-      setProducts(res.data.filter((p) => p.enabled));
+      const [prodRes, tableRes] = await Promise.all([
+        api.get('/products'),
+        api.get('/tables'),
+      ]);
+      setProducts(prodRes.data.filter((p) => p.enabled));
+      // QR table menu — dine-in orders can be tagged with a physical table
+      // so kitchen/delivery see where the order belongs.
+      setTables((tableRes.data || []).filter((tb) => tb.is_active));
     } catch {
       setProducts([]);
     }
@@ -52,6 +60,7 @@ export default function NewOrderPage() {
   const handleCreateOrder = async () => {
     const payload = {
       ...customer,
+      table_no: tableNo ? Number(tableNo) : null,
       items: cart.map((i) => ({
         product_id: i.product.id,
         quantity: i.quantity
@@ -102,6 +111,16 @@ export default function NewOrderPage() {
             </Field>
             <Field label="Delivery address" hint="Leave blank for pickup.">
               <Textarea name="customer_address" placeholder="House, road, area…" value={customer.customer_address} onChange={onCustomerChange} />
+            </Field>
+            <Field label="Table" hint="Dine-in? Pick the physical table (QR table menu).">
+              <Select value={tableNo} onChange={(e) => setTableNo(e.target.value)}>
+                <option value="">— No table (delivery / takeaway)</option>
+                {tables.map((tb) => (
+                  <option key={tb.id} value={tb.table_no}>
+                    {tb.name ? `${tb.name} (${tb.table_no})` : `Table ${tb.table_no}`}
+                  </option>
+                ))}
+              </Select>
             </Field>
           </Card>
 

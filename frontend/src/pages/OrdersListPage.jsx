@@ -95,6 +95,7 @@ export default function OrdersListPage() {
             columns={[
               { key: 'id', label: 'Order' },
               { key: 'customer_name', label: 'Customer' },
+              { key: 'table_no', label: t('orders.tableCol') },
               { key: 'subtotal', label: 'Subtotal', align: 'right' },
               { key: 'total_discount', label: 'Discount', align: 'right' },
               { key: 'grand_total', label: 'Total', align: 'right' },
@@ -106,6 +107,12 @@ export default function OrdersListPage() {
             render={(o, key) => {
               if (key === 'id') return <Badge tone="primary">#{o.id}</Badge>;
               if (key === 'customer_name') return <span className="oms-table__cell-strong">{o.customer_name}</span>;
+              if (key === 'table_no')
+                return o.table_no ? (
+                  <Badge tone="accent">🪑 {t('orders.table', o.table_no)}</Badge>
+                ) : (
+                  <span style={{ color: 'var(--text-muted)' }}>—</span>
+                );
               if (key === 'subtotal') return fmt(o.subtotal);
               if (key === 'total_discount')
                 return Number(o.total_discount) > 0 ? (
