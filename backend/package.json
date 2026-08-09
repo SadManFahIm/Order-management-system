@@ -39,7 +39,7 @@
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.2.0",
-    "nodemailer": "^6.9.16",
+    "nodemailer": "^9.0.5",
     "otplib": "^13.4.1",
     "pg": "^8.22.0",
     "pg-hstore": "^2.3.4",
