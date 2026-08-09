@@ -212,4 +212,41 @@ describe('RBAC guards', () => {
     });
     expect(orderRes.status).toBe(201);
   });
+
+  it('a customer-registered account granted a cashier membership gets its tenant role', async () => {
+    // Register through the public /auth/register path (platform_role: customer),
+    // then attach the account to a workspace as cashier — the membership role
+    // must outrank the account-level customer role.
+    const reg = await request(app).post('/api/auth/register').send({
+      name: 'Invited Cashier',
+      email: 'invited-cashier@example.com',
+      password: 'password123',
+    });
+    expect(reg.status).toBe(201);
+    const userId = reg.body.user.id;
+
+    const cafe = await Tenant.findOne({ where: { slug: 'test-cafe' } });
+    await UserTenant.create({ user_id: userId, tenant_id: cafe.id, role: 'cashier' });
+
+    const login = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'invited-cashier@example.com', password: 'password123' });
+    const auth = { Authorization: `Bearer ${login.body.accessToken}`, 'X-Tenant': String(cafe.id) };
+
+    // view:menu — can list products (was 403 before the effectiveRole fix).
+    const listRes = await request(app).get('/api/products').set(auth);
+    expect(listRes.status).toBe(200);
+
+    // place:orders — can create an order in the workspace.
+    const product = await Product.findOne({ where: { tenant_id: cafe.id, name: 'Walk-in Burger' } });
+    const orderRes = await request(app).post('/api/orders').set(auth).send({
+      customer_name: 'Invited Walk-in',
+      items: [{ product_id: product.id, quantity: 1 }],
+    });
+    expect(orderRes.status).toBe(201);
+
+    // manage:menu — still denied.
+    const manageRes = await request(app).post('/api/products').set(auth).send({ name: 'Hack 2', price: 1, weight_gm: 1 });
+    expect(manageRes.status).toBe(403);
+  });
 });
