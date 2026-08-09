@@ -1,12 +1,19 @@
 import { randomUUID } from 'node:crypto';
+import nodemailer from 'nodemailer';
 import { env } from '../../config/env.js';
 
 /**
- * Email notification adapter (stub).
+ * Email notification adapter (Phase 5).
  *
- * In development/test this logs the email so flows are usable without a real
- * provider. Wire a production provider (Amazon SES, Mailgun, SMTP) behind this
- * interface without changing callers.
+ * Two drivers behind the same interface:
+ *   - `stub` (default): logs the message in dev/test — zero config, so
+ *     verification/reset/closeout flows work without a mail server.
+ *   - `smtp`: sends real mail through any SMTP server (Gmail, Zoho,
+ *     Mailgun/SES/Resend SMTP, self-hosted Postfix…) via nodemailer.
+ *
+ * The transport is created lazily on first send and reset after a failure
+ * (a dead transport would otherwise poison every later send). Attachments
+ * pass through untouched — the closeout CSV rides along as-is.
  *
  * @param {{
  *   to: string,
@@ -16,6 +23,10 @@ import { env } from '../../config/env.js';
  * }} message
  */
 export async function sendEmail({ to, subject, html, attachments = [] }) {
+  if (env.MAIL_DRIVER === 'smtp') {
+    return sendViaSmtp({ to, subject, html, attachments });
+  }
+
   if (env.NODE_ENV !== 'production') {
     console.log(
       `\n[email:stub] To: ${to}\n[email:stub] Subject: ${subject}\n[email:stub] Body:\n${html}\n`
@@ -26,6 +37,48 @@ export async function sendEmail({ to, subject, html, attachments = [] }) {
       );
     }
   }
-  // In production this would call the provider and return a real message id.
+  // Production with MAIL_DRIVER unset still resolves (nothing crashes), but
+  // the message is not delivered — operators must configure SMTP.
   return { messageId: `stub-${randomUUID()}`, attachments: attachments.length };
+}
+
+let transport = null;
+
+function getTransport() {
+  if (transport) return transport;
+  if (!env.SMTP_HOST) {
+    throw new Error(
+      'MAIL_DRIVER=smtp requires SMTP_HOST (and SMTP_USER/SMTP_PASS for authenticated servers)'
+    );
+  }
+  transport = nodemailer.createTransport({
+    host: env.SMTP_HOST,
+    port: env.SMTP_PORT,
+    secure: env.SMTP_SECURE, // false → STARTTLS on 587; true → implicit TLS on 465
+    auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASS } : undefined,
+  });
+  return transport;
+}
+
+/** Send through SMTP; drop the transport on failure so the next send retries. */
+async function sendViaSmtp(message) {
+  try {
+    const result = await getTransport().sendMail({
+      from: env.MAIL_FROM,
+      to: message.to,
+      subject: message.subject,
+      html: message.html,
+      attachments: message.attachments || [],
+    });
+    return { messageId: result.messageId, smtp: true, attachments: (message.attachments || []).length };
+  } catch (e) {
+    // A failed connection must not poison future sends — reset and rethrow.
+    transport = null;
+    throw e;
+  }
+}
+
+/** Test hook: resets the cached transport (used by the SMTP suite). */
+export function _resetMailer() {
+  transport = null;
 }
