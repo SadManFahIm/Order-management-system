@@ -22,6 +22,7 @@ import {
   ItemVariant,
   ItemAddon,
   InventoryItem,
+  Table,
 } from '../src/models/index.js';
 import { RESTAURANT_SEEDS, RESTAURANT_BRANDS } from './data/restaurants.js';
 
@@ -104,6 +105,22 @@ try {
         },
       });
       updated += 1;
+    }
+
+    // Tables (QR table menu): 1–12 per workspace, idempotent by table number.
+    // Table names stay plain so merchants can rename them from the UI.
+    for (let tableNo = 1; tableNo <= 12; tableNo += 1) {
+      const hasTable = await Table.findOne({
+        where: { tenant_id: tenant.id, table_no: tableNo },
+      });
+      if (hasTable) continue;
+      await Table.create({
+        tenant_id: tenant.id,
+        table_no: tableNo,
+        name: tableNo <= 4 ? `Window ${tableNo}` : null,
+        capacity: tableNo % 2 === 0 ? 4 : 2,
+        is_active: true,
+      });
     }
 
     // Categories (Phase 4): seed.categoryDefaults, e.g. [{ name: 'Burgers' }]
@@ -205,6 +222,7 @@ try {
   console.log(`✅ Categories added: ${categories}`);
   console.log(`✅ Variants added: ${variants}`);
   console.log(`✅ Add-ons added: ${addons}`);
+  console.log('✅ Tables: 12 per restaurant (1–12, idempotent)');
   await sequelize.close();
 } catch (err) {
   const details = (err.errors || []).map((e) => `${e.path}: ${e.message}`).join('; ');

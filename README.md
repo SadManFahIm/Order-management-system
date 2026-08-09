@@ -6,7 +6,7 @@
 
 The Order Management System is evolving from a single-tenant order CRUD app into a commercial, cloud-based **restaurant ordering SaaS** for the Dhaka market (KFC, Pizza Hut, Domino's, Chillox, Sultan's Dine, Star Kabab, Madchef, and hundreds more — all data-driven, never hard-coded). This repository is the **V2 platform**: security hardening, multi-tenancy, RBAC, engineering tooling, testing, CI/CD, and a growing customer-facing storefront — built incrementally on the existing, working v1 features.
 
-**Current status:** Phases 1–4 **done** ✅ (incl. Phase 4 completion rounds 2 & 3: XLSX import, soft delete + optimistic locking, public menu pagination, inventory, merchant dashboard with live analytics charts, CRAV-style landing page, and per-tenant storefront branding) · Phase 5 (ordering & fulfillment) **foundation shipped** ✅ — order status workflow, Bangla i18n, and the Deliveroo-style design system are live; the customer-facing checkout flow is the next sprint.
+**Current status:** Phases 1–4 **done** ✅ (incl. Phase 4 completion rounds 2 & 3: XLSX import, soft delete + optimistic locking, public menu pagination, inventory, merchant dashboard with live analytics charts, CRAV-style landing page, and per-tenant storefront branding) · Phase 5 (ordering & fulfillment) **foundation shipped** ✅ — order status workflow, **fully translated Bangla landing + storefront**, **QR table menus**, and the Deliveroo-style design system are live; the customer-facing checkout flow is the next sprint.
 
 ---
 
@@ -17,8 +17,8 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 | **Phase 1** — Foundation | Security hardening (Helmet, CORS, rate limiting, zod validation, central errors), hotfix wave, PostgreSQL stack (migration runner, migrations 001–005, PG dev service), CI/CD pipeline | Backend + PG CI jobs green |
 | **Phase 2** — Auth & RBAC | Register/login/verify/reset flows, rotating refresh tokens with reuse detection, TOTP 2FA, role-based access control (admin/owner/manager/cashier/kitchen/delivery), session management | Full auth + RBAC test suites |
 | **Phase 3** — Multi-tenant SaaS | Tenant workspaces, team members & roles, plans/subscriptions/feature flags, tenant-scoping middleware (fail-closed isolation), CSRF protection, Dhaka seed data (20 workspaces, 89 menu items) | Tenant isolation + CSRF suites |
-| **Phase 4** — Menu & Media | Menu catalog (categories/variants/add-ons), image pipeline (sharp → WebP, S3-compatible storage, CDN-ready), bulk **CSV + XLSX** import, public menu API with HTTP caching + pagination, **DELETE endpoints**, **soft delete + optimistic locking**, **inventory**, **merchant dashboard with analytics charts**, **CRAV-style landing page**, **per-tenant storefront branding**, **MinIO S3 test tier in CI** | 20 suites · 187 tests passing |
-| **Phase 5 (foundation)** — Ordering | **Order fulfillment workflow** (placed → preparing → ready → delivered, role-gated, cancel rules), **English/Bangla i18n toggle**, Deliveroo-inspired design system | 11 new order workflow tests · live UI verified |
+| **Phase 4** — Menu & Media | Menu catalog (categories/variants/add-ons), image pipeline (sharp → WebP, S3-compatible storage, CDN-ready), bulk **CSV + XLSX** import, public menu API with HTTP caching + pagination, **DELETE endpoints**, **soft delete + optimistic locking**, **inventory**, **merchant dashboard with analytics charts**, **CRAV-style landing page**, **per-tenant storefront branding**, **MinIO S3 test tier in CI** | 21 suites · 204 tests passing |
+| **Phase 5 (foundation)** — Ordering | **Order fulfillment workflow** (placed → preparing → ready → delivered, role-gated, cancel rules), **fully translated English/Bangla i18n** (landing, storefront & merchant app), **QR table menus** (tables CRUD + printable QR sheet + public tables API), Deliveroo-inspired design system | 204 tests passing (SQLite) + PG · live UI verified |
 
 ---
 
@@ -72,25 +72,31 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 - **Per-tenant brand theming** — each workspace stores a `brand` theme (`primaryColor`, `accentColor`, `tagline`, `announcement`, logo) in its settings; the **public storefront** (`/m/:slug`) themes its hero, chips and buttons from it, and the new **Settings → Storefront branding** editor (colour pickers + quick presets + live preview) updates it instantly; only public-safe brand fields ever leave the API
 
 **Localization (Phase 5 foundation)**
-- **English/Bangla i18n toggle** — dependency-free `I18nProvider` with EN/BN dictionaries, localStorage persistence, `<html lang>` sync, and graceful English fallback for untranslated keys; nav, login, page headers, order statuses, and action buttons all switch instantly — a key differentiator for the Dhaka market
+- **English/Bangla i18n toggle** — dependency-free `I18nProvider` with EN/BN dictionaries, localStorage persistence, `<html lang>` sync, and graceful English fallback for untranslated keys; nav, login, page headers, order statuses, action buttons, **the entire landing page** (hero, feature grid, marquee label, phone mockup) and **the public storefront chrome** (open-line, table pill, options, load-more) all switch instantly — a key differentiator for the Dhaka market
+
+**QR table menu (Phase 5)**
+- **`tables` table + CRUD** — every workspace manages physical tables (`table_no` unique per tenant, name, capacity, active toggle) via `GET/POST/PATCH/DELETE /api/tables`, RBAC-gated (`view:menu` vs `manage:menu`), tenant-isolated
+- **Scannable QR codes** — `GET /api/tables/qr` renders each active table's storefront URL (`/m/:slug?table=N`, built from `APP_BASE_URL`) into an SVG data URI using the same `qrcode` package as TOTP 2FA (no new dependency)
+- **Print-ready QR sheet** — the **QR menu page** (`/tables`) shows every table with its QR, copy-link and open-menu actions, an add-table modal, and an A4 print sheet (`🖨️ QR শিট প্রিন্ট`) with cut marks — customers scan and land on the menu with their table pre-selected
+- **Public tables API** — `GET /api/public/restaurants/:slug/tables` returns only active tables with storefront-safe fields (cached + ETag like the menu); the storefront shows a **table pill** (`🪑 Table 3`) from the `?table=` param
 
 **Design system**
 - Deliveroo-inspired UI: theme engine with light/dark mode + design tokens, shared UI kit (Button, Card, Input, Table, Modal, Toast, Skeleton, Badge, EmptyState…), workspace switcher, glassy navbar, playful motion (bounce, lift, shimmer). See [`docs/06-design-system.md`](docs/06-design-system.md)
 
 **PostgreSQL foundation & data migration (Phase 1–4)**
-- Versioned migration runner (`npm run db:migrate` / `db:migrate:down` / `db:migrate:status`) with migrations 001–005; dialect-selectable DB config (`DB_DIALECT` / `DATABASE_URL`, default SQLite); PostgreSQL 16 service in `docker-compose.yml`; migrations run at boot on both dialects
+- Versioned migration runner (`npm run db:migrate` / `db:migrate:down` / `db:migrate:status`) with migrations 001–006; dialect-selectable DB config (`DB_DIALECT` / `DATABASE_URL`, default SQLite); PostgreSQL 16 service in `docker-compose.yml`; migrations run at boot on both dialects
 - Every Sequelize model maps to migration tables/columns (`tableName` + `field` mappings) — the app runs unchanged against a *migrations-only* database on SQLite **and** PostgreSQL (v1 `sync()` bridge removed), guarded by a drift test and a dedicated PG CI job
 - **v1 → v2 data migration** — `npm run db:migrate:v1 -- --source data.sqlite` copies legacy data into the migrated schema (id maps, `password → password_hash`, DECIMAL conversion, order/status remapping) with blocking verification: row-count parity, money invariants, FK integrity
 - **Production cutover runbook** — [`docs/04-pg-cutover-runbook.md`](docs/04-pg-cutover-runbook.md): backup → dry-run → migrate → copy → verify → flip → rollback
 
 **Dhaka seed data (Phase 3)**
-- `npm run seed:restaurants` provisions 20 data-driven restaurant workspaces (KFC, Pizza Hut, Domino's, Chillox, Sultan's Dine, Star Kabab, Madchef, Takeout, Handi, and more) with 89 realistic menu items — idempotent, rerunnable
+- `npm run seed:restaurants` provisions 20 data-driven restaurant workspaces (KFC, Pizza Hut, Domino's, Chillox, Sultan's Dine, Star Kabab, Madchef, Takeout, Handi, and more) with 89 realistic menu items **and 12 QR tables each** — idempotent, rerunnable
 
 **End-to-end tests (Playwright)**
 - `cd frontend && npx playwright test`: boots the real API on a scratch DB + the Vite app and drives login, product CRUD, order creation, and the fulfillment UI through the actual browser · runs in CI (dedicated `e2e` job)
 
 ### Roadmap (V2)
-Customer storefront checkout & tracking · CRAV-inspired landing page + per-tenant brand theming · QR table menus & WhatsApp notifications · payments (bKash, Nagad, SSLCommerz, Stripe) · analytics dashboards · SaaS admin portal · hardening (performance, observability, load) · production release.
+Customer storefront checkout & tracking · WhatsApp notifications · payments (bKash, Nagad, SSLCommerz, Stripe) · deeper analytics dashboards · SaaS admin portal · hardening (performance, observability, load) · production release.
 
 > Full audit and phased roadmap: [`docs/01-codebase-audit.md`](docs/01-codebase-audit.md) · [`docs/02-v2-roadmap.md`](docs/02-v2-roadmap.md) · [`docs/03-database-schema.md`](docs/03-database-schema.md)
 
@@ -115,7 +121,7 @@ Customer storefront checkout & tracking · CRAV-inspired landing page + per-tena
 
 | Layer | Technology |
 |---|---|
-| Backend | Node.js 20 · Express · Sequelize · SQLite (dev, default) → PostgreSQL 16 (V2) · pg · versioned migrations · JWT · zod · sharp · @aws-sdk/client-s3 · multer · csv-parse · exceljs |
+| Backend | Node.js 20 · Express · Sequelize · SQLite (dev, default) → PostgreSQL 16 (V2) · pg · versioned migrations · JWT · zod · sharp · @aws-sdk/client-s3 · multer · csv-parse · exceljs · qrcode |
 | Frontend | React 18 · Vite 7 · Axios · React Router 7 · Playwright (e2e) |
 | Security | Helmet · express-rate-limit · bcrypt · otplib (2FA) · strict CORS · CSRF origin checks |
 | Quality | Vitest · Supertest · ESLint · GitHub Actions CI (5 jobs incl. MinIO + PG) |
@@ -134,11 +140,11 @@ Customer storefront checkout & tracking · CRAV-inspired landing page + per-tena
 │   │   ├── config/           # Validated environment config + DB + storage
 │   │   ├── middleware/       # Auth, RBAC, tenant, CSRF, rate limits, errors
 │   │   ├── models/           # Sequelize models (aligned to migrations)
-│   │   ├── routes/           # auth, products, promotions, orders, menu, uploads, public, dashboard
+│   │   ├── routes/           # auth, products, promotions, orders, menu, uploads, public, dashboard, tables
 │   │   ├── utils/            # promotion engine, pagination
 │   │   ├── test/             # Test environment setup
-│   │   └── __tests__/        # 20 suites · 187 tests
-│   ├── migrations/           # Versioned schema migrations (001–005)
+│   │   └── __tests__/        # 21 suites · 204 tests
+│   ├── migrations/           # Versioned schema migrations (001–006)
 │   ├── scripts/              # CLI utilities (seed, migrate runner, v1→v2 copy)
 │   └── Dockerfile
 ├── frontend/                 # React SPA

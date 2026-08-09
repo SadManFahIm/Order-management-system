@@ -7,6 +7,7 @@ import MenuCategory from '../models/MenuCategory.js';
 import Product from '../models/Product.js';
 import ItemVariant from '../models/ItemVariant.js';
 import ItemAddon from '../models/ItemAddon.js';
+import Table from '../models/Table.js';
 import { parsePagination } from '../utils/pagination.js';
 
 /**
@@ -20,6 +21,7 @@ import { parsePagination } from '../utils/pagination.js';
  * Response shape (both endpoints):
  *   GET /api/public/restaurants/:slug          → restaurant summary
  *   GET /api/public/restaurants/:slug/menu     → categories + items
+ *   GET /api/public/restaurants/:slug/tables   → active table numbers (QR menu)
  */
 const router = express.Router();
 
@@ -182,6 +184,31 @@ router.get(
     });
     if (applyPublicCache(req, res, payload)) return;
     res.set('X-Total-Count', String(totalItems));
+    res.json(JSON.parse(payload));
+  })
+);
+
+/** GET /api/public/restaurants/:slug/tables — active tables for QR menus.
+ *
+ * Lets a storefront show a table picker or validate a `?table=N` param.
+ * Only active tables, and only storefront-safe fields. */
+router.get(
+  '/restaurants/:slug/tables',
+  asyncHandler(async (req, res) => {
+    const tenant = await findPublicTenant(req.params.slug);
+    const rows = await Table.findAll({
+      where: { tenant_id: tenant.id, is_active: true },
+      order: [['table_no', 'ASC']],
+      attributes: ['table_no', 'name', 'capacity'],
+    });
+    const payload = JSON.stringify({
+      tables: rows.map((t) => ({
+        tableNo: t.table_no,
+        name: t.name,
+        capacity: t.capacity,
+      })),
+    });
+    if (applyPublicCache(req, res, payload)) return;
     res.json(JSON.parse(payload));
   })
 );

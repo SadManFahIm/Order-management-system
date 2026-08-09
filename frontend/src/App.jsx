@@ -16,6 +16,7 @@ import DashboardPage from './pages/DashboardPage';
 import PublicMenuPage from './pages/PublicMenuPage';
 import LandingPage from './pages/LandingPage';
 import SettingsPage from './pages/SettingsPage';
+import TableQRPage from './pages/TableQRPage';
 
 export default function App() {
   return (
@@ -44,6 +45,7 @@ export default function App() {
                       <Route path="/promotions" element={<PromotionsPage />} />
                       <Route path="/orders" element={<OrdersListPage />} />
                       <Route path="/orders/new" element={<NewOrderPage />} />
+                      <Route path="/tables" element={<TableQRPage />} />
                       <Route path="/settings" element={<SettingsPage />} />
                     </Routes>
                   </main>
