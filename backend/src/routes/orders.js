@@ -9,6 +9,7 @@ import Promotion from '../models/Promotion.js';
 import PromotionSlab from '../models/PromotionSlab.js';
 import Order from '../models/Order.js';
 import OrderItem from '../models/OrderItem.js';
+import Table from '../models/Table.js';
 import { applyPromotionsToCart } from '../utils/promotionEngine.js';
 import { parsePagination } from '../utils/pagination.js';
 import { createOrderSchema } from '../validators/order.js';
@@ -112,10 +113,26 @@ router.post(
   '/',
   requirePermission('place:orders'),
   asyncHandler(async (req, res) => {
-    const { customer_name, customer_phone, customer_address, items } =
+    const { customer_name, customer_phone, customer_address, table_no, items } =
       createOrderSchema.parse(req.body);
 
     // Fetch products and promotions concurrently — independent reads.
+    // A dine-in order may carry a physical table (QR table menu) — it must
+    // exist and be active in THIS workspace (fail-closed, never trusts the
+    // client's tenant claim).
+    if (table_no != null) {
+      const table = await Table.findOne({
+        where: { tenant_id: req.tenant.id, table_no, is_active: true },
+      });
+      if (!table) {
+        throw new AppError(
+          400,
+          'INVALID_TABLE',
+          `Table ${table_no} does not exist or is not active in this workspace`
+        );
+      }
+    }
+
     const [products, promotions] = await Promise.all([
       Product.findAll({
         where: {
@@ -164,6 +181,7 @@ router.post(
         customer_name,
         customer_phone: customer_phone || null,
         customer_address: customer_address || null,
+        table_no: table_no ?? null,
         subtotal,
         total_discount: totalDiscount,
         grand_total: grandTotal,

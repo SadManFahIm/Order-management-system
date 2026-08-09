@@ -6,6 +6,7 @@ import {
   PageHeader,
   Card,
   Button,
+  Badge,
   Skeleton,
   Modal,
   Input,
@@ -61,6 +62,46 @@ export default function TableQRPage() {
 
   const qrByTable = (tableNo) => qrs.find((q) => q.tableNo === tableNo);
 
+  /** Hide/show a table — hidden tables drop off the QR sheet and storefront. */
+  const toggleActive = async (table) => {
+    try {
+      await api.patch(`/tables/${table.id}`, { is_active: !table.is_active });
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.error?.message || 'Could not update table');
+    }
+  };
+
+  /** Renders the QR SVG into a canvas and downloads a PNG (falls back to SVG). */
+  const downloadPng = async (qr) => {
+    try {
+      const img = new Image();
+      img.decoding = 'async';
+      img.src = qr.svg;
+      await img.decode();
+      const size = 600;
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      // White background + quiet zone so printers/phones scan it reliably.
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, size, size);
+      const pad = 32;
+      ctx.drawImage(img, pad, pad, size - pad * 2, size - pad * 2);
+      const a = document.createElement('a');
+      a.download = `table-${qr.tableNo}-qr.png`;
+      a.href = canvas.toDataURL('image/png');
+      a.click();
+    } catch {
+      // Canvas unavailable / decode failed — the SVG data URI still downloads.
+      const a = document.createElement('a');
+      a.download = `table-${qr.tableNo}-qr.svg`;
+      a.href = qr.svg;
+      a.click();
+    }
+  };
+
   const addTable = async (payload) => {
     try {
       await api.post('/tables', payload);
@@ -96,7 +137,8 @@ export default function TableQRPage() {
   const printSheet = () => window.print();
 
   const brandName = activeTenant?.name || slug || 'My restaurant';
-  const activeTables = (tables ?? []).filter((tb) => tb.is_active);
+  // ALL tables render — hidden ones stay visible so they can be re-enabled.
+  const visibleTables = tables ?? [];
 
   return (
     <div className="oms-page">
@@ -130,16 +172,19 @@ export default function TableQRPage() {
       ) : (
         <>
           <div className="qr-grid">
-            {activeTables.map((table) => {
+            {visibleTables.map((table) => {
               const qr = qrByTable(table.table_no);
               return (
-                <div className="qr-card" key={table.id}>
+                <div className={`qr-card ${table.is_active ? '' : 'qr-card--hidden'}`} key={table.id}>
                   <div className="qr-card__head">
                     <div className="qr-card__no">#{table.table_no}</div>
                     <div className="qr-card__meta">
                       {table.name && <b>{table.name}</b>}
                       <span>
                         {table.capacity ? t('tables.seats', table.capacity) : '—'}
+                        {!table.is_active && (
+                          <span style={{ marginLeft: 8 }}><Badge tone="neutral">{t('tables.hidden')}</Badge></span>
+                        )}
                       </span>
                     </div>
                   </div>
@@ -147,11 +192,14 @@ export default function TableQRPage() {
                     {qr ? (
                       <img src={qr.svg} alt={`${t('tables.qrFor', table.table_no)}`} />
                     ) : (
-                      <Skeleton height={150} width={150} />
+                      <div className="qr-card__placeholder" title={t('tables.hiddenPlaceholder')}>
+                        <span>🚫</span>
+                        <small>{t('tables.hiddenPlaceholder')}</small>
+                      </div>
                     )}
                   </div>
                   <div className="qr-card__actions">
-                    {slug && (
+                    {slug && table.is_active && (
                       <Button variant="ghost" size="sm" to={`/m/${slug}?table=${table.table_no}`} target="_blank" rel="noreferrer">
                         {t('tables.openMenu')}
                       </Button>
@@ -161,6 +209,14 @@ export default function TableQRPage() {
                         {copiedId === qr.id ? t('tables.copied') : t('tables.copyLink')}
                       </Button>
                     )}
+                    {qr && (
+                      <Button variant="ghost" size="sm" title={t('tables.downloadPngTitle')} onClick={() => downloadPng(qr)}>
+                        ⬇ {t('tables.downloadPng')}
+                      </Button>
+                    )}
+                    <Button variant="ghost" size="sm" onClick={() => toggleActive(table)}>
+                      {table.is_active ? t('tables.hide') : t('tables.show')}
+                    </Button>
                     <Button variant="ghost" size="sm" tone="danger" onClick={() => removeTable(table)}>
                       {t('tables.remove')}
                     </Button>

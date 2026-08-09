@@ -6,7 +6,7 @@
 
 The Order Management System is evolving from a single-tenant order CRUD app into a commercial, cloud-based **restaurant ordering SaaS** for the Dhaka market (KFC, Pizza Hut, Domino's, Chillox, Sultan's Dine, Star Kabab, Madchef, and hundreds more — all data-driven, never hard-coded). This repository is the **V2 platform**: security hardening, multi-tenancy, RBAC, engineering tooling, testing, CI/CD, and a growing customer-facing storefront — built incrementally on the existing, working v1 features.
 
-**Current status:** Phases 1–4 **done** ✅ (incl. Phase 4 completion rounds 2 & 3: XLSX import, soft delete + optimistic locking, public menu pagination, inventory, merchant dashboard with live analytics charts, CRAV-style landing page, and per-tenant storefront branding) · Phase 5 (ordering & fulfillment) **foundation shipped** ✅ — order status workflow, **fully translated Bangla landing + storefront**, **QR table menus**, and the Deliveroo-style design system are live; the customer-facing checkout flow is the next sprint.
+**Current status:** Phases 1–4 **done** ✅ (incl. Phase 4 completion rounds 2 & 3: XLSX import, soft delete + optimistic locking, public menu pagination, inventory, merchant dashboard with live analytics charts, CRAV-style landing page, and per-tenant storefront branding) · Phase 5 (ordering & fulfillment) **foundation shipped** ✅ — order status workflow, **fully translated Bangla landing + storefront**, **QR table menus (printable + downloadable + table-aware orders)**, and the Deliveroo-style design system are live; the customer-facing checkout flow is the next sprint.
 
 ---
 
@@ -18,7 +18,7 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 | **Phase 2** — Auth & RBAC | Register/login/verify/reset flows, rotating refresh tokens with reuse detection, TOTP 2FA, role-based access control (admin/owner/manager/cashier/kitchen/delivery), session management | Full auth + RBAC test suites |
 | **Phase 3** — Multi-tenant SaaS | Tenant workspaces, team members & roles, plans/subscriptions/feature flags, tenant-scoping middleware (fail-closed isolation), CSRF protection, Dhaka seed data (20 workspaces, 89 menu items) | Tenant isolation + CSRF suites |
 | **Phase 4** — Menu & Media | Menu catalog (categories/variants/add-ons), image pipeline (sharp → WebP, S3-compatible storage, CDN-ready), bulk **CSV + XLSX** import, public menu API with HTTP caching + pagination, **DELETE endpoints**, **soft delete + optimistic locking**, **inventory**, **merchant dashboard with analytics charts**, **CRAV-style landing page**, **per-tenant storefront branding**, **MinIO S3 test tier in CI** | 21 suites · 204 tests passing |
-| **Phase 5 (foundation)** — Ordering | **Order fulfillment workflow** (placed → preparing → ready → delivered, role-gated, cancel rules), **fully translated English/Bangla i18n** (landing, storefront & merchant app), **QR table menus** (tables CRUD + printable QR sheet + public tables API), Deliveroo-inspired design system | 204 tests passing (SQLite) + PG · live UI verified |
+| **Phase 5 (foundation)** — Ordering | **Order fulfillment workflow** (placed → preparing → ready → delivered, role-gated, cancel rules), **fully translated English/Bangla i18n** (landing, storefront & merchant app), **QR table menus** (tables CRUD + printable QR sheet + per-table **PNG download** + hide/show + public tables API), **table-aware orders** (orders carry `table_no`, validated against the workspace tables, shown to kitchen/delivery), Deliveroo-inspired design system | 210 tests passing (SQLite) + PG · live UI verified |
 
 ---
 
@@ -77,14 +77,18 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 **QR table menu (Phase 5)**
 - **`tables` table + CRUD** — every workspace manages physical tables (`table_no` unique per tenant, name, capacity, active toggle) via `GET/POST/PATCH/DELETE /api/tables`, RBAC-gated (`view:menu` vs `manage:menu`), tenant-isolated
 - **Scannable QR codes** — `GET /api/tables/qr` renders each active table's storefront URL (`/m/:slug?table=N`, built from `APP_BASE_URL`) into an SVG data URI using the same `qrcode` package as TOTP 2FA (no new dependency)
-- **Print-ready QR sheet** — the **QR menu page** (`/tables`) shows every table with its QR, copy-link and open-menu actions, an add-table modal, and an A4 print sheet (`🖨️ QR শিট প্রিন্ট`) with cut marks — customers scan and land on the menu with their table pre-selected
+- **Print-ready QR sheet** — the **QR menu page** (`/tables`) shows every table with its QR, copy-link and open-menu actions, **per-table PNG download** (canvas-rendered 600px with quiet zone, SVG fallback), **hide/show toggle** (hidden tables leave the QR sheet & storefront but stay re-enableable), an add-table modal, and an A4 print sheet (`🖨️ QR শিট প্রিন্ট`) with cut marks — customers scan and land on the menu with their table pre-selected
 - **Public tables API** — `GET /api/public/restaurants/:slug/tables` returns only active tables with storefront-safe fields (cached + ETag like the menu); the storefront shows a **table pill** (`🪑 Table 3`) from the `?table=` param
+
+**Table-aware orders (Phase 5)**
+- Orders carry a physical **`table_no`** (migration 007) — validated against the workspace's active tables at creation (unknown/inactive/other-tenant tables → `400 INVALID_TABLE`), then stored denormalised so history survives table renames/deletes
+- **New Order page** gets a dine-in **table selector** (populated from `/api/tables`); the **Orders list** shows a `🪑 Table N` badge per order so kitchen/delivery see exactly where the order belongs — demo orders seeded with table numbers
 
 **Design system**
 - Deliveroo-inspired UI: theme engine with light/dark mode + design tokens, shared UI kit (Button, Card, Input, Table, Modal, Toast, Skeleton, Badge, EmptyState…), workspace switcher, glassy navbar, playful motion (bounce, lift, shimmer). See [`docs/06-design-system.md`](docs/06-design-system.md)
 
 **PostgreSQL foundation & data migration (Phase 1–4)**
-- Versioned migration runner (`npm run db:migrate` / `db:migrate:down` / `db:migrate:status`) with migrations 001–006; dialect-selectable DB config (`DB_DIALECT` / `DATABASE_URL`, default SQLite); PostgreSQL 16 service in `docker-compose.yml`; migrations run at boot on both dialects
+- Versioned migration runner (`npm run db:migrate` / `db:migrate:down` / `db:migrate:status`) with migrations 001–007; dialect-selectable DB config (`DB_DIALECT` / `DATABASE_URL`, default SQLite); PostgreSQL 16 service in `docker-compose.yml`; migrations run at boot on both dialects
 - Every Sequelize model maps to migration tables/columns (`tableName` + `field` mappings) — the app runs unchanged against a *migrations-only* database on SQLite **and** PostgreSQL (v1 `sync()` bridge removed), guarded by a drift test and a dedicated PG CI job
 - **v1 → v2 data migration** — `npm run db:migrate:v1 -- --source data.sqlite` copies legacy data into the migrated schema (id maps, `password → password_hash`, DECIMAL conversion, order/status remapping) with blocking verification: row-count parity, money invariants, FK integrity
 - **Production cutover runbook** — [`docs/04-pg-cutover-runbook.md`](docs/04-pg-cutover-runbook.md): backup → dry-run → migrate → copy → verify → flip → rollback
@@ -143,8 +147,8 @@ Customer storefront checkout & tracking · WhatsApp notifications · payments (b
 │   │   ├── routes/           # auth, products, promotions, orders, menu, uploads, public, dashboard, tables
 │   │   ├── utils/            # promotion engine, pagination
 │   │   ├── test/             # Test environment setup
-│   │   └── __tests__/        # 21 suites · 204 tests
-│   ├── migrations/           # Versioned schema migrations (001–006)
+│   │   └── __tests__/        # 21 suites · 210 tests
+│   ├── migrations/           # Versioned schema migrations (001–007)
 │   ├── scripts/              # CLI utilities (seed, migrate runner, v1→v2 copy)
 │   └── Dockerfile
 ├── frontend/                 # React SPA

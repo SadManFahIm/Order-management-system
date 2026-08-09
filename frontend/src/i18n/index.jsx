@@ -114,6 +114,8 @@ const en = {
     couldNotLoad: 'Failed to load orders',
     couldNotUpdate: 'Could not update order status',
     cancelConfirm: (id) => `Cancel order #${id}?`,
+    tableCol: 'Table',
+    table: (n) => `Table ${n}`,
   },
   landing: {
     navFeatures: 'Features',
@@ -208,6 +210,11 @@ const en = {
     printTitle: (name) => `QR table menu — ${name}`,
     printSub: 'Scan to open the menu on your phone.',
     yourMenu: 'Your menu link',
+    downloadPng: 'PNG',
+    downloadPngTitle: 'Download PNG',
+    hide: 'Hide',
+    show: 'Show',
+    hiddenPlaceholder: 'Hidden — no QR is printed',
   },
 };
 
@@ -318,6 +325,8 @@ const bn = {
     couldNotLoad: 'অর্ডার লোড করা যায়নি',
     couldNotUpdate: 'অর্ডারের অবস্থা আপডেট করা যায়নি',
     cancelConfirm: (id) => `অর্ডার #${id} বাতিল করবেন?`,
+    tableCol: 'টেবিল',
+    table: (n) => `টেবিল ${n}`,
   },
   landing: {
     navFeatures: 'ফিচার',
@@ -411,6 +420,11 @@ const bn = {
     printTitle: (name) => `কিউআর টেবিল মেনু — ${name}`,
     printSub: 'মেনু খুলতে স্ক্যান করুন।',
     yourMenu: 'আপনার মেনু লিংক',
+    downloadPng: 'PNG',
+    downloadPngTitle: 'PNG ডাউনলোড',
+    hide: 'লুকান',
+    show: 'দেখান',
+    hiddenPlaceholder: 'লুকানো — কোনো QR প্রিন্ট হবে না',
   },
 };
 
