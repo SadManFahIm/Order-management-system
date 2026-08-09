@@ -6,7 +6,7 @@
 
 The Order Management System is evolving from a single-tenant order CRUD app into a commercial, cloud-based **restaurant ordering SaaS** for the Dhaka market (KFC, Pizza Hut, Domino's, Chillox, Sultan's Dine, Star Kabab, Madchef, and hundreds more — all data-driven, never hard-coded). This repository is the **V2 platform**: security hardening, multi-tenancy, RBAC, engineering tooling, testing, CI/CD, and a growing customer-facing storefront — built incrementally on the existing, working v1 features.
 
-**Current status:** Phases 1–4 **done** ✅ (incl. Phase 4 completion rounds 2 & 3: XLSX import, soft delete + optimistic locking, public menu pagination, inventory, merchant dashboard with live analytics charts, CRAV-style landing page, and per-tenant storefront branding) · Phase 5 (ordering & fulfillment) **foundation shipped** ✅ — order status workflow, **fully translated Bangla landing + storefront**, **QR table menus (printable + downloadable + table-aware orders)**, **kitchen/delivery order filters (status/table/open-first)**, **WhatsApp order alerts (webhook + wa.me)**, and the Deliveroo-style design system are live; the customer-facing checkout flow is the next sprint.
+**Current status:** Phases 1–4 **done** ✅ (incl. Phase 4 completion rounds 2 & 3: XLSX import, soft delete + optimistic locking, public menu pagination, inventory, merchant dashboard with live analytics charts, CRAV-style landing page, and per-tenant storefront branding) · Phase 5 (ordering & fulfillment) **foundation shipped** ✅ — order status workflow, **fully translated Bangla landing + storefront**, **QR table menus (printable + downloadable + table-aware orders)**, **kitchen/delivery order filters (status/table/open-first)**, **WhatsApp order alerts + customer status notifications (webhook + wa.me)**, **bKash/Nagad payment records** (payments table, per-tenant payment methods, revenue-by-method analytics), and the Deliveroo-style design system are live; the customer-facing checkout flow is the next sprint.
 
 ---
 
@@ -18,7 +18,7 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 | **Phase 2** — Auth & RBAC | Register/login/verify/reset flows, rotating refresh tokens with reuse detection, TOTP 2FA, role-based access control (admin/owner/manager/cashier/kitchen/delivery), session management | Full auth + RBAC test suites |
 | **Phase 3** — Multi-tenant SaaS | Tenant workspaces, team members & roles, plans/subscriptions/feature flags, tenant-scoping middleware (fail-closed isolation), CSRF protection, Dhaka seed data (20 workspaces, 89 menu items) | Tenant isolation + CSRF suites |
 | **Phase 4** — Menu & Media | Menu catalog (categories/variants/add-ons), image pipeline (sharp → WebP, S3-compatible storage, CDN-ready), bulk **CSV + XLSX** import, public menu API with HTTP caching + pagination, **DELETE endpoints**, **soft delete + optimistic locking**, **inventory**, **merchant dashboard with analytics charts**, **CRAV-style landing page**, **per-tenant storefront branding**, **MinIO S3 test tier in CI** | 21 suites · 204 tests passing |
-| **Phase 5 (foundation)** — Ordering | **Order fulfillment workflow** (placed → preparing → ready → delivered, role-gated, cancel rules), **fully translated English/Bangla i18n** (landing, storefront & merchant app), **QR table menus** (tables CRUD + printable QR sheet + per-table **PNG download** + hide/show + public tables API), **table-aware orders** (orders carry `table_no`, validated against the workspace tables, shown to kitchen/delivery), **order filters** (status / table / open-first sort), **WhatsApp order alerts** (webhook on new orders + wa.me manual links), Deliveroo-inspired design system | 224 tests passing (SQLite) + PG · live UI verified |
+| **Phase 5 (foundation)** — Ordering | **Order fulfillment workflow** (placed → preparing → ready → delivered, role-gated, cancel rules), **fully translated English/Bangla i18n** (landing, storefront & merchant app), **QR table menus** (tables CRUD + printable QR sheet + per-table **PNG download** + hide/show + public tables API), **table-aware orders** (orders carry `table_no`, validated against the workspace tables, shown to kitchen/delivery), **order filters** (status / table / open-first sort), **WhatsApp order alerts + customer status notifications** (webhook on new orders & status changes + wa.me manual links), **bKash/Nagad payment records** (`payments` table + `orders.payment_method`, per-tenant payment methods with receiving numbers, cashier confirm/refund with trxID, revenue-by-method analytics), Deliveroo-inspired design system | **241 tests** passing (SQLite) + PG · live UI verified |
 
 ---
 
@@ -88,16 +88,22 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 - `GET /api/orders` accepts **`?status=`**, **`?table_no=`** (or `none` for no-table) and **`?sort=open`** — open-first ordering surfaces `placed → preparing → ready` before finished orders, so the busiest work is at the top
 - The **Orders page** gets a filter bar (status dropdown, table dropdown populated from `/api/tables`, newest/open-first sort, default **open-first** for the fulfillment view)
 
-**WhatsApp order alerts (Phase 5)**
+**WhatsApp order alerts + customer status notifications (Phase 5)**
 - **Webhook** — with WhatsApp enabled + a `webhookUrl` (Twilio, WATI, Infobip or any gateway), every new order is POSTed as JSON (`event: order.created` with order no, table, customer, items, total) authenticated by an optional Bearer secret; **fire-and-forget** with a short timeout — a dead gateway never delays or breaks order creation
+- **Customer status notifications** — with **Notify customers on status change** on, every status move POSTs an `order.status_changed` event carrying the customer's phone + a **bilingual (EN/BN) message** (`🛎️ Your order is being prepared #…` / `🛎️ আপনার অর্ডার তৈরি হচ্ছে #…`) — the gateway texts the customer; gated on the order having a customer phone
 - **wa.me manual flow** — Settings → WhatsApp lets merchants set their number, toggle alerts, and hit **Send test alert** (posts a test payload or returns the manual `wa.me` link when no webhook is set); the Orders list shows a **💬 WhatsApp** action per order that opens a pre-filled message for that exact order
 - Config lives in `tenant.settings.whatsapp`, validated (phone + URL), and only the public-safe `{ enabled, number }` whitelist leaves the API in the tenant list
+
+**bKash/Nagad payment records (Phase 5)**
+- **`payments` table** (migration 008) + `orders.payment_method` — every order auto-creates a payment record at placement: **cash → paid on the spot**, **bKash/Nagad/card → pending** until a cashier confirms it with the gateway **transaction ID** (`PATCH /api/payments/:id`, tenant-scoped, `place:orders` RBAC); refund/fail flips the order's `payment_status` back
+- **Per-tenant payment methods** — Settings → Payment methods: enable **Cash / bKash / Nagad / Card** and set the receiving numbers (bKash/Nagad); order creation validates the method against the workspace's enabled set (fail-closed `INVALID_PAYMENT_METHOD`, cash is the default), and the **New Order page** shows only the enabled methods + an optional trxID field
+- **Revenue by method** — the merchant dashboard now breaks down paid revenue by payment method (Cash / bKash / Nagad / Card) over the last 7 days; demo orders seed realistic payment records (trxIDs included)
 
 **Design system**
 - Deliveroo-inspired UI: theme engine with light/dark mode + design tokens, shared UI kit (Button, Card, Input, Table, Modal, Toast, Skeleton, Badge, EmptyState…), workspace switcher, glassy navbar, playful motion (bounce, lift, shimmer). See [`docs/06-design-system.md`](docs/06-design-system.md)
 
 **PostgreSQL foundation & data migration (Phase 1–4)**
-- Versioned migration runner (`npm run db:migrate` / `db:migrate:down` / `db:migrate:status`) with migrations 001–007; dialect-selectable DB config (`DB_DIALECT` / `DATABASE_URL`, default SQLite); PostgreSQL 16 service in `docker-compose.yml`; migrations run at boot on both dialects
+- Versioned migration runner (`npm run db:migrate` / `db:migrate:down` / `db:migrate:status`) with migrations 001–008; dialect-selectable DB config (`DB_DIALECT` / `DATABASE_URL`, default SQLite); PostgreSQL 16 service in `docker-compose.yml`; migrations run at boot on both dialects
 - Every Sequelize model maps to migration tables/columns (`tableName` + `field` mappings) — the app runs unchanged against a *migrations-only* database on SQLite **and** PostgreSQL (v1 `sync()` bridge removed), guarded by a drift test and a dedicated PG CI job
 - **v1 → v2 data migration** — `npm run db:migrate:v1 -- --source data.sqlite` copies legacy data into the migrated schema (id maps, `password → password_hash`, DECIMAL conversion, order/status remapping) with blocking verification: row-count parity, money invariants, FK integrity
 - **Production cutover runbook** — [`docs/04-pg-cutover-runbook.md`](docs/04-pg-cutover-runbook.md): backup → dry-run → migrate → copy → verify → flip → rollback
@@ -109,7 +115,7 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 - `cd frontend && npx playwright test`: boots the real API on a scratch DB + the Vite app and drives login, product CRUD, order creation, and the fulfillment UI through the actual browser · runs in CI (dedicated `e2e` job)
 
 ### Roadmap (V2)
-Customer storefront checkout & tracking · WhatsApp notifications · payments (bKash, Nagad, SSLCommerz, Stripe) · deeper analytics dashboards · SaaS admin portal · hardening (performance, observability, load) · production release.
+Customer storefront checkout & tracking · online payment gateways (SSLCommerz, Stripe) + split payments · deeper analytics dashboards · SaaS admin portal · hardening (performance, observability, load) · production release.
 
 > Full audit and phased roadmap: [`docs/01-codebase-audit.md`](docs/01-codebase-audit.md) · [`docs/02-v2-roadmap.md`](docs/02-v2-roadmap.md) · [`docs/03-database-schema.md`](docs/03-database-schema.md)
 
@@ -153,11 +159,11 @@ Customer storefront checkout & tracking · WhatsApp notifications · payments (b
 │   │   ├── config/           # Validated environment config + DB + storage
 │   │   ├── middleware/       # Auth, RBAC, tenant, CSRF, rate limits, errors
 │   │   ├── models/           # Sequelize models (aligned to migrations)
-│   │   ├── routes/           # auth, products, promotions, orders, menu, uploads, public, dashboard, tables
+│   │   ├── routes/           # auth, products, promotions, orders, menu, uploads, public, dashboard, tables, payments
 │   │   ├── utils/            # promotion engine, pagination
 │   │   ├── test/             # Test environment setup
-│   │   └── __tests__/        # 22 suites · 224 tests
-│   ├── migrations/           # Versioned schema migrations (001–007)
+│   │   └── __tests__/        # 23 suites · 241 tests
+│   ├── migrations/           # Versioned schema migrations (001–008)
 │   ├── scripts/              # CLI utilities (seed, migrate runner, v1→v2 copy)
 │   └── Dockerfile
 ├── frontend/                 # React SPA
@@ -349,8 +355,8 @@ The workflow exposes a `workflow_dispatch` trigger so CI can always be run manua
 | **2** | Authentication & RBAC | Register/login/verify/reset, rotating refresh tokens + reuse detection, TOTP 2FA, 6-role RBAC, session management | ✅ **Done** |
 | **3** | Multi-tenant SaaS | Tenant workspaces + members/roles, tenant-scoping middleware (fail-closed), CSRF protection, Dhaka seed data (20 workspaces, 89 items) | ✅ **Done** |
 | **4** | Menu & Media | Menu catalog (categories/variants/add-ons), image pipeline (sharp → WebP, S3/CDN), bulk **CSV + XLSX** import, public menu API, **delete endpoints, HTTP caching + pagination, soft delete + optimistic locking, inventory, merchant dashboard, MinIO CI tier** | ✅ **Done** |
-| **5** | Ordering & fulfillment | **✅ Shipped:** order status workflow (role-gated transitions, cancel rules), English/Bangla i18n, Deliveroo design system, CRAV-inspired landing page, per-tenant brand theming · **⬜ Next sprints:** storefront checkout (cart → order → tracking), QR table menus, WhatsApp notifications | 🟡 **In progress** |
-| **6** | Payments | bKash, Nagad, SSLCommerz, Stripe — tender tracking + split payments | ⬜ Planned |
+| **5** | Ordering & fulfillment | **✅ Shipped:** order status workflow (role-gated transitions, cancel rules), English/Bangla i18n, Deliveroo design system, CRAV-inspired landing page, per-tenant brand theming, QR table menus, table-aware orders, order filters, WhatsApp alerts + customer status notifications · **⬜ Next sprints:** storefront checkout (cart → order → tracking) | 🟡 **In progress** |
+| **6** | Payments | **✅ Shipped (foundation):** bKash/Nagad/cash **payment records** — `payments` table, per-tenant payment methods, cashier confirm/refund with trxID, revenue-by-method analytics · **⬜ Next:** online gateways (SSLCommerz, Stripe), split payments | 🟡 **In progress** |
 | **7** | Analytics | Merchant dashboard — revenue, peak hours, top items, daily closeout | ⬜ Planned |
 | **8** | Admin portal & SaaS ops | Platform admin console, subscription management, invoicing (VAT/NBR-ready) | ⬜ Planned |
 | **9** | Hardening | Performance, observability, load testing (k6), offline-first POS | ⬜ Planned |

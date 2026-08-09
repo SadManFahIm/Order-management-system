@@ -180,6 +180,78 @@ export default function DashboardPage() {
           </div>
         </Card>
       </div>
+
+      {/* Revenue by payment method — bKash/Nagad/cash mix (Phase 5) */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
+          gap: 16,
+          marginTop: 16,
+        }}
+      >
+        <Card title={t('dash.paymentBreakdown')} subtitle={t('dash.paymentBreakdownSub')}>
+          {(data.paymentBreakdown || []).length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>
+              {t('dash.noData')}
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: 14 }}>
+              {data.paymentBreakdown.map((m) => (
+                <div key={m.method}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'baseline',
+                      marginBottom: 6,
+                    }}
+                  >
+                    <span style={{ fontWeight: 650 }}>{methodLabel(t, m.method)}</span>
+                    <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                      {m.count} · {fmtTaka(m.amount)}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      height: 8,
+                      borderRadius: 999,
+                      background: 'var(--surface-2)',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <div
+                      style={{
+                        height: '100%',
+                        width: `${Math.max(
+                          (m.amount / Math.max(...data.paymentBreakdown.map((x) => x.amount), 1)) * 100,
+                          4
+                        )}%`,
+                        borderRadius: 999,
+                        background: 'linear-gradient(90deg, var(--primary), var(--accent))',
+                        transition: 'width .5s var(--ease-out)',
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
     </div>
   );
+}
+
+const METHOD_LABELS = {
+  cash: 'Cash',
+  bkash: 'bKash',
+  nagad: 'Nagad',
+  card: 'Card',
+  other: 'Other',
+};
+
+function methodLabel(t, method) {
+  const key = `orders.pay${String(method || 'other').charAt(0).toUpperCase()}${String(method || 'other').slice(1)}`;
+  return t(key) !== key ? t(key) : METHOD_LABELS[method] || method || 'Other';
 }

@@ -23,8 +23,15 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [tenant, setTenant] = useState(null);
   const [brand, setBrand] = useState(DEFAULT_BRAND);
-  const [wa, setWa] = useState({ enabled: false, number: '', webhookUrl: '', secret: '' });
+  const [wa, setWa] = useState({ enabled: false, number: '', webhookUrl: '', secret: '', notifyCustomer: false });
   const [waSaving, setWaSaving] = useState(false);
+  const [pm, setPm] = useState({
+    cash: { enabled: true },
+    bkash: { enabled: false, number: '' },
+    nagad: { enabled: false, number: '' },
+    card: { enabled: false },
+  });
+  const [pmSaving, setPmSaving] = useState(false);
   const [waTesting, setWaTesting] = useState(false);
   const [waManualLink, setWaManualLink] = useState(null);
   const mounted = useRef(true);
@@ -52,6 +59,14 @@ export default function SettingsPage() {
           number: res.data.settings?.whatsapp?.number || '',
           webhookUrl: res.data.settings?.whatsapp?.webhookUrl || '',
           secret: res.data.settings?.whatsapp?.secret || '',
+          notifyCustomer: Boolean(res.data.settings?.whatsapp?.notifyCustomer),
+        });
+        const savedPm = res.data.settings?.paymentMethods || {};
+        setPm({
+          cash: { enabled: savedPm.cash?.enabled ?? true },
+          bkash: { enabled: Boolean(savedPm.bkash?.enabled), number: savedPm.bkash?.number || '' },
+          nagad: { enabled: Boolean(savedPm.nagad?.enabled), number: savedPm.nagad?.number || '' },
+          card: { enabled: Boolean(savedPm.card?.enabled) },
         });
         setLoading(false);
       })
@@ -75,6 +90,7 @@ export default function SettingsPage() {
           number: wa.number.trim(),
           webhookUrl: wa.webhookUrl.trim(),
           secret: wa.secret.trim(),
+          notifyCustomer: wa.notifyCustomer,
         },
       });
       toast.success(t('settings.waSaved'));
@@ -82,6 +98,20 @@ export default function SettingsPage() {
       toast.error(err?.response?.data?.error?.message || 'Could not save WhatsApp settings');
     } finally {
       setWaSaving(false);
+    }
+  };
+
+  const updatePm = (key, patch) => setPm((p) => ({ ...p, [key]: { ...p[key], ...patch } }));
+
+  const savePaymentMethods = async () => {
+    setPmSaving(true);
+    try {
+      await api.patch(`/tenants/${activeTenantId}`, { paymentMethods: pm });
+      toast.success(t('settings.pmSaved'));
+    } catch (err) {
+      toast.error(err?.response?.data?.error?.message || 'Could not save payment methods');
+    } finally {
+      setPmSaving(false);
     }
   };
 
@@ -217,6 +247,17 @@ export default function SettingsPage() {
             checked={wa.enabled}
             onChange={(e) => updateWa('enabled', e.target.checked)}
           />
+          <div>
+            <Switch
+              id="wa-notify-customer"
+              label={t('settings.waNotifyCustomer')}
+              checked={wa.notifyCustomer}
+              onChange={(e) => updateWa('notifyCustomer', e.target.checked)}
+            />
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+              {t('settings.waNotifyCustomerHint')}
+            </div>
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <Field label={t('settings.waNumber')} hint={t('settings.waNumberHint')}>
               <Input value={wa.number} maxLength={20} onChange={(e) => updateWa('number', e.target.value)} placeholder="+8801712345678" />
@@ -243,6 +284,71 @@ export default function SettingsPage() {
           </div>
         </div>
       </Card>
+
+      {/* Payment methods (Phase 5) — bKash/Nagad/cash acceptance */}
+      <Card title={t('settings.pmTitle')} subtitle={t('settings.pmDesc')}>
+        <div style={{ display: 'grid', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
+            <MethodCard
+              label={t('settings.pmCash')}
+              enabled={pm.cash.enabled}
+              onToggle={(v) => updatePm('cash', { enabled: v })}
+            />
+            <MethodCard
+              label={t('settings.pmBkash')}
+              enabled={pm.bkash.enabled}
+              onToggle={(v) => updatePm('bkash', { enabled: v })}
+              number={pm.bkash.number}
+              onNumber={(v) => updatePm('bkash', { number: v })}
+              numberLabel={t('settings.pmNumber')}
+              numberHint={t('settings.pmNumberHint')}
+            />
+            <MethodCard
+              label={t('settings.pmNagad')}
+              enabled={pm.nagad.enabled}
+              onToggle={(v) => updatePm('nagad', { enabled: v })}
+              number={pm.nagad.number}
+              onNumber={(v) => updatePm('nagad', { number: v })}
+              numberLabel={t('settings.pmNumber')}
+              numberHint={t('settings.pmNumberHint')}
+            />
+            <MethodCard
+              label={t('settings.pmCard')}
+              enabled={pm.card.enabled}
+              onToggle={(v) => updatePm('card', { enabled: v })}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <Button variant="primary" onClick={savePaymentMethods} disabled={pmSaving}>
+              {pmSaving ? t('common.loading') : t('settings.pmSave')}
+            </Button>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+/** One payment-method row: toggle + (for wallets) a receiving number. */
+function MethodCard({ label, enabled, onToggle, number, onNumber, numberLabel, numberHint }) {
+  return (
+    <div
+      className="oms-card"
+      style={{ opacity: enabled ? 1 : 0.6, transition: 'opacity .2s var(--ease-out)' }}
+    >
+      <div className="oms-card__body" style={{ padding: 16, display: 'grid', gap: 12 }}>
+        <Switch
+          id={`pm-${label.replace(/\s+/g, '-').toLowerCase()}`}
+          label={label}
+          checked={Boolean(enabled)}
+          onChange={(e) => onToggle(e.target.checked)}
+        />
+        {enabled && number !== undefined && (
+          <Field label={numberLabel} hint={numberHint}>
+            <Input value={number || ''} maxLength={20} onChange={(e) => onNumber(e.target.value)} placeholder="+8801XXXXXXXXX" />
+          </Field>
+        )}
+      </div>
     </div>
   );
 }

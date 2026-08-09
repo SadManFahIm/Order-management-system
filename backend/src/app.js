@@ -27,6 +27,7 @@ import './models/ItemVariant.js';
 import './models/ItemAddon.js';
 import './models/InventoryItem.js';
 import './models/Table.js';
+import './models/Payment.js';
 
 import authRoutes from './routes/auth.js';
 import productRoutes from './routes/products.js';
@@ -38,6 +39,7 @@ import uploadRoutes from './routes/uploads.js';
 import publicMenuRoutes from './routes/publicMenu.js';
 import dashboardRoutes from './routes/dashboard.js';
 import tableRoutes from './routes/tables.js';
+import paymentRoutes from './routes/payments.js';
 
 import { storageDriver, localStatic } from './config/storage.js';
 
@@ -109,6 +111,7 @@ app.use('/api/uploads', apiLimiter, uploadRoutes);
 app.use('/api/public', apiLimiter, publicMenuRoutes);
 app.use('/api/dashboard', apiLimiter, dashboardRoutes);
 app.use('/api/tables', apiLimiter, tableRoutes);
+app.use('/api/payments', apiLimiter, paymentRoutes);
 
 // 404 + centralized error handling
 app.use(notFound);

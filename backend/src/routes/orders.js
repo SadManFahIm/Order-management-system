@@ -10,12 +10,14 @@ import Promotion from '../models/Promotion.js';
 import PromotionSlab from '../models/PromotionSlab.js';
 import Order from '../models/Order.js';
 import OrderItem from '../models/OrderItem.js';
+import Payment from '../models/Payment.js';
 import Table from '../models/Table.js';
 import Tenant from '../models/Tenant.js';
 import { applyPromotionsToCart } from '../utils/promotionEngine.js';
 import { parsePagination } from '../utils/pagination.js';
 import { createOrderSchema } from '../validators/order.js';
-import { sendOrderAlert } from '../services/whatsappService.js';
+import { sendOrderAlert, sendStatusNotification } from '../services/whatsappService.js';
+import { assertMethodEnabled, createPaymentForOrder } from '../services/paymentsService.js';
 
 const router = express.Router();
 router.use(authMiddleware, attachPermissionCheck, resolveTenant, requireTenant);
@@ -26,8 +28,10 @@ const VALID_STATUSES = ['placed', 'preparing', 'ready', 'delivered', 'canceled']
 // before finished ones — the default kitchen/delivery view.
 const OPEN_FIRST_ORDER = [
   [
+    // Qualified: the `payments` join (migration 008) also has a `status`
+    // column, so the bare column name is ambiguous in SQLite/PostgreSQL.
     sequelize.literal(
-      "CASE status WHEN 'placed' THEN 0 WHEN 'preparing' THEN 1 WHEN 'ready' THEN 2 WHEN 'delivered' THEN 3 WHEN 'canceled' THEN 4 ELSE 5 END"
+      "CASE \"Order\".\"status\" WHEN 'placed' THEN 0 WHEN 'preparing' THEN 1 WHEN 'ready' THEN 2 WHEN 'delivered' THEN 3 WHEN 'canceled' THEN 4 ELSE 5 END"
     ),
     'ASC',
   ],
@@ -63,6 +67,7 @@ router.get(
           as: 'items',
           include: [{ model: Product }],
         },
+        { model: Payment, as: 'payments' },
       ],
     });
 
@@ -132,6 +137,14 @@ router.patch(
 
     order.status = status;
     await order.save();
+
+    // Customer status notification (Phase 5): fire-and-forget, never blocks
+    // the status change — the service swallows every failure internally.
+    if (req.tenant?.id) {
+      const tenant = await Tenant.findByPk(req.tenant.id);
+      if (tenant) void sendStatusNotification(tenant, order, status);
+    }
+
     res.json({ id: order.id, status: order.status });
   })
 );
@@ -141,8 +154,20 @@ router.post(
   '/',
   requirePermission('place:orders'),
   asyncHandler(async (req, res) => {
-    const { customer_name, customer_phone, customer_address, table_no, items } =
-      createOrderSchema.parse(req.body);
+    const {
+      customer_name,
+      customer_phone,
+      customer_address,
+      table_no,
+      payment_method,
+      payment_reference,
+      items,
+    } = createOrderSchema.parse(req.body);
+
+    // Validate the payment method against THIS workspace's enabled methods
+    // (fail-closed — cash is the default when nothing is configured).
+    const tenantConfig = await Tenant.findByPk(req.tenant.id);
+    const method = assertMethodEnabled(tenantConfig, payment_method);
 
     // Fetch products and promotions concurrently — independent reads.
     // A dine-in order may carry a physical table (QR table menu) — it must
@@ -210,6 +235,8 @@ router.post(
         customer_phone: customer_phone || null,
         customer_address: customer_address || null,
         table_no: table_no ?? null,
+        payment_method: method,
+        payment_status: method === 'cash' ? 'paid' : 'pending',
         subtotal,
         total_discount: totalDiscount,
         grand_total: grandTotal,
@@ -229,18 +256,22 @@ router.post(
       { include: [{ model: OrderItem, as: 'items' }] }
     );
 
+    // Payment record — cash is paid on the spot, wallets start pending.
+    await createPaymentForOrder(tenantConfig, order, {
+      method,
+      reference: payment_reference || null,
+    });
+
     const fullOrder = await Order.findByPk(order.id, {
       include: [
         { model: OrderItem, as: 'items', include: [{ model: Product }] },
+        { model: Payment, as: 'payments' },
       ],
     });
 
     // WhatsApp order alert (Phase 5): fire-and-forget, never blocks/delays
     // order creation — the service swallows every failure internally.
-    if (req.tenant?.id) {
-      const tenant = await Tenant.findByPk(req.tenant.id);
-      if (tenant) void sendOrderAlert(tenant, fullOrder, fullOrder.items || []);
-    }
+    if (tenantConfig) void sendOrderAlert(tenantConfig, fullOrder, fullOrder.items || []);
 
     res.status(201).json(fullOrder);
   })

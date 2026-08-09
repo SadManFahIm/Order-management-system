@@ -82,6 +82,18 @@ describe('GET /api/dashboard', () => {
     expect(top.revenue).toBe(600);
   });
 
+  it('breaks down revenue by payment method (cash default)', async () => {
+    const res = await request(app)
+      .get('/api/dashboard')
+      .set('Authorization', `Bearer ${managerToken}`);
+    expect(res.status).toBe(200);
+
+    // Both seeded orders were cash → paid on the spot.
+    expect(res.body.paymentBreakdown).toEqual([
+      { method: 'cash', amount: 600, count: 2 },
+    ]);
+  });
+
   it('is available to cashiers (view:orders)', async () => {
     const res = await request(app)
       .get('/api/dashboard')
@@ -142,6 +154,10 @@ describe('GET /api/dashboard', () => {
     expect(res.body.statusBreakdown.find((s) => s.status === 'placed').count).toBe(2);
     expect(res.body.statusBreakdown.find((s) => s.status === 'delivered').count).toBe(1);
     expect(res.body.trend[6].orders).toBe(3);
+    // The extra (cash) order lands in the payment breakdown too.
+    expect(res.body.paymentBreakdown).toEqual([
+      { method: 'cash', amount: 700, count: 3 },
+    ]);
   });
 
   it('requires authentication', async () => {

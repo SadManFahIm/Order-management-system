@@ -41,6 +41,7 @@ const EXPECTED_TABLES = [
   'orders',
   'order_items',
   'tables',
+  'payments',
 ];
 
 describe('migration runner', () => {
@@ -62,6 +63,7 @@ describe('migration runner', () => {
       '005_v1_field_bridge.js',
       '006_tables.js',
       '007_order_table_no.js',
+      '008_payments.js',
     ]);
   });
 
@@ -93,17 +95,25 @@ describe('migration runner', () => {
   it('reports every migration as applied', async () => {
     const status = await migrationStatus(sequelize);
     expect(status.every((row) => row.state === 'applied')).toBe(true);
-    expect(status).toHaveLength(7);
+    expect(status).toHaveLength(8);
   });
 
   it('rolls back only the most recent migration, then re-applies', async () => {
-    // Down: 007 removes orders.table_no (table-aware orders) and its record.
-    expect(await migrateDown(sequelize)).toBe(1);
     const qi = sequelize.getQueryInterface();
+
+    // Down 008: drops `payments` and removes orders.payment_method.
+    expect(await migrateDown(sequelize)).toBe(1);
+    expect(await qi.tableExists('payments')).toBe(false);
+    expect((await qi.describeTable('orders')).payment_method).toBeUndefined();
+
+    // Down 007: removes orders.table_no (table-aware orders).
+    expect(await migrateDown(sequelize)).toBe(1);
     expect((await qi.describeTable('orders')).table_no).toBeUndefined();
 
-    // Re-applying restores it.
-    expect(await migrateUp(sequelize)).toBe(1);
+    // Re-applying restores both.
+    expect(await migrateUp(sequelize)).toBe(2);
+    expect(await qi.tableExists('payments')).toBe(true);
+    expect((await qi.describeTable('orders')).payment_method).toBeDefined();
     expect((await qi.describeTable('orders')).table_no).toBeDefined();
   });
 

@@ -18,7 +18,7 @@ import { parseArgs } from 'node:util';
 import sequelize from '../src/config/db.js';
 import { ensureBootstrapData } from '../src/config/schemaSync.js';
 import '../src/models/index.js';
-import { Tenant, Product, Order, OrderItem } from '../src/models/index.js';
+import { Tenant, Product, Order, OrderItem, Payment } from '../src/models/index.js';
 import { applyPromotionsToCart } from '../src/utils/promotionEngine.js';
 
 const { values } = parseArgs({ options: { slug: { type: 'string' } } });
@@ -43,6 +43,13 @@ const rint = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 // like a real day: mostly delivered, some in flight, a few canceled.
 const STATUSES = ['delivered', 'delivered', 'delivered', 'delivered', 'delivered', 'ready', 'preparing', 'placed', 'placed', 'canceled'];
 
+// Payment mix — cash + mobile wallets (Dhaka reality) so the dashboard's
+// revenue-by-method chart is alive.
+const METHODS = ['cash', 'cash', 'cash', 'cash', 'bkash', 'bkash', 'bkash', 'nagad', 'nagad', 'card'];
+const TRX_PREFIX = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789';
+const trxRef = () =>
+  Array.from({ length: 10 }, () => TRX_PREFIX[Math.floor(Math.random() * TRX_PREFIX.length)]).join('');
+
 const orderNo = (tenantId, i) =>
   `ORD-${tenantId}-${Date.now().toString(36).toUpperCase()}-${i}${rint(100, 999)}`;
 
@@ -55,6 +62,40 @@ const daysAgoFor = (i) => {
   return rint(4, 6);
 };
 
+/**
+ * Backfills payment records for orders seeded before payments existed
+ * (migration 008) — keeps the dashboard's revenue-by-method chart alive
+ * without wiping any data. Idempotent: orders with payments are skipped.
+ */
+async function backfillPayments(tenant) {
+  const orders = await Order.findAll({
+    where: { tenant_id: tenant.id },
+    include: [{ model: Payment, as: 'payments' }],
+  });
+  let added = 0;
+  for (const order of orders) {
+    if (order.payments && order.payments.length > 0) continue;
+    const method =
+      order.payment_method && METHODS.includes(order.payment_method)
+        ? order.payment_method
+        : pick(METHODS);
+    const paid = order.payment_status === 'paid';
+    await Payment.create({
+      tenant_id: tenant.id,
+      order_id: order.id,
+      method,
+      amount: order.grand_total,
+      status: paid ? 'paid' : 'pending',
+      reference: paid && method !== 'cash' ? trxRef() : null,
+      paid_at: paid ? order.createdAt : null,
+      createdAt: order.createdAt,
+      updatedAt: order.createdAt,
+    });
+    added += 1;
+  }
+  return added;
+}
+
 async function seedTenant(tenant) {
   const products = await Product.findAll({
     where: { tenant_id: tenant.id, enabled: true },
@@ -62,7 +103,10 @@ async function seedTenant(tenant) {
   if (products.length === 0) return 'no menu items';
 
   const existing = await Order.count({ where: { tenant_id: tenant.id } });
-  if (existing > 0) return `already has ${existing} orders`;
+  if (existing > 0) {
+    await backfillPayments(tenant);
+    return `already has ${existing} orders (payments backfilled)`;
+  }
 
   let created = 0;
   for (let i = 0; i < ORDERS_PER_TENANT; i += 1) {
@@ -79,7 +123,9 @@ async function seedTenant(tenant) {
     // Dine-in (pickup) orders get a physical table (QR table menu, 1–12);
     // deliveries don't. Keeps the Orders table looking like a real day.
     const isDelivery = Math.random() > 0.4;
-    await Order.create(
+    const paid = status !== 'canceled' && Math.random() > 0.2;
+    const method = pick(METHODS);
+    const order = await Order.create(
       {
         tenant_id: tenant.id,
         order_no: orderNo(tenant.id, i),
@@ -92,7 +138,8 @@ async function seedTenant(tenant) {
         grand_total: grandTotal,
         status,
         type: isDelivery ? 'delivery' : 'pickup',
-        payment_status: status === 'canceled' ? 'unpaid' : Math.random() > 0.2 ? 'paid' : 'unpaid',
+        payment_method: method,
+        payment_status: paid ? 'paid' : 'unpaid',
         createdAt,
         updatedAt: createdAt,
         items: items.map((li) => ({
@@ -109,6 +156,20 @@ async function seedTenant(tenant) {
       },
       { include: [{ model: OrderItem, as: 'items' }] }
     );
+
+    // Payment record mirroring the order — cash is paid on the spot, mobile
+    // wallets carry a trxID once confirmed (paid orders here are confirmed).
+    await Payment.create({
+      tenant_id: tenant.id,
+      order_id: order.id,
+      method,
+      amount: grandTotal,
+      status: paid ? 'paid' : 'pending',
+      reference: paid && method !== 'cash' ? trxRef() : null,
+      paid_at: paid ? createdAt : null,
+      createdAt,
+      updatedAt: createdAt,
+    });
     created += 1;
   }
   return `created ${created} orders`;

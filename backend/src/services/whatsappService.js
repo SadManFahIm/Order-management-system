@@ -32,6 +32,7 @@ export function whatsappConfig(tenant) {
     number: typeof wa.number === 'string' ? wa.number.trim() : '',
     webhookUrl: typeof wa.webhookUrl === 'string' ? wa.webhookUrl.trim() : '',
     secret: typeof wa.secret === 'string' ? wa.secret.trim() : '',
+    notifyCustomer: Boolean(wa.notifyCustomer),
   };
 }
 
@@ -83,6 +84,77 @@ export async function sendTestAlert(tenant) {
     message: text,
   });
   return { ok: true, sent, waLink: manual };
+}
+
+/** Customer-facing status messages, bilingual (EN + BN). */
+const CUSTOMER_STATUS_MESSAGES = {
+  placed: {
+    en: 'We have received your order',
+    bn: 'আমরা আপনার অর্ডার পেয়েছি',
+  },
+  preparing: {
+    en: 'Your order is being prepared',
+    bn: 'আপনার অর্ডার তৈরি হচ্ছে',
+  },
+  ready: {
+    en: 'Your order is ready — please collect it',
+    bn: 'আপনার অর্ডার প্রস্তুত — সংগ্রহ করে নিন',
+  },
+  delivered: {
+    en: 'Your order has been delivered — enjoy your meal!',
+    bn: 'আপনার অর্ডার ডেলিভারি হয়েছে — খাবারটি উপভোগ করুন!',
+  },
+  canceled: {
+    en: 'Your order was canceled',
+    bn: 'আপনার অর্ডার বাতিল করা হয়েছে',
+  },
+};
+
+/**
+ * Customer-facing status notification (Phase 5).
+ *
+ * When an order moves status, POST an `order.status_changed` event to the
+ * tenant's WhatsApp webhook carrying the customer's phone + a bilingual
+ * message — the gateway (Twilio/WATI/Infobip/Meta Cloud API) sends it to the
+ * customer. Gated on `whatsapp.notifyCustomer` AND the order having a
+ * customer phone. Fire-and-forget, never rejects.
+ */
+export async function sendStatusNotification(tenant, order, status) {
+  try {
+    const config = whatsappConfig(tenant);
+    if (!config.enabled || !config.webhookUrl || !config.notifyCustomer) {
+      return { sent: false, reason: 'disabled' };
+    }
+    const phone = String(order.customer_phone || '').trim();
+    if (!phone) return { sent: false, reason: 'no-phone' };
+
+    const msg =
+      CUSTOMER_STATUS_MESSAGES[status] || {
+        en: `Your order is now: ${status}`,
+        bn: `আপনার অর্ডারের অবস্থা: ${status}`,
+      };
+    const ref = order.order_no || String(order.id);
+    const sent = await postWebhook(config, {
+      event: 'order.status_changed',
+      tenantId: tenant.id,
+      tenantSlug: tenant.slug,
+      orderId: order.id,
+      orderNo: ref,
+      tableNo: order.table_no ?? null,
+      customerName: order.customer_name ?? null,
+      customerPhone: phone,
+      status,
+      message: `🛎️ ${msg.en} #${ref}`,
+      messageBn: `🛎️ ${msg.bn} #${ref}`,
+      total: Number(order.grand_total ?? order.total_amount ?? 0),
+    });
+    return { sent };
+  } catch (err) {
+    console.warn(
+      `[whatsapp] status notification failed (${err?.name || 'error'}): ${err?.message || 'unknown'}`
+    );
+    return { sent: false, reason: 'error' };
+  }
 }
 
 /**

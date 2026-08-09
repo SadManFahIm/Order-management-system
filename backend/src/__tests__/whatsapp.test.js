@@ -55,6 +55,17 @@ async function waitForBodies(receiver, count = 1, timeoutMs = 2500) {
   return receiver.bodies.slice(0, count);
 }
 
+/** Polls until the receiver has a body with the given event name. */
+async function waitForEvent(receiver, event, timeoutMs = 2500) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const found = receiver.bodies.find((b) => b?.event === event);
+    if (found) return found;
+    await new Promise((r) => setTimeout(r, 40));
+  }
+  return null;
+}
+
 beforeAll(async () => {
   await resetTestDb();
   tenant = await Tenant.create({ name: 'Wa Diner', slug: 'wa-diner' });
@@ -219,6 +230,128 @@ describe('order → WhatsApp webhook delivery', () => {
     // The fire-and-forget alert must not add meaningful latency — an awaited
     // webhook would take >= the 2500ms timeout on top of the create.
     expect(Date.now() - start).toBeLessThan(2500);
+  });
+});
+
+describe('order status → customer notification (whatsapp.notifyCustomer)', () => {
+  it('POSTs a bilingual status_changed event with the customer phone', async () => {
+    const receiver = await startReceiver();
+    try {
+      await request(app)
+        .patch(`/api/tenants/${tenant.id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          whatsapp: {
+            enabled: true,
+            number: '+8801712345678',
+            webhookUrl: `http://127.0.0.1:${receiver.port}/hook`,
+            notifyCustomer: true,
+          },
+        });
+
+      const placed = await request(app)
+        .post('/api/orders')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          customer_name: 'Status Guest',
+          customer_phone: '01712345678',
+          items: [{ product_id: product.id, quantity: 1 }],
+        });
+      expect(placed.status).toBe(201);
+
+      const res = await request(app)
+        .patch(`/api/orders/${placed.body.id}/status`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: 'preparing' });
+      expect(res.status).toBe(200);
+
+      const payload = await waitForEvent(receiver, 'order.status_changed');
+      expect(payload).toMatchObject({
+        event: 'order.status_changed',
+        tenantSlug: 'wa-diner',
+        status: 'preparing',
+        customerName: 'Status Guest',
+        customerPhone: '01712345678',
+        orderNo: placed.body.order_no,
+      });
+      expect(payload.message).toContain('being prepared');
+      expect(payload.messageBn).toContain('তৈরি হচ্ছে');
+    } finally {
+      receiver.server.close();
+    }
+  });
+
+  it('sends nothing when notifyCustomer is off (order.created still arrives)', async () => {
+    const receiver = await startReceiver();
+    try {
+      await request(app)
+        .patch(`/api/tenants/${tenant.id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          whatsapp: {
+            enabled: true,
+            number: '+8801712345678',
+            webhookUrl: `http://127.0.0.1:${receiver.port}/hook`,
+            notifyCustomer: false,
+          },
+        });
+
+      const placed = await request(app)
+        .post('/api/orders')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          customer_name: 'Silent Status Guest',
+          customer_phone: '01712345678',
+          items: [{ product_id: product.id, quantity: 1 }],
+        });
+      expect(placed.status).toBe(201);
+
+      await request(app)
+        .patch(`/api/orders/${placed.body.id}/status`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: 'preparing' });
+
+      // The merchant alert should arrive…
+      expect(await waitForEvent(receiver, 'order.created')).toBeTruthy();
+      // …but the customer notification must not.
+      await new Promise((r) => setTimeout(r, 300));
+      expect(receiver.bodies.some((b) => b?.event === 'order.status_changed')).toBe(false);
+    } finally {
+      receiver.server.close();
+    }
+  });
+
+  it('sends nothing when the order has no customer phone', async () => {
+    const receiver = await startReceiver();
+    try {
+      await request(app)
+        .patch(`/api/tenants/${tenant.id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          whatsapp: {
+            enabled: true,
+            number: '+8801712345678',
+            webhookUrl: `http://127.0.0.1:${receiver.port}/hook`,
+            notifyCustomer: true,
+          },
+        });
+
+      const placed = await request(app)
+        .post('/api/orders')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ customer_name: 'No Phone Guest', items: [{ product_id: product.id, quantity: 1 }] });
+      expect(placed.status).toBe(201);
+
+      await request(app)
+        .patch(`/api/orders/${placed.body.id}/status`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: 'preparing' });
+
+      await new Promise((r) => setTimeout(r, 300));
+      expect(receiver.bodies.some((b) => b?.event === 'order.status_changed')).toBe(false);
+    } finally {
+      receiver.server.close();
+    }
   });
 });
 

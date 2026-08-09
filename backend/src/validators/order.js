@@ -13,5 +13,15 @@ export const createOrderSchema = z.object({
   // Physical table for dine-in orders (QR table menu) — validated against
   // the workspace's tables in the route (needs tenant context).
   table_no: z.number().int().positive('table_no must be a positive integer').optional().nullable(),
+  // Payment method (cash | bkash | nagad | card) — validated against the
+  // tenant's enabled methods in the route (needs tenant context).
+  payment_method: z
+    .string()
+    .trim()
+    .max(16)
+    .optional()
+    .or(z.literal('')),
+  // bKash/Nagad transaction ID captured at the counter (optional).
+  payment_reference: z.string().trim().max(120).optional().or(z.literal('')),
   items: z.array(orderItemSchema).min(1, 'Order must contain at least one item'),
 });

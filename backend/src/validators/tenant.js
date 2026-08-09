@@ -44,6 +44,32 @@ export const whatsappSchema = z.object({
     .or(z.literal('')),
   webhookUrl: z.string().url('Must be a valid URL').max(500).optional().or(z.literal('')),
   secret: z.string().trim().max(200).optional().or(z.literal('')),
+  // Also fire a customer-facing status-change notification (to the order's
+  // customer_phone) through the same webhook when the order moves status.
+  notifyCustomer: z.boolean().optional(),
+});
+
+/** One payment method's config inside tenant.settings.paymentMethods. */
+const paymentMethodSchema = z.object({
+  enabled: z.boolean().optional(),
+  number: z
+    .string()
+    .trim()
+    .regex(/^[+]?[0-9\s-]{7,17}$/, 'Must be a valid phone number (e.g. +8801712345678)')
+    .optional()
+    .or(z.literal('')),
+});
+
+/**
+ * Accepted payment methods (cash/bKash/Nagad/card) with the receiving number
+ * for mobile wallets. Lives inside `tenant.settings.paymentMethods`; the
+ * storefront/order UI only ever sees the enabled whitelist, never secrets.
+ */
+export const paymentMethodsSchema = z.object({
+  cash: paymentMethodSchema.optional(),
+  bkash: paymentMethodSchema.optional(),
+  nagad: paymentMethodSchema.optional(),
+  card: paymentMethodSchema.optional(),
 });
 
 export const updateTenantSchema = z.object({
@@ -51,6 +77,7 @@ export const updateTenantSchema = z.object({
   logoUrl: z.string().url().max(500).nullable().optional(),
   brand: brandSchema.optional(),
   whatsapp: whatsappSchema.optional(),
+  paymentMethods: paymentMethodsSchema.optional(),
   settings: z.record(z.unknown()).optional(),
 });
 
