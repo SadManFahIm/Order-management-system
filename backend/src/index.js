@@ -4,6 +4,7 @@ import { env } from './config/env.js';
 import { migrateUp } from '../scripts/migrate.js';
 import { ensureBootstrapData } from './config/schemaSync.js';
 import { startCloseoutScheduler } from './services/reportsScheduler.js';
+import { startReconciliationScheduler } from './services/paymentReconciliation.js';
 
 async function start() {
   try {
@@ -23,6 +24,8 @@ async function start() {
 
     // Nightly closeout emails (per-tenant, Dhaka hour, once/day).
     startCloseoutScheduler();
+    // Stale online payment intents → expired (reconciliation).
+    startReconciliationScheduler();
 
     const shutdown = async () => {
       console.log('Shutting down gracefully…');

@@ -19,6 +19,7 @@ import { createOrderSchema } from '../validators/order.js';
 import { sendOrderAlert, sendStatusNotification } from '../services/whatsappService.js';
 import { assertMethodEnabled, createPaymentForOrder, validateSplits } from '../services/paymentsService.js';
 import { createOnlinePayment } from '../services/paymentGateway.js';
+import { RECONCILIATION_TTL_MS } from '../services/paymentReconciliation.js';
 
 const router = express.Router();
 router.use(authMiddleware, attachPermissionCheck, resolveTenant, requireTenant);
@@ -288,6 +289,10 @@ router.post(
     let paymentUrl = null;
     let gateway = null;
     if (method === 'online') {
+      // Stale-intent window: if the customer never completes the checkout, the
+      // reconciliation job auto-expires this pending payment after the TTL.
+      payment.expires_at = new Date(Date.now() + RECONCILIATION_TTL_MS);
+      await payment.save();
       const session = await createOnlinePayment({ tenant: tenantConfig, order, payment });
       paymentUrl = session.paymentUrl;
       gateway = session.gateway;

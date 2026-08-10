@@ -126,6 +126,29 @@ export default function OrdersListPage() {
     }
   };
 
+  // Full or partial refund of a collected payment (Phase 6) — prompts for an
+  // amount (blank = full) and a reason, then re-syncs the order status.
+  const refundPayment = async (o) => {
+    const payment = (o.payments || [])[0];
+    if (!payment) return;
+    const amount = window.prompt(
+      `Refund amount in ৳ (blank = full ${Number(payment.amount).toFixed(2)})?`,
+      String(Number(payment.amount).toFixed(2))
+    );
+    if (amount === null) return; // canceled
+    const reason = window.prompt('Reason (optional)?') || undefined;
+    try {
+      const body = { status: 'refunded', reason };
+      const amt = Number(amount);
+      if (Number.isFinite(amt) && amt >= 0 && amt !== Number(payment.amount)) body.amount = amt;
+      await api.patch(`/payments/${payment.id}`, body);
+      toast.success(t('orders.refunded'));
+      await load();
+    } catch {
+      toast.error(t('orders.couldNotUpdate'));
+    }
+  };
+
   const onAdvance = (o) => {
     const next = NEXT_STATUS[o.status];
     if (next) setStatus(o, next);
@@ -225,7 +248,7 @@ export default function OrdersListPage() {
                 );
               if (key === 'grand_total') return <span className="oms-table__cell-strong">{fmt(o.grand_total)}</span>;
               if (key === 'payment') {
-                const method = ['cash', 'bkash', 'nagad', 'card'].includes(o.payment_method)
+                const method = ['cash', 'bkash', 'nagad', 'card', 'split'].includes(o.payment_method)
                   ? o.payment_method
                   : 'cash';
                 const methodLabel = t(
@@ -235,6 +258,8 @@ export default function OrdersListPage() {
                 const statusTone =
                   o.payment_status === 'paid'
                     ? 'success'
+                    : o.payment_status === 'partial'
+                    ? 'warning'
                     : o.payment_status === 'refunded'
                     ? 'neutral'
                     : 'warning';
@@ -252,6 +277,8 @@ export default function OrdersListPage() {
                       <Badge tone={statusTone}>
                         {o.payment_status === 'paid'
                           ? t('orders.paidStatus')
+                          : o.payment_status === 'partial'
+                          ? t('orders.partialStatus')
                           : o.payment_status === 'refunded'
                           ? t('orders.refundedStatus')
                           : t('orders.unpaidStatus')}
@@ -260,6 +287,11 @@ export default function OrdersListPage() {
                     {canPlace && o.payment_status !== 'paid' && payment && (
                       <Button size="sm" variant="ghost" onClick={() => markPaid(o)}>
                         ✓ {t('orders.markPaid')}
+                      </Button>
+                    )}
+                    {canPlace && o.payment_status === 'paid' && payment && payment.status === 'paid' && (
+                      <Button size="sm" variant="ghost" onClick={() => refundPayment(o)}>
+                        ↩ {t('orders.refund')}
                       </Button>
                     )}
                   </div>

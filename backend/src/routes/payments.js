@@ -7,6 +7,7 @@ import { resolveTenant, requireTenant } from '../middleware/tenant.js';
 import Order from '../models/Order.js';
 import Payment from '../models/Payment.js';
 import { applyPaymentStatus } from '../services/paymentsService.js';
+import { audit } from '../services/auditService.js';
 
 const router = express.Router();
 router.use(authMiddleware, attachPermissionCheck, resolveTenant, requireTenant);
@@ -35,7 +36,12 @@ router.get(
   })
 );
 
-/** PATCH /api/payments/:id — confirm (paid), refund or fail a payment. */
+/**
+ * PATCH /api/payments/:id — confirm (paid), refund (full/partial with amount
+ * + reason) or fail a payment. Refunds write the full audit trail
+ * (refunded_amount / at / reason / by) and re-evaluate the order's
+ * payment_status across ALL of its payments (split-aware).
+ */
 router.patch(
   '/:id',
   requirePermission('place:orders'),
@@ -50,7 +56,7 @@ router.patch(
     });
     if (!order) throw new AppError(404, 'NOT_FOUND', 'Order not found');
 
-    const { status, reference, notes } = req.body;
+    const { status, reference, notes, amount, reason } = req.body;
     if (!status || typeof status !== 'string') {
       throw new AppError(400, 'VALIDATION_ERROR', 'status is required');
     }
@@ -60,8 +66,36 @@ router.patch(
     if (notes !== undefined && typeof notes !== 'string') {
       throw new AppError(400, 'VALIDATION_ERROR', 'notes must be a string');
     }
+    if (reason !== undefined && typeof reason !== 'string') {
+      throw new AppError(400, 'VALIDATION_ERROR', 'reason must be a string');
+    }
+    if (amount !== undefined && typeof amount !== 'number') {
+      throw new AppError(400, 'VALIDATION_ERROR', 'amount must be a number');
+    }
 
-    const result = await applyPaymentStatus(payment, { status, reference, notes }, order);
+    const result = await applyPaymentStatus(
+      payment,
+      { status, reference, notes, amount, reason, actorId: req.user?.id },
+      order
+    );
+
+    // Refunds are money leaving the business — append to the audit trail.
+    if (status === 'refunded') {
+      await audit({
+        action: 'payment.refunded',
+        actorId: req.user?.id,
+        tenantId: req.tenant.id,
+        entityType: 'payment',
+        entityId: payment.id,
+        metadata: {
+          orderId: order.id,
+          amount: payment.refunded_amount,
+          reason: payment.refund_reason,
+        },
+        req,
+      });
+    }
+
     res.json(result.payment);
   })
 );

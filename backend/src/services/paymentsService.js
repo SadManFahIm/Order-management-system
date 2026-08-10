@@ -150,10 +150,12 @@ export async function createPaymentForOrder(tenant, order, { method, reference, 
 
 /**
  * Recomputes an order's denormalised payment_status from ALL of its payment
- * rows (single or split): fully paid → 'paid'; fully refunded with nothing
- * collected → 'refunded'; partly collected → 'partial'; any pending →
- * 'pending'; otherwise 'unpaid'. This is what keeps split orders honest — a
- * single PATCH to one part re-evaluates the whole picture.
+ * rows (single or split): fully collected → 'paid'; fully refunded with
+ * nothing retained → 'refunded'; partly collected → 'partial'; any pending →
+ * 'pending'; otherwise 'unpaid'. Refunds are refunded_amount-aware (a partial
+ * refund keeps its retained portion counted as collected). This is what keeps
+ * split AND refunded orders honest — a single PATCH re-evaluates the whole
+ * picture.
  */
 export async function recomputeOrderPaymentStatus(order) {
   const all = await Payment.findAll({ where: { order_id: order.id } });
@@ -163,8 +165,15 @@ export async function recomputeOrderPaymentStatus(order) {
   let hasPending = false;
   for (const p of all) {
     const amount = Number(p.amount || 0);
-    if (p.status === 'paid') paid += amount;
-    if (p.status === 'refunded') refunded += amount;
+    if (p.status === 'paid') {
+      paid += amount;
+    } else if (p.status === 'refunded') {
+      // Fully or partially refunded — whatever was NOT returned still counts
+      // as collected; the returned portion counts as refunded.
+      const returned = p.refunded_amount != null ? Number(p.refunded_amount) : amount;
+      refunded += Math.min(returned, amount);
+      paid += Math.max(amount - returned, 0);
+    }
     if (p.status === 'pending') hasPending = true;
   }
   if (all.length === 0) {
@@ -186,18 +195,39 @@ export async function recomputeOrderPaymentStatus(order) {
 
 /**
  * Confirms / refunds / fails a payment and keeps the order's payment_status
- * in sync (recomputed across ALL of the order's payments — split-aware).
- * Returns the updated { payment, order }.
+ * in sync (recomputed across ALL of the order's payments — split- and
+ * refund-aware). Refunds require a previously collected (paid) payment, take
+ * an optional `amount` (partial refund; default full) and `reason`, and stamp
+ * the full audit fields (refunded_amount/at/reason/by). Returns the updated
+ * { payment, order }.
  */
-export async function applyPaymentStatus(payment, { status, reference, notes }, order) {
+export async function applyPaymentStatus(payment, { status, reference, notes, amount, reason, actorId }, order) {
   if (!['paid', 'refunded', 'failed', 'pending'].includes(status)) {
     throw new AppError(400, 'VALIDATION_ERROR', 'Invalid payment status');
   }
 
-  payment.status = status;
-  if (reference !== undefined) payment.reference = reference || null;
-  if (notes !== undefined) payment.notes = notes || null;
-  if (status === 'paid') payment.paid_at = payment.paid_at || new Date();
+  if (status === 'refunded') {
+    if (payment.status !== 'paid' && payment.status !== 'refunded') {
+      throw new AppError(400, 'REFUND_NOT_ALLOWED', 'Only collected payments can be refunded');
+    }
+    const refundAmount = amount === undefined ? Number(payment.amount) : Number(amount);
+    if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
+      throw new AppError(400, 'VALIDATION_ERROR', 'Refund amount must be a positive number');
+    }
+    if (refundAmount > Number(payment.amount)) {
+      throw new AppError(400, 'VALIDATION_ERROR', 'Refund cannot exceed the payment amount');
+    }
+    payment.status = 'refunded';
+    payment.refunded_amount = refundAmount;
+    payment.refunded_at = new Date();
+    payment.refund_reason = reason || null;
+    payment.refunded_by = actorId || null;
+  } else {
+    payment.status = status;
+    if (reference !== undefined) payment.reference = reference || null;
+    if (notes !== undefined) payment.notes = notes || null;
+    if (status === 'paid') payment.paid_at = payment.paid_at || new Date();
+  }
   await payment.save();
 
   await recomputeOrderPaymentStatus(order);
