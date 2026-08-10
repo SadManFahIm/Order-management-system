@@ -9,6 +9,7 @@ import OrderItem from '../models/OrderItem.js';
 import Payment from '../models/Payment.js';
 import Product from '../models/Product.js';
 import MenuCategory from '../models/MenuCategory.js';
+import InventoryItem from '../models/InventoryItem.js';
 
 const router = express.Router();
 router.use(authMiddleware, resolveTenant, requireTenant, requirePermission('view:orders'));
@@ -78,7 +79,7 @@ router.get(
       Date.UTC(prevMonthDate.getUTCFullYear(), prevMonthDate.getUTCMonth(), 1) - DHAKA_OFFSET_MS
     );
 
-    const [todayOrders, openOrders, totalProducts, windowOrders, recentLines, paidPayments, closeoutOrders, closeoutPayments, monthOrders, windowItems, retentionOrders, fulfillmentOrders] =
+    const [todayOrders, openOrders, totalProducts, windowOrders, recentLines, paidPayments, closeoutOrders, closeoutPayments, monthOrders, windowItems, retentionOrders, fulfillmentOrders, liveOrders, inventoryRows] =
       await Promise.all([
         Order.findAll({
           where: { tenant_id: req.tenant.id, createdAt: { [Op.gte]: startOfToday } },
@@ -181,6 +182,21 @@ router.get(
         Order.findAll({
           where: { tenant_id: req.tenant.id, status: 'delivered' },
           attributes: ['type', 'createdAt', 'updatedAt'],
+        }),
+        // Live fulfillment panel (Phase 7): open orders with their line-item
+        // quantities for a glanceable queue (order no, table, minutes open).
+        Order.findAll({
+          where: { tenant_id: req.tenant.id, status: { [Op.in]: OPEN_STATUSES } },
+          attributes: ['order_no', 'table_no', 'status', 'createdAt', 'grand_total', 'customer_name'],
+          order: [['createdAt', 'DESC']],
+          limit: 20,
+          include: [{ model: OrderItem, as: 'items', attributes: ['quantity'] }],
+        }),
+        // Inventory snapshot for the low-stock alert (bounded, tenant-scoped).
+        InventoryItem.findAll({
+          where: { tenant_id: req.tenant.id },
+          attributes: ['name', 'stock_qty', 'low_stock_at'],
+          limit: 200,
         }),
       ]);
 
@@ -483,6 +499,65 @@ router.get(
         })),
     };
 
+    // ── Live fulfillment panel (Phase 7) ────────────────────────────────
+    // Open orders as a glanceable queue — the dashboard's live view of what
+    // the kitchen/delivery is working on right now.
+    const nowMs = Date.now();
+    const livePanel = liveOrders.map((o) => ({
+      order_no: o.order_no,
+      table_no: o.table_no,
+      status: o.status,
+      customer_name: o.customer_name,
+      total: Math.round(Number(o.grand_total || 0) * 100) / 100,
+      minutesOpen: Math.max(0, Math.round((nowMs - new Date(o.createdAt).getTime()) / 60000)),
+      itemCount: (o.items || []).length,
+      itemQty: (o.items || []).reduce((s, i) => s + (Number(i.quantity) || 0), 0),
+    }));
+
+    // ── Dashboard alerts (Phase 7) ──────────────────────────────────────
+    // Structured alerts the frontend renders in the merchant's language:
+    // low stock (below threshold), high cancellation rate (7-day window,
+    // only when there is enough volume to be meaningful), and idle hours
+    // (no order for 2+ hours). Never blocks the dashboard — informational.
+    const alerts = [];
+    const lowStock = inventoryRows.filter(
+      (i) => Number(i.low_stock_at) > 0 && Number(i.stock_qty) <= Number(i.low_stock_at)
+    );
+    if (lowStock.length > 0) {
+      alerts.push({
+        code: 'LOW_STOCK',
+        severity: 'warning',
+        count: lowStock.length,
+        items: lowStock
+          .slice(0, 5)
+          .map((i) => ({ name: i.name, stock_qty: i.stock_qty, low_stock_at: i.low_stock_at })),
+      });
+    }
+    const windowTotal = windowOrders.length;
+    const windowCanceled = windowOrders.filter((o) => o.status === 'canceled').length;
+    if (windowTotal >= 10 && windowCanceled / windowTotal > 0.15) {
+      alerts.push({
+        code: 'HIGH_CANCELLATION',
+        severity: 'danger',
+        rate: Math.round((windowCanceled / windowTotal) * 1000) / 10,
+        windowOrders: windowTotal,
+      });
+    }
+    if (windowOrders.length > 0) {
+      const lastOrderAt = windowOrders.reduce(
+        (max, o) => Math.max(max, new Date(o.createdAt).getTime()),
+        0
+      );
+      const idleHours = (nowMs - lastOrderAt) / 3600000;
+      if (idleHours >= 2) {
+        alerts.push({
+          code: 'IDLE',
+          severity: 'warning',
+          hours: Math.round(idleHours * 10) / 10,
+        });
+      }
+    }
+
     // Trend stats — totals, average, best day, and the day-over-day delta.
     const paidRevenue = closeoutTrend.reduce((s, d) => s + d.revenue, 0);
     const totalOrders = closeoutTrend.reduce((s, d) => s + d.orders, 0);
@@ -523,6 +598,8 @@ router.get(
       categoryMix,
       retention,
       fulfillment,
+      livePanel,
+      alerts,
     });
   })
 );

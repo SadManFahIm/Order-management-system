@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import app from '../app.js';
 import sequelize from '../config/db.js';
 import { resetTestDb } from '../test/resetDb.js';
-import { User, Tenant, UserTenant, Product, MenuCategory } from '../models/index.js';
+import { User, Tenant, UserTenant, Product, MenuCategory, InventoryItem } from '../models/index.js';
 
 /**
  * Merchant dashboard (Phase 4 completion) — today's revenue/orders, open
@@ -375,6 +375,45 @@ describe('GET /api/dashboard', () => {
     expect(pickup.avgMinutes).toBeGreaterThanOrEqual(0);
     expect(pickup.orders).toBeGreaterThanOrEqual(1);
     expect(res.body.fulfillment.overallAvgMinutes).toBeGreaterThanOrEqual(0);
+  });
+
+  it('returns a live fulfillment queue and dashboard alerts (Phase 7)', async () => {
+    const res = await request(app)
+      .get('/api/dashboard')
+      .set('Authorization', `Bearer ${managerToken}`);
+    expect(res.status).toBe(200);
+
+    // Live panel mirrors the open-order count and carries queue shape.
+    expect(Array.isArray(res.body.livePanel)).toBe(true);
+    expect(res.body.livePanel.length).toBe(res.body.openOrders);
+    for (const o of res.body.livePanel) {
+      expect(typeof o.order_no).toBe('string');
+      expect(typeof o.minutesOpen).toBe('number');
+      expect(o.minutesOpen).toBeGreaterThanOrEqual(0);
+      expect(typeof o.itemQty).toBe('number');
+    }
+    expect(Array.isArray(res.body.alerts)).toBe(true);
+
+    // Dropping an item below its threshold fires the LOW_STOCK alert.
+    const burger = await Product.findOne({
+      where: { tenant_id: tenantA.id, name: 'Dash Burger' },
+    });
+    await InventoryItem.create({
+      tenant_id: tenantA.id,
+      menu_item_id: burger.id,
+      name: burger.name,
+      stock_qty: 2,
+      low_stock_at: 5,
+      unit: 'pcs',
+    });
+    const res2 = await request(app)
+      .get('/api/dashboard')
+      .set('Authorization', `Bearer ${managerToken}`);
+    const low = res2.body.alerts.find((a) => a.code === 'LOW_STOCK');
+    expect(low).toBeDefined();
+    expect(low.severity).toBe('warning');
+    expect(low.count).toBeGreaterThanOrEqual(1);
+    expect(low.items[0].name).toBe('Dash Burger');
   });
 
   it('is tenant-scoped — tenant B sees none of tenant A', async () => {
