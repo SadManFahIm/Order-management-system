@@ -229,5 +229,12 @@ await page.addInitScript(() => {
 await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
 await shot(page, 'landing-dark.png', { fullPage: true });
 
+// ---------- 20. Platform admin analytics (Phase 7) — cross-tenant view --
+page = await login(browser, 'light');
+await page.goto(`${BASE}/admin`, { waitUntil: 'networkidle' });
+await page.getByRole('heading', { name: /Platform analytics|প্ল্যাটফর্ম অ্যানালিটিক্স/ }).waitFor();
+await page.waitForTimeout(1000);
+await shot(page, 'admin-analytics-light.png', { fullPage: true });
+
 await browser.close();
 console.log('done —', OUT);
