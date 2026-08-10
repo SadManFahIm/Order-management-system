@@ -280,18 +280,74 @@ describe('PATCH /api/payments/:id — confirm / refund', () => {
     expect(order.payment_status).toBe('paid');
   });
 
-  it('refunds a payment and flips the order back to unpaid', async () => {
+  it('refunds a collected payment and flips the order back to refunded', async () => {
     const placed = await placeOrder(ownerToken, { payment_method: 'nagad' });
     const payment = placed.body.payments[0];
+    // Collect it first — refunds only make sense on collected money.
+    await request(app)
+      .patch(`/api/payments/${payment.id}`)
+      .set('Authorization', `Bearer ${cashierToken}`)
+      .send({ status: 'paid', reference: 'TRX-REF-1' });
 
     const res = await request(app)
       .patch(`/api/payments/${payment.id}`)
       .set('Authorization', `Bearer ${cashierToken}`)
-      .send({ status: 'refunded' });
+      .send({ status: 'refunded', reason: 'Customer complained' });
     expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      status: 'refunded',
+      refunded_amount: 250,
+      refund_reason: 'Customer complained',
+    });
+    expect(res.body.refunded_at).toBeTruthy();
+    expect(res.body.refunded_by).toBeTruthy();
 
     const order = await Order.findByPk(placed.body.id);
     expect(order.payment_status).toBe('refunded');
+  });
+
+  it('rejects refunding a payment that was never collected', async () => {
+    const placed = await placeOrder(ownerToken, { payment_method: 'bkash' });
+    const res = await request(app)
+      .patch(`/api/payments/${placed.body.payments[0].id}`)
+      .set('Authorization', `Bearer ${cashierToken}`)
+      .send({ status: 'refunded' });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('REFUND_NOT_ALLOWED');
+  });
+
+  it('supports partial refunds — order stays partial with the retained portion', async () => {
+    const placed = await placeOrder(ownerToken, { payment_method: 'bkash' });
+    const payment = placed.body.payments[0];
+    await request(app)
+      .patch(`/api/payments/${payment.id}`)
+      .set('Authorization', `Bearer ${cashierToken}`)
+      .send({ status: 'paid', reference: 'TRX-PART-1' });
+
+    const res = await request(app)
+      .patch(`/api/payments/${payment.id}`)
+      .set('Authorization', `Bearer ${cashierToken}`)
+      .send({ status: 'refunded', amount: 100, reason: 'One item missing' });
+    expect(res.status).toBe(200);
+    expect(res.body.refunded_amount).toBe(100);
+
+    const order = await Order.findByPk(placed.body.id);
+    expect(order.payment_status).toBe('partial'); // 150 still collected
+  });
+
+  it('rejects a refund larger than the payment', async () => {
+    const placed = await placeOrder(ownerToken, { payment_method: 'bkash' });
+    const payment = placed.body.payments[0];
+    await request(app)
+      .patch(`/api/payments/${payment.id}`)
+      .set('Authorization', `Bearer ${cashierToken}`)
+      .send({ status: 'paid' });
+    const res = await request(app)
+      .patch(`/api/payments/${payment.id}`)
+      .set('Authorization', `Bearer ${cashierToken}`)
+      .send({ status: 'refunded', amount: 99999 });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
   });
 
   it('rejects an invalid status with 400', async () => {

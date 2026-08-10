@@ -57,18 +57,33 @@ export async function buildCloseout(tenantId, dateStr) {
     if (!entry) continue;
     entry.orders += 1;
     if (p.status === 'paid') entry.amount += Number(p.amount || 0);
+    if (p.status === 'refunded') {
+      // Partial refund: only the portion still retained counts as revenue.
+      const returned = p.refunded_amount != null ? Number(p.refunded_amount) : Number(p.amount || 0);
+      entry.amount += Math.max(Number(p.amount || 0) - returned, 0);
+    }
     if (p.status === 'pending') entry.pendingAmount += Number(p.amount || 0);
   }
 
+  // Revenue is computed from PAYMENT rows (split- and refund-accurate: a
+  // split order contributes each part; a partial refund keeps its retained
+  // portion) — equivalent to summing paid orders' grand totals when there
+  // are no refunds.
   let revenue = 0;
   let pendingAmount = 0;
   let refundedAmount = 0;
   let canceled = 0;
+  for (const p of payments) {
+    if (p.status === 'paid') revenue += Number(p.amount || 0);
+    if (p.status === 'refunded') {
+      const returned = p.refunded_amount != null ? Number(p.refunded_amount) : Number(p.amount || 0);
+      revenue += Math.max(Number(p.amount || 0) - returned, 0);
+      refundedAmount += Math.min(returned, Number(p.amount || 0));
+    }
+    if (p.status === 'pending') pendingAmount += Number(p.amount || 0);
+  }
   for (const o of orders) {
     if (o.status === 'canceled') canceled += 1;
-    if (o.payment_status === 'paid') revenue += Number(o.grand_total || 0);
-    if (o.payment_status === 'pending') pendingAmount += Number(o.grand_total || 0);
-    if (o.payment_status === 'refunded') refundedAmount += Number(o.grand_total || 0);
   }
 
   const serializedOrders = orders.map((o) => ({
