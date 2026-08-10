@@ -25,7 +25,10 @@ const ADMIN = { email: 'admin@oms.dev', password: 'Str0ngPass!42' };
 
 mkdirSync(OUT, { recursive: true });
 
-const viewport = { width: 1440, height: 900 };
+// Crisp captures: 2× device scale (retina-grade) so the README images look
+// sharp on any display — the PNGs are written at 2× the viewport resolution.
+const viewport = { width: 1600, height: 1000 };
+const CONTEXT = { viewport, deviceScaleFactor: 2 };
 
 // Pick the first workspace the admin can see that actually has orders, so
 // the dashboard/orders/invoice shots are always populated (the API proxy at
@@ -67,7 +70,7 @@ async function shot(page, name, { fullPage = false } = {}) {
 
 /** Logs in, lands on an authenticated route, and pins the data-rich workspace. */
 async function login(browserRef, theme) {
-  const page = await browserRef.newPage({ viewport });
+  const page = await browserRef.newPage(CONTEXT);
   await page.addInitScript(
     ([t, dark]) => {
       if (dark) {
@@ -87,22 +90,22 @@ async function login(browserRef, theme) {
 }
 
 // ---------- 1. CRAV-style landing page (no auth) — light ----------
-let page = await browser.newPage({ viewport });
+let page = await browser.newPage(CONTEXT);
 await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
 await shot(page, 'landing-light.png', { fullPage: true });
 
 // ---------- 2. Public storefront (no auth) — light ----------
-page = await browser.newPage({ viewport });
+page = await browser.newPage(CONTEXT);
 await page.goto(`${BASE}/m/default-restaurant`, { waitUntil: 'networkidle' });
 await shot(page, 'public-menu-light.png');
 
 // ---------- 3. Login — light ----------
-page = await browser.newPage({ viewport });
+page = await browser.newPage(CONTEXT);
 await page.goto(`${BASE}/login`, { waitUntil: 'networkidle' });
 await shot(page, 'login-light.png');
 
 // ---------- 4. Login — dark ----------
-page = await browser.newPage({ viewport });
+page = await browser.newPage(CONTEXT);
 await page.addInitScript(() => {
   localStorage.setItem('oms.theme', 'dark');
   document.documentElement.setAttribute('data-theme', 'dark');
@@ -131,7 +134,7 @@ await page.waitForTimeout(900);
 await shot(page, 'qr-menu-light.png');
 
 // ---------- 8. Customer tracking (no auth) — light ----------
-page = await browser.newPage({ viewport });
+page = await browser.newPage(CONTEXT);
 await page.goto(`${BASE}/track`, { waitUntil: 'networkidle' });
 await shot(page, 'track-light.png');
 
@@ -207,12 +210,12 @@ await page.waitForTimeout(900);
 await shot(page, 'settings-light.png', { fullPage: true });
 
 // ---------- 17. Register (no auth) — light ----------
-page = await browser.newPage({ viewport });
+page = await browser.newPage(CONTEXT);
 await page.goto(`${BASE}/register`, { waitUntil: 'networkidle' });
 await shot(page, 'register-light.png');
 
 // ---------- 18. Public storefront — dark (design system showcase) -----
-page = await browser.newPage({ viewport });
+page = await browser.newPage(CONTEXT);
 await page.addInitScript(() => {
   localStorage.setItem('oms.theme', 'dark');
   document.documentElement.setAttribute('data-theme', 'dark');
@@ -221,7 +224,7 @@ await page.goto(`${BASE}/m/default-restaurant`, { waitUntil: 'networkidle' });
 await shot(page, 'public-menu-dark.png');
 
 // ---------- 19. Landing — dark (design system showcase) ----------
-page = await browser.newPage({ viewport });
+page = await browser.newPage(CONTEXT);
 await page.addInitScript(() => {
   localStorage.setItem('oms.theme', 'dark');
   document.documentElement.setAttribute('data-theme', 'dark');
