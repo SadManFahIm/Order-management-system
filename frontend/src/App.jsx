@@ -12,6 +12,7 @@ import MenuPage from './pages/MenuPage';
 import PromotionsPage from './pages/PromotionsPage';
 import OrdersListPage from './pages/OrdersListPage';
 import NewOrderPage from './pages/NewOrderPage';
+import InvoicePage from './pages/InvoicePage';
 import DashboardPage from './pages/DashboardPage';
 import PublicMenuPage from './pages/PublicMenuPage';
 import LandingPage from './pages/LandingPage';
@@ -50,6 +51,7 @@ export default function App() {
                       <Route path="/promotions" element={<PromotionsPage />} />
                       <Route path="/orders" element={<OrdersListPage />} />
                       <Route path="/orders/new" element={<NewOrderPage />} />
+                      <Route path="/orders/:id/invoice" element={<InvoicePage />} />
                       <Route path="/tables" element={<TableQRPage />} />
                       <Route path="/reports" element={<ReportsPage />} />
                       <Route path="/settings" element={<SettingsPage />} />

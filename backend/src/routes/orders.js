@@ -20,6 +20,7 @@ import { sendOrderAlert, sendStatusNotification } from '../services/whatsappServ
 import { assertMethodEnabled, createPaymentForOrder, validateSplits } from '../services/paymentsService.js';
 import { createOnlinePayment } from '../services/paymentGateway.js';
 import { RECONCILIATION_TTL_MS } from '../services/paymentReconciliation.js';
+import { buildInvoice, renderInvoiceHtml } from '../services/invoiceService.js';
 
 const router = express.Router();
 router.use(authMiddleware, attachPermissionCheck, resolveTenant, requireTenant);
@@ -90,6 +91,33 @@ const canAdvance = (req) =>
   req.userHas('manage:orders') || req.userHas('fulfill:orders');
 const canDeliver = (req) =>
   req.userHas('manage:orders') || req.userHas('deliver:orders');
+
+/**
+ * GET /api/orders/:id/invoice — VAT-aware invoice for an order (Phase 6):
+ * per-item VAT split (NBR convention), totals, and the linked payment
+ * records. `?print=1` returns the print-ready HTML (browser Save-as-PDF).
+ */
+router.get(
+  '/:id/invoice',
+  requirePermission('view:orders'),
+  asyncHandler(async (req, res) => {
+    const order = await Order.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+      include: [
+        { model: OrderItem, as: 'items', include: [{ model: Product }] },
+        { model: Payment, as: 'payments' },
+      ],
+    });
+    if (!order) throw new AppError(404, 'NOT_FOUND', 'Order not found');
+
+    const invoice = await buildInvoice(order, req.tenant);
+    if (req.query.print === '1') {
+      res.type('html').send(renderInvoiceHtml(invoice));
+    } else {
+      res.json(invoice);
+    }
+  })
+);
 
 /** PATCH /api/orders/:id/status — advance/cancel an order's fulfillment state. */
 router.patch(
