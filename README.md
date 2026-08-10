@@ -175,6 +175,13 @@ Customer storefront checkout (cart → order) · online payment **split payments
 | **Products — light mode** | **Products — dark mode** |
 | ![Products light](docs/screenshots/products-light.png) | ![Products dark](docs/screenshots/products-dark.png) |
 
+### Phase 6 — Payments (live captures)
+
+| | | |
+|---|---|---|
+| **Orders** — Split/Partial badges, ↩ Refund, 🧾 Invoice actions | **Order invoice** — per-item VAT split (NBR) + linked payments | **New Order** — split-payment editor (bKash ৳ + Cash ৳ per part) |
+| ![Orders — Phase 6](docs/screenshots/orders-phase6-light.png) | ![Invoice — Phase 6](docs/screenshots/invoice-phase6-light.png) | ![Split editor — Phase 6](docs/screenshots/neworder-split-light.png) |
+
 ---
 
 ## 🧱 Tech Stack

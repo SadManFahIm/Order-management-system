@@ -2,9 +2,14 @@
  * Capture real screenshots of the running app for the README.
  *
  * Prereqs: backend on :4000 and frontend dev server on :5173, seeded with
- * admin@oms.dev / Str0ngPass!42 and the default restaurant workspace.
+ * admin@oms.dev / Str0ngPass!42 and the Dhaka restaurant workspaces
+ * (`npm run seed:restaurants` + `seed:orders` + `seed:payment-demo`).
  *
  *   node scripts/screenshots.mjs
+ *
+ * The authenticated pages are captured in the FIRST workspace that has
+ * orders (so charts and the Phase 6 split/refund/invoice examples are
+ * never empty), chosen via the API before the browser run.
  *
  * Re-run whenever the UI changes so docs/screenshots stays current.
  */
@@ -22,6 +27,36 @@ mkdirSync(OUT, { recursive: true });
 
 const viewport = { width: 1440, height: 900 };
 
+// Pick the first workspace the admin can see that actually has orders, so
+// the dashboard/orders/invoice shots are always populated (the API proxy at
+// /api forwards to the backend on :4000).
+let tenantId = null;
+{
+  const loginRes = await fetch(`${BASE}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(ADMIN),
+  });
+  const auth = await loginRes.json();
+  if (auth.accessToken) {
+    const tenantRes = await fetch(`${BASE}/api/auth/tenants`, {
+      headers: { Authorization: `Bearer ${auth.accessToken}` },
+    });
+    const tenants = await tenantRes.json();
+    for (const t of tenants) {
+      const ordersRes = await fetch(`${BASE}/api/orders`, {
+        headers: { Authorization: `Bearer ${auth.accessToken}`, 'X-Tenant': String(t.id) },
+      });
+      const orders = await ordersRes.json();
+      if (Array.isArray(orders) && orders.length > 0) {
+        tenantId = String(t.id);
+        console.log('capturing authenticated pages in workspace', t.id, t.name);
+        break;
+      }
+    }
+  }
+}
+
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 
 async function shot(page, name, { fullPage = false } = {}) {
@@ -30,15 +65,19 @@ async function shot(page, name, { fullPage = false } = {}) {
   console.log('saved', name);
 }
 
-/** Logs in and lands on an authenticated route. */
+/** Logs in, lands on an authenticated route, and pins the data-rich workspace. */
 async function login(browserRef, theme) {
   const page = await browserRef.newPage({ viewport });
-  if (theme === 'dark') {
-    await page.addInitScript(() => {
-      localStorage.setItem('oms.theme', 'dark');
-      document.documentElement.setAttribute('data-theme', 'dark');
-    });
-  }
+  await page.addInitScript(
+    ([t, dark]) => {
+      if (dark) {
+        localStorage.setItem('oms.theme', 'dark');
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+      if (t) localStorage.setItem('active_tenant_id', t);
+    },
+    [tenantId, theme === 'dark']
+  );
   await page.goto(`${BASE}/login`, { waitUntil: 'networkidle' });
   await page.fill('#login-email', ADMIN.email);
   await page.fill('#login-password', ADMIN.password);
@@ -109,6 +148,42 @@ await page.goto(`${BASE}/products`, { waitUntil: 'networkidle' });
 await page.getByRole('heading', { name: /Products|প্রোডাক্ট/ }).waitFor();
 await page.waitForTimeout(800);
 await shot(page, 'products-dark.png');
+
+// ---------- 11. Orders — Phase 6 (split badge + refund + invoice action) --
+page = await login(browser, 'light');
+await page.goto(`${BASE}/orders`, { waitUntil: 'networkidle' });
+await page.getByRole('heading', { name: /Orders|অর্ডার/ }).waitFor();
+await page.waitForTimeout(1200);
+await shot(page, 'orders-phase6-light.png');
+
+// ---------- 12. Invoice — Phase 6 (VAT split + linked payments) ----------
+// Open the first invoice link found on the orders page — deterministic even
+// when reseeding shifts order ids.
+const invoiceHref = await page
+  .locator('a[href*="/invoice"]')
+  .first()
+  .getAttribute('href')
+  .catch(() => null);
+if (invoiceHref) {
+  await page.goto(`${BASE}${invoiceHref}`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(1000);
+  await shot(page, 'invoice-phase6-light.png', { fullPage: true });
+} else {
+  console.log('skipped invoice — no invoice link found');
+}
+
+// ---------- 13. New Order — Phase 6 split-payment editor ----------
+page = await login(browser, 'light');
+await page.goto(`${BASE}/orders/new`, { waitUntil: 'networkidle' });
+await page.getByRole('heading', { name: /New order|নতুন অর্ডার/ }).waitFor();
+const addButtons = page.getByRole('button', { name: '+ Add' });
+if ((await addButtons.count()) >= 2) {
+  await addButtons.nth(0).click();
+  await addButtons.nth(1).click();
+  await page.getByRole('button', { name: /Split payment/ }).click();
+  await page.waitForTimeout(700);
+}
+await shot(page, 'neworder-split-light.png');
 
 await browser.close();
 console.log('done —', OUT);
