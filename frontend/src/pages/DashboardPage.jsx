@@ -16,20 +16,27 @@ export default function DashboardPage() {
 
   useEffect(() => {
     mounted.current = true;
-    setLoading(true);
-    api
-      .get('/dashboard', { params: { days } })
-      .then((res) => {
-        if (mounted.current) setData(res.data);
-      })
-      .catch(() => {
-        if (mounted.current) setError(true);
-      })
-      .finally(() => {
-        if (mounted.current) setLoading(false);
-      });
+    let timer;
+    const load = (silent) => {
+      if (!silent) setLoading(true);
+      api
+        .get('/dashboard', { params: { days } })
+        .then((res) => {
+          if (mounted.current) setData(res.data);
+        })
+        .catch(() => {
+          if (mounted.current && !silent) setError(true);
+        })
+        .finally(() => {
+          if (mounted.current && !silent) setLoading(false);
+        });
+    };
+    load(false);
+    // Live refresh — keeps the open-orders queue + alerts current (Phase 7).
+    timer = setInterval(() => load(true), 30000);
     return () => {
       mounted.current = false;
+      clearInterval(timer);
     };
   }, [days]);
 
@@ -86,6 +93,62 @@ export default function DashboardPage() {
   return (
     <div className="oms-page">
       <PageHeader title={t('pages.dashboard')} desc={t('pages.dashboardDesc')} />
+
+      {/* Dashboard alerts (Phase 7) — low stock / cancellations / idle */}
+      {(data.alerts || []).length > 0 && (
+        <div style={{ display: 'grid', gap: 10, marginBottom: 16 }}>
+          {data.alerts.map((a) => (
+            <AlertBanner key={a.code} alert={a} t={t} />
+          ))}
+        </div>
+      )}
+
+      {/* Live fulfillment queue (Phase 7) — auto-refreshes every 30s */}
+      <Card
+        title={t('dash.livePanel')}
+        subtitle={t('dash.livePanelSub')}
+        style={{ marginBottom: 16 }}
+      >
+        {(data.livePanel || []).length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 28, color: 'var(--text-muted)' }}>
+            {t('dash.liveEmpty')}
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gap: 8 }}>
+            {data.livePanel.map((o) => (
+              <div
+                key={o.order_no}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '10px 14px',
+                  borderRadius: 12,
+                  background: 'var(--surface-2)',
+                  border: '1px solid var(--border)',
+                }}
+              >
+                <span style={{ fontWeight: 750, fontVariantNumeric: 'tabular-nums' }}>
+                  {o.order_no}
+                </span>
+                <Badge tone={o.status === 'placed' ? 'neutral' : o.status === 'preparing' ? 'warning' : 'success'}>
+                  {o.status}
+                </Badge>
+                {o.table_no ? <Badge tone="neutral">🪑 {o.table_no}</Badge> : null}
+                <span style={{ flex: 1, color: 'var(--text-muted)', fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {o.customer_name}
+                </span>
+                <span style={{ fontSize: 13, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                  {o.itemQty} {t('dash.itemsTotal')} · {fmtTaka(o.total)}
+                </span>
+                <span style={{ fontSize: 12.5, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                  {o.minutesOpen} {t('dash.minutesAgo')}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
 
       {/* Stat cards */}
       <div
@@ -508,6 +571,65 @@ function StatRow({ label, value, strong }) {
       <span style={{ fontWeight: strong ? 800 : 650, fontSize: strong ? 17 : 14, fontVariantNumeric: 'tabular-nums' }}>
         {value}
       </span>
+    </div>
+  );
+}
+
+function AlertBanner({ alert, t }) {
+  const danger = alert.severity === 'danger';
+  const title =
+    alert.code === 'LOW_STOCK'
+      ? t('dash.alertLowStock')
+      : alert.code === 'HIGH_CANCELLATION'
+        ? t('dash.alertCancellation')
+        : t('dash.alertIdle');
+  const detail =
+    alert.code === 'LOW_STOCK'
+      ? t('dash.alertLowStockDetail').replace('{count}', String(alert.count))
+      : alert.code === 'HIGH_CANCELLATION'
+        ? t('dash.alertCancellationDetail')
+            .replace('{rate}', String(alert.rate))
+            .replace('{window}', String(alert.windowOrders))
+        : t('dash.alertIdleDetail').replace('{hours}', String(alert.hours));
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '12px 16px',
+        borderRadius: 14,
+        background: 'var(--surface-2)',
+        border: '1px solid var(--border)',
+        borderLeft: `4px solid ${danger ? 'var(--danger)' : 'var(--accent)'}`,
+      }}
+    >
+      <span style={{ fontSize: 16 }}>{danger ? '⚠️' : '🔔'}</span>
+      <div>
+        <div style={{ fontWeight: 700, fontSize: 13.5 }}>{title}</div>
+        <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>{detail}</div>
+        {alert.items && (
+          <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {alert.items.map((i) => (
+              <span
+                key={i.name}
+                style={{
+                  fontSize: 12,
+                  padding: '2px 8px',
+                  borderRadius: 999,
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)',
+                }}
+              >
+                {i.name} · {i.stock_qty}/{i.low_stock_at}
+              </span>
+            ))}
+            {alert.count > 5 ? (
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>+{alert.count - 5}</span>
+            ) : null}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
