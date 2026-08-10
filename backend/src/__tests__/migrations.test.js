@@ -65,6 +65,7 @@ describe('migration runner', () => {
       '007_order_table_no.js',
       '008_payments.js',
       '009_vat_and_digest.js',
+      '010_split_refund_recon.js',
     ]);
   });
 
@@ -96,7 +97,7 @@ describe('migration runner', () => {
   it('reports every migration as applied', async () => {
     const status = await migrationStatus(sequelize);
     expect(status.every((row) => row.state === 'applied')).toBe(true);
-    expect(status).toHaveLength(9);
+    expect(status).toHaveLength(10);
   });
 
   it('adds menu_items.vat_rate via migration 009', async () => {
@@ -111,6 +112,10 @@ describe('migration runner', () => {
   it('rolls back only the most recent migration, then re-applies', async () => {
     const qi = sequelize.getQueryInterface();
 
+    // Down 010: removes the split/refund/reconciliation columns on payments.
+    expect(await migrateDown(sequelize)).toBe(1);
+    expect((await qi.describeTable('payments')).refunded_amount).toBeUndefined();
+
     // Down 009: removes menu_items.vat_rate (VAT compliance).
     expect(await migrateDown(sequelize)).toBe(1);
     expect((await qi.describeTable('menu_items')).vat_rate).toBeUndefined();
@@ -124,10 +129,11 @@ describe('migration runner', () => {
     expect(await migrateDown(sequelize)).toBe(1);
     expect((await qi.describeTable('orders')).table_no).toBeUndefined();
 
-    // Re-applying restores all three.
-    expect(await migrateUp(sequelize)).toBe(3);
+    // Re-applying restores all four.
+    expect(await migrateUp(sequelize)).toBe(4);
     expect((await qi.describeTable('menu_items')).vat_rate).toBeDefined();
     expect(await qi.tableExists('payments')).toBe(true);
+    expect((await qi.describeTable('payments')).refunded_amount).toBeDefined();
     expect((await qi.describeTable('orders')).payment_method).toBeDefined();
     expect((await qi.describeTable('orders')).table_no).toBeDefined();
   });

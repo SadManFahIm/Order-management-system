@@ -19,6 +19,10 @@ export default function NewOrderPage() {
   const [tableNo, setTableNo] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [paymentRef, setPaymentRef] = useState('');
+  // Split payments (Phase 6) — one order, multiple methods (e.g. bKash ৳300
+  // + Cash ৳200). The backend validates parts against the grand total.
+  const [splitMode, setSplitMode] = useState(false);
+  const [splitParts, setSplitParts] = useState([]);
   const { tenants, activeTenantId } = useAuth();
   const active = tenants.find((tn) => Number(tn.id) === Number(activeTenantId));
   // Whitelisted by /api/auth/tenants: { cash, bkash, nagad, card } flags.
@@ -84,13 +88,23 @@ export default function NewOrderPage() {
     const payload = {
       ...customer,
       table_no: tableNo ? Number(tableNo) : null,
-      payment_method: paymentMethod || 'cash',
-      payment_reference: paymentRef.trim() || undefined,
       items: cart.map((i) => ({
         product_id: i.product.id,
         quantity: i.quantity
       }))
     };
+    if (splitMode && splitParts.length > 0) {
+      // Split order: the backend creates one payment row per part (cash parts
+      // paid on the spot, wallets pending) and validates the sum server-side.
+      payload.payments = splitParts.map((p) => ({
+        method: p.method,
+        amount: Number(p.amount),
+        reference: p.reference?.trim() || undefined
+      }));
+    } else {
+      payload.payment_method = paymentMethod || 'cash';
+      payload.payment_reference = paymentRef.trim() || undefined;
+    }
     try {
       const res = await api.post('/orders', payload);
       // Online payment: the order is placed as pending and the customer is
@@ -114,15 +128,57 @@ export default function NewOrderPage() {
       }));
       setCart(enrichedCart);
       setSummary(s);
-    } catch {
-      toast.error('Failed to create order');
+    } catch (e) {
+      // Surface the backend's precise error (e.g. SPLIT_MISMATCH tells the
+      // cashier exactly how much the parts are off by).
+      const msg = e?.response?.data?.error?.message;
+      toast.error(msg || 'Failed to create order');
     }
   };
 
   const onCustomerChange = (e) =>
     setCustomer((c) => ({ ...c, [e.target.name]: e.target.value }));
 
-  const canSubmit = customer.customer_name && cart.length > 0;
+  // ── Split payment helpers ──────────────────────────────────────────────
+  const splitMethods = pmOptions.filter((m) => m.key !== 'online');
+  const cartTotal = cart.reduce((s, i) => s + Number(i.product.price) * i.quantity, 0);
+  const splitSum = splitParts.reduce((s, p) => s + Number(p.amount || 0), 0);
+  const splitRemaining = Math.round((cartTotal - splitSum) * 100) / 100;
+
+  const startSplit = () => {
+    const first = splitMethods[0]?.key || 'cash';
+    const second = splitMethods[1]?.key || first;
+    const half = Math.round((cartTotal / 2) * 100) / 100;
+    setSplitParts([
+      { method: first, amount: half, reference: '' },
+      { method: second, amount: Math.round((cartTotal - half) * 100) / 100, reference: '' },
+    ]);
+    setSplitMode(true);
+  };
+
+  const updateSplitPart = (idx, patch) =>
+    setSplitParts((parts) => parts.map((p, i) => (i === idx ? { ...p, ...patch } : p)));
+
+  const addSplitPart = () => {
+    if (splitParts.length >= splitMethods.length) return;
+    const used = new Set(splitParts.map((p) => p.method));
+    const nextMethod = splitMethods.find((m) => !used.has(m.key))?.key || 'cash';
+    setSplitParts((parts) => [
+      ...parts,
+      { method: nextMethod, amount: Math.max(splitRemaining, 0), reference: '' },
+    ]);
+  };
+
+  const removeSplitPart = (idx) =>
+    setSplitParts((parts) => parts.filter((_, i) => i !== idx));
+
+  const splitValid =
+    splitParts.length >= 2 &&
+    Math.abs(splitSum - cartTotal) <= 0.01 &&
+    splitParts.every((p) => Number(p.amount) > 0);
+
+  const canSubmit =
+    customer.customer_name && cart.length > 0 && (!splitMode || splitValid);
 
   return (
     <div className="oms-page">
@@ -154,20 +210,86 @@ export default function NewOrderPage() {
               </Select>
             </Field>
 
-            <Field label="Payment method" hint="Cash is paid on the spot; bKash/Nagad are confirmed at the counter.">
-              <Select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
-                {pmOptions.map((m) => (
-                  <option key={m.key} value={m.key}>
-                    {m.label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            {(paymentMethod === 'bkash' || paymentMethod === 'nagad') && (
-              <Field label="Transaction ID (optional)" hint="bKash/Nagad trxID — capture at the counter.">
-                <Input value={paymentRef} maxLength={120} placeholder="e.g. 8A7B6C5D4E" onChange={(e) => setPaymentRef(e.target.value)} />
+            {!splitMode ? (
+              <>
+                <Field label="Payment method" hint="Cash is paid on the spot; bKash/Nagad are confirmed at the counter.">
+                  <Select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
+                    {pmOptions.map((m) => (
+                      <option key={m.key} value={m.key}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                {(paymentMethod === 'bkash' || paymentMethod === 'nagad') && (
+                  <Field label="Transaction ID (optional)" hint="bKash/Nagad trxID — capture at the counter.">
+                    <Input value={paymentRef} maxLength={120} placeholder="e.g. 8A7B6C5D4E" onChange={(e) => setPaymentRef(e.target.value)} />
+                  </Field>
+                )}
+              </>
+            ) : (
+              <Field
+                label="Split payment"
+                hint="Parts must sum to the order total — cash parts are paid now, wallets stay pending for the counter."
+              >
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {splitParts.map((part, idx) => (
+                    <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <Select
+                        style={{ flex: 1, minWidth: 0 }}
+                        value={part.method}
+                        onChange={(e) => updateSplitPart(idx, { method: e.target.value })}
+                      >
+                        {splitMethods.map((m) => (
+                          <option key={m.key} value={m.key}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </Select>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        style={{ width: 110 }}
+                        placeholder="৳"
+                        value={part.amount}
+                        onChange={(e) => updateSplitPart(idx, { amount: e.target.value })}
+                      />
+                      <Input
+                        style={{ flex: 1, minWidth: 0 }}
+                        maxLength={120}
+                        placeholder="trxID (optional)"
+                        value={part.reference}
+                        onChange={(e) => updateSplitPart(idx, { reference: e.target.value })}
+                      />
+                      {splitParts.length > 2 && (
+                        <Button variant="ghost" size="sm" onClick={() => removeSplitPart(idx)}>
+                          ✕
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    <div style={{ fontSize: 13, color: splitRemaining >= -0.01 ? 'var(--text-muted, #68707a)' : 'var(--danger, #dc2626)' }}>
+                      {splitRemaining >= 0 ? `Remaining: ৳ ${splitRemaining.toFixed(2)}` : `Over by ৳ ${Math.abs(splitRemaining).toFixed(2)}`}
+                    </div>
+                    <Button variant="outline" size="sm" onClick={addSplitPart} disabled={splitParts.length >= splitMethods.length}>
+                      + Add part
+                    </Button>
+                  </div>
+                </div>
               </Field>
             )}
+            <div style={{ marginTop: 2 }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => (splitMode ? setSplitMode(false) : startSplit())}
+                disabled={splitMethods.length < 2 || cart.length === 0}
+              >
+                {splitMode ? '↩ Back to single payment' : '⇄ Split payment'}
+              </Button>
+            </div>
           </Card>
 
           <Card title="Menu" subtitle="Click to add items" bodyPadding={false}>

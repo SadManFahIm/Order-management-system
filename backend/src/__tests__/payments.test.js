@@ -155,6 +155,114 @@ describe('POST /api/orders — payment method', () => {
   });
 });
 
+describe('POST /api/orders — split payments (Phase 6)', () => {
+  it('creates one payment row per part (bkash + cash) with split status', async () => {
+    const res = await placeOrder(ownerToken, {
+      payments: [
+        { method: 'bkash', amount: 150, reference: 'SPLIT-BKASH-1' },
+        { method: 'cash', amount: 100 },
+      ],
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.payment_method).toBe('split');
+    expect(res.body.payment_status).toBe('partial');
+    expect(res.body.payments).toHaveLength(2);
+
+    const bkash = res.body.payments.find((p) => p.method === 'bkash');
+    const cash = res.body.payments.find((p) => p.method === 'cash');
+    expect(bkash).toMatchObject({ status: 'pending', amount: 150, reference: 'SPLIT-BKASH-1' });
+    expect(cash).toMatchObject({ status: 'paid', amount: 100 });
+    expect(cash.paid_at).toBeTruthy();
+  });
+
+  it('marks the order paid only when every part is confirmed', async () => {
+    const placed = await placeOrder(ownerToken, {
+      payments: [
+        { method: 'bkash', amount: 150 },
+        { method: 'cash', amount: 100 },
+      ],
+    });
+    expect(placed.body.payment_status).toBe('partial');
+
+    const bkashPart = placed.body.payments.find((p) => p.method === 'bkash');
+    await request(app)
+      .patch(`/api/payments/${bkashPart.id}`)
+      .set('Authorization', `Bearer ${cashierToken}`)
+      .send({ status: 'paid', reference: 'TRX-SPLIT-1' });
+
+    const order = await Order.findByPk(placed.body.id);
+    expect(order.payment_status).toBe('paid');
+  });
+
+  it('rejects parts that do not sum to the grand total', async () => {
+    const res = await placeOrder(ownerToken, {
+      payments: [
+        { method: 'bkash', amount: 100 },
+        { method: 'cash', amount: 100 },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('SPLIT_MISMATCH');
+  });
+
+  it('rejects online inside a split (gateway is single-session)', async () => {
+    const res = await placeOrder(ownerToken, {
+      payments: [
+        { method: 'bkash', amount: 125 },
+        { method: 'online', amount: 125 },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('SPLIT_NOT_SUPPORTED');
+  });
+
+  it('rejects a single-part split', async () => {
+    const res = await placeOrder(ownerToken, {
+      payments: [{ method: 'cash', amount: 250 }],
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('rejects a disabled method inside a split', async () => {
+    await request(app)
+      .patch(`/api/tenants/${tenant.id}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ paymentMethods: { cash: { enabled: true }, bkash: { enabled: true }, card: { enabled: false } } });
+    const res = await placeOrder(ownerToken, {
+      payments: [
+        { method: 'card', amount: 100 },
+        { method: 'cash', amount: 150 },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('INVALID_PAYMENT_METHOD');
+    await request(app)
+      .patch(`/api/tenants/${tenant.id}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({
+        paymentMethods: {
+          cash: { enabled: true },
+          bkash: { enabled: true, number: '+8801711111111' },
+          nagad: { enabled: true, number: '+8801622222222' },
+          card: { enabled: true },
+        },
+      });
+  });
+
+  it('all-cash split is paid immediately', async () => {
+    const res = await placeOrder(ownerToken, {
+      payments: [
+        { method: 'cash', amount: 100 },
+        { method: 'cash', amount: 150 },
+      ],
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.payment_status).toBe('paid');
+    expect(res.body.payments.every((p) => p.status === 'paid')).toBe(true);
+  });
+});
+
 describe('PATCH /api/payments/:id — confirm / refund', () => {
   it('confirms a bKash payment with a trxID and marks the order paid', async () => {
     const placed = await placeOrder(ownerToken, { payment_method: 'bkash' });

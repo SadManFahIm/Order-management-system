@@ -17,7 +17,7 @@ import { applyPromotionsToCart } from '../utils/promotionEngine.js';
 import { parsePagination } from '../utils/pagination.js';
 import { createOrderSchema } from '../validators/order.js';
 import { sendOrderAlert, sendStatusNotification } from '../services/whatsappService.js';
-import { assertMethodEnabled, createPaymentForOrder } from '../services/paymentsService.js';
+import { assertMethodEnabled, createPaymentForOrder, validateSplits } from '../services/paymentsService.js';
 import { createOnlinePayment } from '../services/paymentGateway.js';
 
 const router = express.Router();
@@ -162,13 +162,17 @@ router.post(
       table_no,
       payment_method,
       payment_reference,
+      payments: splitParts,
       items,
     } = createOrderSchema.parse(req.body);
 
     // Validate the payment method against THIS workspace's enabled methods
-    // (fail-closed — cash is the default when nothing is configured).
+    // (fail-closed — cash is the default when nothing is configured). Split
+    // orders validate each part instead (sum must equal the grand total,
+    // which is known after pricing below).
     const tenantConfig = await Tenant.findByPk(req.tenant.id);
-    const method = assertMethodEnabled(tenantConfig, payment_method);
+    const useSplit = Array.isArray(splitParts) && splitParts.length > 0;
+    let method = useSplit ? 'split' : assertMethodEnabled(tenantConfig, payment_method);
 
     // Fetch products and promotions concurrently — independent reads.
     // A dine-in order may carry a physical table (QR table menu) — it must
@@ -224,6 +228,19 @@ router.post(
     const { items: enriched, subtotal, totalDiscount, grandTotal } =
       applyPromotionsToCart(cartItems, promotions);
 
+    // Split orders: validate every part against the workspace's enabled
+    // methods and the exact grand total, then derive the initial order-level
+    // payment status from the parts (all-cash → paid on the spot, mixed →
+    // partial, wallets-only → pending).
+    let resolvedSplits = null;
+    let initialPaymentStatus = method === 'cash' ? 'paid' : 'pending';
+    if (useSplit) {
+      resolvedSplits = validateSplits(tenantConfig, splitParts, grandTotal);
+      const allCash = resolvedSplits.every((s) => s.method === 'cash');
+      const anyCash = resolvedSplits.some((s) => s.method === 'cash');
+      initialPaymentStatus = allCash ? 'paid' : anyCash ? 'partial' : 'pending';
+    }
+
     const order = await Order.create(
       {
         tenant_id: req.tenant.id,
@@ -237,7 +254,7 @@ router.post(
         customer_address: customer_address || null,
         table_no: table_no ?? null,
         payment_method: method,
-        payment_status: method === 'cash' ? 'paid' : 'pending',
+        payment_status: initialPaymentStatus,
         subtotal,
         total_discount: totalDiscount,
         grand_total: grandTotal,
@@ -257,10 +274,12 @@ router.post(
       { include: [{ model: OrderItem, as: 'items' }] }
     );
 
-    // Payment record — cash is paid on the spot, wallets start pending.
+    // Payment record(s) — cash is paid on the spot, wallets start pending;
+    // split orders create one row per part.
     const payment = await createPaymentForOrder(tenantConfig, order, {
       method,
       reference: payment_reference || null,
+      splits: resolvedSplits,
     });
 
     // Online payments (SSLCommerz/Stripe): build the hosted checkout session
@@ -273,6 +292,8 @@ router.post(
       paymentUrl = session.paymentUrl;
       gateway = session.gateway;
     }
+    // Split orders never use the hosted gateway (rejected in validateSplits),
+    // so `payment` being an array here is safe — it is only consumed above.
 
     const fullOrder = await Order.findByPk(order.id, {
       include: [
