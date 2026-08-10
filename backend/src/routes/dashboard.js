@@ -8,6 +8,7 @@ import Order from '../models/Order.js';
 import OrderItem from '../models/OrderItem.js';
 import Payment from '../models/Payment.js';
 import Product from '../models/Product.js';
+import MenuCategory from '../models/MenuCategory.js';
 
 const router = express.Router();
 router.use(authMiddleware, resolveTenant, requireTenant, requirePermission('view:orders'));
@@ -16,6 +17,9 @@ const OPEN_STATUSES = ['placed', 'preparing', 'ready'];
 const ALL_STATUSES = ['placed', 'preparing', 'ready', 'delivered', 'canceled'];
 const METHOD_ORDER = ['cash', 'bkash', 'nagad', 'card', 'online', 'other'];
 const DHAKA_OFFSET_MS = 6 * 60 * 60 * 1000; // UTC+6, no DST
+// Peak-hours heatmap rows — Bangladesh work week starts Sunday (JS getDay 0).
+const PEAK_DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const PEAK_HOURS = Array.from({ length: 24 }, (_, i) => i);
 
 /** Date-only ISO key (YYYY-MM-DD) for grouping. */
 const dayKey = (d) => {
@@ -74,7 +78,7 @@ router.get(
       Date.UTC(prevMonthDate.getUTCFullYear(), prevMonthDate.getUTCMonth(), 1) - DHAKA_OFFSET_MS
     );
 
-    const [todayOrders, openOrders, totalProducts, windowOrders, recentLines, paidPayments, closeoutOrders, closeoutPayments, monthOrders] =
+    const [todayOrders, openOrders, totalProducts, windowOrders, recentLines, paidPayments, closeoutOrders, closeoutPayments, monthOrders, windowItems] =
       await Promise.all([
         Order.findAll({
           where: { tenant_id: req.tenant.id, createdAt: { [Op.gte]: startOfToday } },
@@ -123,6 +127,40 @@ router.get(
         Order.findAll({
           where: { tenant_id: req.tenant.id, createdAt: { [Op.gte]: startOfPrevMonthUtc } },
           attributes: ['grand_total', 'payment_status', 'createdAt'],
+        }),
+        // Window line items joined to their order + menu category (Phase 7):
+        // category-mix revenue/qty needs the product's category, and the
+        // joined order carries createdAt + payment_status (order_items have no
+        // timestamps of their own). Soft-deleted products still map to their
+        // category (paranoid: false) — item_name is the final fallback.
+        OrderItem.findAll({
+          where: { tenant_id: req.tenant.id },
+          include: [
+            {
+              model: Order,
+              as: 'Order',
+              attributes: ['createdAt', 'payment_status'],
+              where: { createdAt: { [Op.gte]: startOfDhakaWindow } },
+            },
+            {
+              model: Product,
+              as: 'Product',
+              attributes: ['category_id'],
+              required: false,
+              paranoid: false,
+              include: [
+                {
+                  model: MenuCategory,
+                  as: 'category',
+                  attributes: ['name'],
+                  required: false,
+                  paranoid: false,
+                },
+              ],
+            },
+          ],
+          attributes: ['item_name', 'quantity', 'line_total'],
+          limit: 5000,
         }),
       ]);
 
@@ -287,6 +325,80 @@ router.get(
           : null,
     };
 
+    // ── Peak-hours heatmap (Phase 7) ────────────────────────────────────
+    // 7 (day-of-week, Sun-first) × 24 (Dhaka hours) grid of order volume +
+    // paid revenue. Reuses the closeout window so the axis matches the trend
+    // chart; Dhaka shift means cells align with the closeout day bounds.
+    const peakGrid = PEAK_DAY_LABELS.map(() =>
+      PEAK_HOURS.map(() => ({ orders: 0, revenue: 0 }))
+    );
+    let peakMaxOrders = 0;
+    let peakMaxRevenue = 0;
+    for (const o of closeoutOrders) {
+      const dh = new Date(o.createdAt.getTime() + DHAKA_OFFSET_MS);
+      const day = dh.getUTCDay();
+      const hour = dh.getUTCHours();
+      const cell = peakGrid[day][hour];
+      cell.orders += 1;
+      if (o.payment_status === 'paid') cell.revenue += Number(o.grand_total || 0);
+      if (cell.orders > peakMaxOrders) peakMaxOrders = cell.orders;
+      if (cell.revenue > peakMaxRevenue) peakMaxRevenue = cell.revenue;
+    }
+    let busiest = null;
+    for (let day = 0; day < 7; day += 1) {
+      for (let hour = 0; hour < 24; hour += 1) {
+        const cell = peakGrid[day][hour];
+        if (!cell.revenue && !cell.orders) continue;
+        if (
+          !busiest ||
+          cell.revenue > busiest.revenue ||
+          (cell.revenue === busiest.revenue && cell.orders > busiest.orders)
+        ) {
+          busiest = { day, hour, ...cell };
+        }
+      }
+    }
+    const peakHours = {
+      days: PEAK_DAY_LABELS,
+      hours: PEAK_HOURS,
+      grid: peakGrid.map((row, day) =>
+        row.map((cell, hour) => ({
+          day,
+          hour,
+          orders: cell.orders,
+          revenue: Math.round(cell.revenue * 100) / 100,
+        }))
+      ),
+      maxOrders: peakMaxOrders,
+      maxRevenue: Math.round(peakMaxRevenue * 100) / 100,
+      busiest: busiest
+        ? { ...busiest, revenue: Math.round(busiest.revenue * 100) / 100 }
+        : null,
+    };
+
+    // ── Category mix (Phase 7) ──────────────────────────────────────────
+    // Paid line items grouped by menu category (soft-delete-safe via
+    // paranoid: false join; 'Uncategorized' when a product has no category).
+    const byCategory = new Map();
+    for (const line of windowItems) {
+      if (line.Order?.payment_status !== 'paid') continue;
+      const name = line.Product?.category?.name || 'Uncategorized';
+      const entry = byCategory.get(name) || { name, revenue: 0, quantity: 0 };
+      entry.revenue += Number(line.line_total || 0);
+      entry.quantity += Number(line.quantity || 0);
+      byCategory.set(name, entry);
+    }
+    const categoryMixRaw = [...byCategory.values()];
+    const categoryTotal = categoryMixRaw.reduce((s, c) => s + c.revenue, 0);
+    const categoryMix = categoryMixRaw
+      .sort((a, b) => b.revenue - a.revenue)
+      .map((c) => ({
+        name: c.name,
+        revenue: Math.round(c.revenue * 100) / 100,
+        quantity: c.quantity,
+        pct: categoryTotal > 0 ? Math.round((c.revenue / categoryTotal) * 1000) / 10 : 0,
+      }));
+
     // Trend stats — totals, average, best day, and the day-over-day delta.
     const paidRevenue = closeoutTrend.reduce((s, d) => s + d.revenue, 0);
     const totalOrders = closeoutTrend.reduce((s, d) => s + d.orders, 0);
@@ -323,6 +435,8 @@ router.get(
       trendStats,
       forecast: { movingAverage, projection },
       monthOverMonth,
+      peakHours,
+      categoryMix,
     });
   })
 );

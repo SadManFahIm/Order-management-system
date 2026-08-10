@@ -389,6 +389,193 @@ export function CloseoutTrendChart({ data, forecast = null, height = 240 }) {
   );
 }
 
+/**
+ * Peak-hours heatmap (Phase 7) — a 7 (day-of-week, Sun-first) × 24 (Dhaka
+ * hour) grid colored by revenue intensity. Hover pins a cell readout with
+ * the exact order count + revenue. Zero cells render as the surface tone so
+ * slow hours read at a glance (the "busiest hour" insight the merchant
+ * actually acts on).
+ */
+export function PeakHoursHeatmap({ grid = [], days = [], hours = [], maxRevenue = 1, height = 240 }) {
+  const [hover, setHover] = useState(null);
+  const H = height;
+  const ROWS = Math.max(days.length, 7);
+  const COLS = Math.max(hours.length, 24);
+  const padL = 34;
+  const padB = 24;
+  const padT = 10;
+  const plotW = W - padL - PAD.r;
+  const plotH = H - padT - padB;
+  const cellW = plotW / COLS;
+  const cellH = plotH / ROWS;
+
+  const cellAt = (day, hour) => grid[day]?.[hour] || { orders: 0, revenue: 0 };
+  const intensity = (v) => (maxRevenue > 0 ? Math.min(v / maxRevenue, 1) : 0);
+  const active = hover;
+  const activeCell = active ? cellAt(active.day, active.hour) : null;
+  const busiest = activeCell
+    ? `${days[active.day]} ${String(active.hour).padStart(2, '0')}:00`
+    : null;
+
+  return (
+    <div className="oms-chart">
+      <div className="oms-chart__readout">
+        <span className="oms-chart__readout-label">{busiest || 'Peak hours'}</span>
+        <span className="oms-chart__readout-value">
+          {activeCell
+            ? `${fmtTaka2(activeCell.revenue)} · ${activeCell.orders} ${activeCell.orders === 1 ? 'order' : 'orders'}`
+            : 'Hover a cell'}
+        </span>
+      </div>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        role="img"
+        aria-label="Peak hours heatmap: orders and revenue by day of week and hour"
+        className="oms-chart__svg"
+        onMouseLeave={() => setHover(null)}
+      >
+        {/* Day-of-week labels (Sun-first — Bangladesh work week) */}
+        {days.map((label, day) => (
+          <text
+            key={label}
+            x={padL - 7}
+            y={padT + cellH * day + cellH / 2 + 4}
+            textAnchor="end"
+            className={`oms-chart__axis ${active?.day === day ? 'oms-chart__axis--active' : ''}`}
+          >
+            {label}
+          </text>
+        ))}
+        {/* Hour ticks every 3h */}
+        {hours.map((h) =>
+          h % 3 === 0 ? (
+            <text
+              key={h}
+              x={padL + cellW * h + cellW / 2}
+              y={H - 8}
+              textAnchor="middle"
+              className="oms-chart__axis"
+            >
+              {h}
+            </text>
+          ) : null
+        )}
+        {/* Cells */}
+        {days.map((label, day) =>
+          hours.map((hour) => {
+            const cell = cellAt(day, hour);
+            const hot = active?.day === day && active?.hour === hour;
+            const alpha = intensity(cell.revenue);
+            return (
+              <rect
+                key={`${label}-${hour}`}
+                x={padL + cellW * hour + 1}
+                y={padT + cellH * day + 1}
+                width={Math.max(cellW - 2, 1)}
+                height={Math.max(cellH - 2, 1)}
+                rx={3}
+                fill={alpha > 0 ? 'var(--primary)' : 'var(--surface-2)'}
+                opacity={hot ? 1 : alpha > 0 ? 0.35 + alpha * 0.6 : 0.55}
+                stroke={hot ? 'var(--accent)' : 'none'}
+                strokeWidth={hot ? 2 : 0}
+                onMouseEnter={() => setHover({ day, hour })}
+              >
+                <title>{`${label} ${String(hour).padStart(2, '0')}:00 — ${cell.orders} orders, ${fmtTaka2(cell.revenue)}`}</title>
+              </rect>
+            );
+          })
+        )}
+      </svg>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 12, color: 'var(--text-muted)' }}>
+        <span>Slow</span>
+        <span style={{ width: 12, height: 12, borderRadius: 3, background: 'var(--surface-2)', opacity: 0.55 }} />
+        <span style={{ width: 12, height: 12, borderRadius: 3, background: 'var(--primary)', opacity: 0.35 }} />
+        <span style={{ width: 12, height: 12, borderRadius: 3, background: 'var(--primary)', opacity: 1 }} />
+        <span>Busy</span>
+        <span style={{ marginLeft: 'auto' }}>Hours: Dhaka time (0–23)</span>
+      </div>
+    </div>
+  );
+}
+
+const CATEGORY_PALETTE = [
+  '#f97316',
+  '#0ea5e9',
+  '#8b5cf6',
+  '#10b981',
+  '#f43f5e',
+  '#eab308',
+  '#6366f1',
+  '#14b8a6',
+  '#f59e0b',
+  '#64748b',
+];
+
+/**
+ * Category-mix donut (Phase 7) — revenue share by menu category with a
+ * legend showing % and per-category totals. Shares the oms-donut styles
+ * with StatusDonut.
+ */
+export function CategoryMixDonut({ data = [], size = 168 }) {
+  const total = data.reduce((sum, d) => sum + (Number(d.revenue) || 0), 0);
+  const r = (size - 26) / 2;
+  const c = 2 * Math.PI * r;
+  let acc = 0;
+
+  return (
+    <div className="oms-donut">
+      <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} role="img" aria-label="Revenue by menu category">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--surface-2)" strokeWidth="22" />
+        {data.map((d, i) => {
+          const frac = total > 0 ? (Number(d.revenue) || 0) / total : 0;
+          const dash = frac * c;
+          const offset = -acc * c;
+          acc += frac;
+          if (frac === 0) return null;
+          return (
+            <circle
+              key={d.name}
+              cx={size / 2}
+              cy={size / 2}
+              r={r}
+              fill="none"
+              stroke={CATEGORY_PALETTE[i % CATEGORY_PALETTE.length]}
+              strokeWidth="22"
+              strokeDasharray={`${Math.max(dash - 3, 0.5)} ${c}`}
+              strokeDashoffset={offset}
+              transform={`rotate(-90 ${size / 2} ${size / 2})`}
+              className="oms-donut__seg"
+            >
+              <title>{`${d.name}: ${fmtTaka2(d.revenue)} (${d.pct}%)`}</title>
+            </circle>
+          );
+        })}
+        <text x="50%" y="47%" textAnchor="middle" className="oms-donut__total">{fmtTaka(total)}</text>
+        <text x="50%" y="58%" textAnchor="middle" className="oms-donut__caption">revenue</text>
+      </svg>
+      <div className="oms-donut__legend">
+        {data.map((d, i) => (
+          <div key={d.name} className="oms-donut__row">
+            <span
+              className="oms-donut__dot"
+              style={{ background: CATEGORY_PALETTE[i % CATEGORY_PALETTE.length] }}
+            />
+            <span className="oms-donut__name">{d.name}</span>
+            <span className="oms-donut__count">
+              {d.pct}% · {fmtTaka(d.revenue)}
+            </span>
+          </div>
+        ))}
+        {data.length === 0 && (
+          <div style={{ textAlign: 'center', padding: 16, color: 'var(--text-muted)', fontSize: 13 }}>
+            No paid orders yet
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const STATUS_COLORS = {
   placed: 'var(--primary)',
   preparing: 'var(--accent)',

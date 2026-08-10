@@ -96,6 +96,11 @@ const en = {
     paymentBreakdownSub: 'Paid orders, last 7 days',
     monthOverMonth: 'vs last month',
     forecastHint: 'Next 3 days (projected):',
+    peakHours: 'Peak hours',
+    peakHoursSub: 'Orders & revenue by day and hour (Dhaka time)',
+    busiestHour: 'Busiest slot',
+    categoryMix: 'Category mix',
+    categoryMixSub: 'Revenue share by menu category',
   },
   settings: {
     page: 'Settings',
@@ -457,6 +462,11 @@ const bn = {
     paymentBreakdownSub: 'পরিশোধিত অর্ডার, শেষ ৭ দিন',
     monthOverMonth: 'গত মাসের তুলনায়',
     forecastHint: 'আগামী ৩ দিন (প্রজেক্টেড):',
+    peakHours: 'ব্যস্ত সময়',
+    peakHoursSub: 'দিন ও ঘণ্টা অনুযায়ী অর্ডার ও আয় (ঢাকা সময়)',
+    busiestHour: 'সবচেয়ে ব্যস্ত স্লট',
+    categoryMix: 'ক্যাটাগরি মিক্স',
+    categoryMixSub: 'মেনু ক্যাটাগরি অনুযায়ী আয়ের ভাগ',
   },
   settings: {
     page: 'সেটিংস',
