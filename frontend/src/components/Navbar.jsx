@@ -14,6 +14,7 @@ const LINKS = [
   { to: '/orders/new', key: 'nav.newOrder', icon: <IconPlus /> },
   { to: '/tables', key: 'nav.qrMenu', icon: <IconQr /> },
   { to: '/reports', key: 'nav.reports', icon: <IconReceipt /> },
+  { to: '/admin', key: 'nav.admin', icon: <IconChart />, adminOnly: true },
   { to: '/settings', key: 'nav.settings', icon: <IconGear /> },
 ];
 
@@ -36,19 +37,21 @@ export default function Navbar() {
         <Logo mark="O" />
       </Link>
       <div className="oms-nav__links">
-        {LINKS.map((l) => (
-          <NavLink
-            key={l.to}
-            to={l.to}
-            end={l.to === '/products'}
-            className={({ isActive }) =>
-              `oms-nav__link ${isActive ? 'oms-nav__link--active' : ''}`
-            }
-          >
-            {l.icon}
-            <span>{t(l.key)}</span>
-          </NavLink>
-        ))}
+        {LINKS.filter((l) => !l.adminOnly || user?.platform_role === 'platform_admin').map(
+          (l) => (
+            <NavLink
+              key={l.to}
+              to={l.to}
+              end={l.to === '/products'}
+              className={({ isActive }) =>
+                `oms-nav__link ${isActive ? 'oms-nav__link--active' : ''}`
+              }
+            >
+              {l.icon}
+              <span>{t(l.key)}</span>
+            </NavLink>
+          )
+        )}
       </div>
       <div className="oms-nav__right">
         <TenantSwitcher />

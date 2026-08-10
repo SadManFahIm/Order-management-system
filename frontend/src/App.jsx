@@ -20,6 +20,7 @@ import SettingsPage from './pages/SettingsPage';
 import TableQRPage from './pages/TableQRPage';
 import ReportsPage from './pages/ReportsPage';
 import TrackOrderPage from './pages/TrackOrderPage';
+import AdminAnalyticsPage from './pages/AdminAnalyticsPage';
 
 export default function App() {
   return (
@@ -54,6 +55,7 @@ export default function App() {
                       <Route path="/orders/:id/invoice" element={<InvoicePage />} />
                       <Route path="/tables" element={<TableQRPage />} />
                       <Route path="/reports" element={<ReportsPage />} />
+                      <Route path="/admin" element={<AdminAnalyticsPage />} />
                       <Route path="/settings" element={<SettingsPage />} />
                     </Routes>
                   </main>

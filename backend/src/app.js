@@ -42,6 +42,7 @@ import tableRoutes from './routes/tables.js';
 import paymentRoutes from './routes/payments.js';
 import webhookRoutes from './routes/webhooks.js';
 import reportRoutes from './routes/reports.js';
+import adminAnalyticsRoutes from './routes/adminAnalytics.js';
 
 import { storageDriver, localStatic } from './config/storage.js';
 
@@ -120,6 +121,7 @@ app.use('/api/dashboard', apiLimiter, dashboardRoutes);
 app.use('/api/tables', apiLimiter, tableRoutes);
 app.use('/api/payments', apiLimiter, paymentRoutes);
 app.use('/api/reports', apiLimiter, reportRoutes);
+app.use('/api/admin', apiLimiter, adminAnalyticsRoutes);
 
 // 404 + centralized error handling
 app.use(notFound);
