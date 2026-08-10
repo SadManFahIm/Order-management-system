@@ -141,7 +141,6 @@ async function seedTenant(tenant) {
         payment_method: method,
         payment_status: paid ? 'paid' : 'unpaid',
         createdAt,
-        updatedAt: createdAt,
         items: items.map((li) => ({
           tenant_id: tenant.id,
           product_id: li.product.id,
@@ -156,6 +155,13 @@ async function seedTenant(tenant) {
       },
       { include: [{ model: OrderItem, as: 'items' }] }
     );
+
+    // Sequelize stamps updated_at at insert time even when provided, so
+    // backdate it explicitly (a raw UPDATE — created_at IS respected). Keeps
+    // the Phase 7 fulfillment-time stat honest on fresh installs.
+    await sequelize.query('UPDATE orders SET updated_at = :ua WHERE id = :id', {
+      replacements: { id: order.id, ua: createdAt },
+    });
 
     // Payment record mirroring the order — cash is paid on the spot, mobile
     // wallets carry a trxID once confirmed (paid orders here are confirmed).
