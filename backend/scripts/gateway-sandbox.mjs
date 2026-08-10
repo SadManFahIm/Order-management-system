@@ -1,21 +1,26 @@
 #!/usr/bin/env node
 /**
- * Gateway sandbox (Phase 5) — a dev-only mock of SSLCommerz + Stripe that
- * lets the FULL online-payment flow run locally with zero external
+ * Gateway sandbox (Phase 5/6) — a dev-only mock of SSLCommerz + Stripe +
+ * bKash that lets the FULL online-payment flow run locally with zero external
  * credentials:
  *
  *   backend/.env:
- *     PAYMENT_GATEWAY=stripe            # or sslcommerz
+ *     PAYMENT_GATEWAY=stripe            # or sslcommerz / bkash
  *     SSLCOMMERZ_API_URL=http://localhost:4321   # session create → sandbox
  *     STRIPE_API_URL=http://localhost:4321       # session create → sandbox
+ *     BKASH_API_URL=http://localhost:4321/tokenized   # → sandbox (bKash)
  *
  * The sandbox implements the exact wire contract each gateway uses:
  *   - SSLCommerz POST /gwprocess/v4/api.php  → SUCCESS + GatewayPageURL
  *   - Stripe     POST /v1/checkout/sessions  → { id, url }
- * and then completes the loop by POSTing the **signed webhook** (md5 for
- * SSLCommerz, HMAC-SHA256 for Stripe) to the real backend, exactly like the
- * live gateways would. Signatures are computed from the same secrets the
- * backend has in .env, so verification genuinely passes.
+ *   - bKash      POST /tokenized/checkout/{token/grant,create,execute}
+ * and then completes the loop exactly like the live gateways would:
+ *   - SSLCommerz/Stripe POST the **signed webhook** (md5 / HMAC-SHA256) to
+ *     the real backend, with signatures computed from the same secrets the
+ *     backend has in .env, so verification genuinely passes.
+ *   - bKash redirects the customer's browser to the merchant's callback URL
+ *     (the real flow has no server webhook); the backend then calls
+ *     /tokenized/checkout/execute, which the sandbox answers as Completed.
  *
  * Usage:
  *   node scripts/gateway-sandbox.mjs [--port 4321] [--auto] [--api http://localhost:4000]
@@ -158,6 +163,54 @@ const server = http.createServer(async (req, res) => {
       }));
     }
 
+    // ── bKash: token grant ───────────────────────────────────────────────
+    if (url.pathname === '/tokenized/checkout/token/grant' && req.method === 'POST') {
+      console.log('  [sandbox] bKash token granted');
+      return send(200, 'application/json', JSON.stringify({
+        id_token: `id_token_${randomBytes(8).toString('hex')}`,
+        refresh_token: `refresh_${randomBytes(8).toString('hex')}`,
+        expires_in: 3600,
+      }));
+    }
+
+    // ── bKash: create payment ────────────────────────────────────────────
+    if (url.pathname === '/tokenized/checkout/create' && req.method === 'POST') {
+      const body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
+      const paymentID = `TR00${randomBytes(8).toString('hex').toUpperCase()}`;
+      const amount = Number(body.amount || 0);
+      sessions.set(paymentID, {
+        key: paymentID,
+        paymentID,
+        amount,
+        gateway: 'bkash',
+        callbackURL: body.callbackURL,
+        confirmed: false,
+      });
+      console.log(`  [sandbox] bKash payment created: ${paymentID} (৳${amount})`);
+      return send(200, 'application/json', JSON.stringify({
+        paymentID,
+        bkashURL: `http://localhost:${port}/pay/bkash/${paymentID}`,
+        status: 'Initiated',
+      }));
+    }
+
+    // ── bKash: execute payment (called by the backend after the callback) ─
+    if (url.pathname === '/tokenized/checkout/execute' && req.method === 'POST') {
+      const body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
+      const session = sessions.get(body.paymentID);
+      if (!session) {
+        return send(400, 'application/json', JSON.stringify({ statusMessage: 'Payment not found' }));
+      }
+      session.confirmed = true;
+      return send(200, 'application/json', JSON.stringify({
+        paymentID: session.paymentID,
+        trxID: `TRX${randomBytes(5).toString('hex').toUpperCase()}`,
+        transactionStatus: 'Completed',
+        amount: session.amount.toFixed(2),
+        currency: 'BDT',
+      }));
+    }
+
     // ── Stripe: session creation ─────────────────────────────────────────
     if (url.pathname === '/v1/checkout/sessions' && req.method === 'POST') {
       const params = new URLSearchParams(Buffer.concat(chunks).toString());
@@ -175,11 +228,35 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ── Payment page + confirm action ────────────────────────────────────
-    const pay = url.pathname.match(/^\/pay\/(sslcommerz|stripe)\/([^/]+)$/);
+    const pay = url.pathname.match(/^\/pay\/(sslcommerz|stripe|bkash)\/([^/]+)$/);
     if (pay) {
       const [, gateway, key] = pay;
       const session = sessions.get(decodeURIComponent(key));
       if (!session) return send(404, 'text/html', html('Unknown session', '<h1>Session not found</h1><p class="sub">This sandbox payment session does not exist.</p>'));
+      if (gateway === 'bkash') {
+        // bKash has no server webhook — after "paying", the customer's
+        // browser is redirected to the merchant callback URL, which the
+        // backend turns into the execute round-trip. In --auto mode that
+        // redirect happens server-side so headless fetches complete the loop.
+        const target = `${session.callbackURL}?paymentID=${encodeURIComponent(session.paymentID)}&status=success`;
+        if (autoConfirm) {
+          res.writeHead(302, { Location: target });
+          return res.end();
+        }
+        return send(
+          200,
+          'text/html',
+          html(
+            `Sandbox payment · ${session.paymentID}`,
+            `<div class="badge">bKash sandbox</div>
+             <h1>${session.paymentID}</h1>
+             <p class="sub">This is a fake bKash page served by the local gateway sandbox.</p>
+             <p class="amt">৳ ${session.amount.toFixed(2)}</p>
+             <a href="${target}" style="display:inline-block;background:#e2136e;color:#fff;border-radius:12px;padding:12px 28px;font-size:15px;font-weight:700;text-decoration:none">Pay now</a>
+             <p class="note">Paying redirects to the merchant callback → execute → paid</p>`
+          )
+        );
+      }
       return send(200, 'text/html', payPage(gateway, session));
     }
 
