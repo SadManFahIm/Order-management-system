@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Gateway test-mode end-to-end (Phase 5) — proves the FULL online-payment
+ * Gateway test-mode end-to-end (Phase 5/6) — proves the FULL online-payment
  * loop works without any real gateway credentials.
  *
  *   run:   npm run gateway:e2e   (or node scripts/gateway-e2e.mjs)
@@ -8,15 +8,17 @@
  * Flow driven against the REAL app code (not mocks):
  *   1. start the local gateway sandbox (auto-confirm mode)
  *   2. boot the backend in-process against a scratch SQLite DB, with the
- *      sandbox wired in as the gateway (SSLCOMMERZ_API_URL / STRIPE_API_URL)
+ *      sandbox wired in as the gateway (SSLCOMMERZ_API_URL / STRIPE_API_URL /
+ *      BKASH_API_URL)
  *   3. create a tenant + owner + product, log in, accept online payments
  *   4. place an order with payment_method=online → assert pending + paymentUrl
- *   5. let the sandbox fire the signed webhook (md5 / HMAC-SHA256)
+ *   5. let the sandbox confirm it — signed webhook (md5 / HMAC-SHA256) for
+ *      SSLCommerz/Stripe; browser redirect → execute for bKash
  *   6. assert the payment record + order flipped to paid
  *
  * One worker process per gateway (PAYMENT_GATEWAY must be set before the app
  * imports its env config), coordinated by this launcher. Exits 0 only if
- * BOTH flows pass.
+ * ALL THREE flows pass.
  */
 import { spawn } from 'node:child_process';
 import http from 'node:http';
@@ -85,7 +87,8 @@ try {
   await waitForSandbox();
   await spawnWorker('sslcommerz');
   await spawnWorker('stripe');
-  console.log('\n✅✅ Both gateway flows verified end-to-end (SSLCommerz + Stripe).');
+  await spawnWorker('bkash');
+  console.log('\n✅✅✅ All three gateway flows verified end-to-end (SSLCommerz + Stripe + bKash).');
   process.exitCode = 0;
 } catch (e) {
   console.error(`\n❌ E2E failed: ${e.message}`);
@@ -109,6 +112,14 @@ async function runWorker(gateway) {
   process.env.SSLCOMMERZ_STORE_PASSWORD = process.env.SSLCOMMERZ_STORE_PASSWORD || 'sandbox-store-pass';
   process.env.STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || 'sk_test_sandbox';
   process.env.STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || 'whsec_sandbox';
+  if (gateway === 'bkash') {
+    process.env.BKASH_API_URL = `http://localhost:${process.env.GATEWAY_SANDBOX_PORT}/tokenized`;
+    process.env.BKASH_APP_KEY = process.env.BKASH_APP_KEY || 'sandbox-app-key';
+    process.env.BKASH_APP_SECRET = process.env.BKASH_APP_SECRET || 'sandbox-app-secret';
+    process.env.BKASH_USER_NAME = process.env.BKASH_USER_NAME || '01700000000';
+    process.env.BKASH_PASSWORD = process.env.BKASH_PASSWORD || 'sandbox-password';
+    process.env.BKASH_CALLBACK_URL = 'http://localhost:4599/api/webhooks/bkash/callback';
+  }
 
   const file = (p) => pathToFileURL(p).href;
   const bcrypt = (await import('bcryptjs')).default;
@@ -169,6 +180,13 @@ async function runWorker(gateway) {
     throw new Error(`${gateway}: expected pending payment + paymentUrl, got ${order.payment_status} / ${order.paymentUrl}`);
   }
   console.log(`  ${gateway}: order ${order.order_no} created — pending, paymentUrl=${order.paymentUrl}`);
+
+  if (gateway === 'bkash') {
+    // bKash has no server webhook — the sandbox pay page 302-redirects the
+    // customer's browser to the merchant callback, which executes the payment.
+    // One fetch (auto-following the redirect) completes the whole loop.
+    await fetch(order.paymentUrl).catch(() => {});
+  }
 
   // Sandbox auto-confirms; poll until the webhook lands.
   for (let i = 0; i < 40; i++) {

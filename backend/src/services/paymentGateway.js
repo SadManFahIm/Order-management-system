@@ -6,17 +6,20 @@ import Order from '../models/Order.js';
 import { applyPaymentStatus } from './paymentsService.js';
 
 /**
- * Online payment gateways (Phase 5) — SSLCommerz + Stripe hosted checkout.
+ * Online payment gateways (Phase 5/6) — SSLCommerz + Stripe + bKash hosted
+ * checkout behind one provider interface.
  *
- * Zero-dependency: both gateways are plain REST APIs, so the integration uses
- * `fetch` + `node:crypto` — no SDKs. An order placed with `payment_method:
- * 'online'` gets a gateway redirect URL (SSLCommerz GatewayPageURL or Stripe
- * Checkout Session), and the gateway's server-side webhook flips the pending
- * payment to paid.
+ * Zero-dependency: all three gateways are plain REST APIs, so the integration
+ * uses `fetch` + `node:crypto` — no SDKs. An order placed with
+ * `payment_method: 'online'` gets a gateway redirect URL (SSLCommerz
+ * GatewayPageURL, Stripe Checkout Session, or bKash bkashURL), and the
+ * gateway confirms the payment — a signed server webhook for
+ * SSLCommerz/Stripe, a browser callback + `execute` for bKash — flipping the
+ * pending payment to paid.
  *
- * Sandbox-first: `PAYMENT_GATEWAY=sslcommerz|stripe` with sandbox credentials
- * (SSLCommerz sandbox store / Stripe test keys). Missing credentials produce
- * a clear configuration error at order time, never a silent fallback.
+ * Sandbox-first: `PAYMENT_GATEWAY=sslcommerz|stripe|bkash` with sandbox
+ * credentials. Missing credentials produce a clear configuration error at
+ * order time, never a silent fallback.
  */
 
 /** Which gateway (if any) is active, and whether it is sandbox mode. */
@@ -41,23 +44,46 @@ export function gatewayStatus() {
     }
     return { active: true, name: 'stripe', sandbox: true };
   }
+  if (env.PAYMENT_GATEWAY === 'bkash') {
+    const missing = [
+      ['BKASH_APP_KEY', env.BKASH_APP_KEY],
+      ['BKASH_APP_SECRET', env.BKASH_APP_SECRET],
+      ['BKASH_USER_NAME', env.BKASH_USER_NAME],
+      ['BKASH_PASSWORD', env.BKASH_PASSWORD],
+    ].filter(([, v]) => !v);
+    if (missing.length > 0) {
+      throw new AppError(
+        500,
+        'GATEWAY_NOT_CONFIGURED',
+        `PAYMENT_GATEWAY=bkash requires ${missing.map(([k]) => k).join(', ')}`
+      );
+    }
+    return { active: true, name: 'bkash', sandbox: env.BKASH_SANDBOX !== false };
+  }
   return { active: false, name: null, sandbox: false };
 }
 
 /**
  * Creates a hosted checkout for an order's pending payment. Returns
  * `{ gateway, paymentUrl, sessionId }` and stamps `payment.reference` with
- * the gateway's transaction identifier (tran_id / session id) so the webhook
- * can find it.
+ * the gateway's transaction identifier (tran_id / session id / paymentID) so
+ * the confirmation path can find it.
  */
 export async function createOnlinePayment({ tenant, order, payment }) {
   const gateway = gatewayStatus();
   if (!gateway.active) {
     throw new AppError(400, 'PAYMENT_GATEWAY_NOT_CONFIGURED', 'Online payments are not enabled on this platform');
   }
-  if (gateway.name === 'sslcommerz') return createSslcommerzSession(tenant, order, payment);
-  return createStripeSession(tenant, order, payment);
+  const provider = providers[gateway.name];
+  return provider.createSession(tenant, order, payment);
 }
+
+/** Provider registry — one object per gateway, same `createSession` shape. */
+const providers = {
+  sslcommerz: { name: 'sslcommerz', createSession: createSslcommerzSession },
+  stripe: { name: 'stripe', createSession: createStripeSession },
+  bkash: { name: 'bkash', createSession: createBkashSession },
+};
 
 async function createSslcommerzSession(tenant, order, payment) {
   const tranId = `TXN-${order.tenant_id}-${Date.now().toString(36).toUpperCase()}-${Math.floor(Math.random() * 1e4)}`;
@@ -177,6 +203,110 @@ function safeEqual(a, b) {
   const bufB = Buffer.from(b, 'utf8');
   if (bufA.length !== bufB.length) return false;
   return timingSafeEqual(bufA, bufB);
+}
+
+// ── bKash Tokenized Checkout adapter ──────────────────────────────────────
+// Flow: grant an id_token (cached until expiry) → create a payment (bkashURL)
+// → the customer pays on bKash's page → the browser is redirected to
+// BKASH_CALLBACK_URL with the paymentID → the backend EXECUTES the payment
+// (the actual verification — an unsigned callback is never trusted) and marks
+// it paid with the returned trxID. No server-to-server webhook exists, so the
+// callback + execute round-trip is the confirmation.
+
+/** bKash API base (sandbox default). `BKASH_API_URL` overrides for local mocks. */
+function bkashBase() {
+  return (
+    env.BKASH_API_URL ||
+    (env.BKASH_SANDBOX !== false
+      ? 'https://tokenized.sandbox.bka.sh/v1.2.0-beta/tokenized'
+      : 'https://tokenized.pay.bka.sh/v1.2.0-beta/tokenized')
+  );
+}
+
+let bkashTokenCache = null;
+
+/** Grants (and caches) a bKash id_token; refreshes near/after expiry. */
+async function bkashToken() {
+  if (bkashTokenCache && bkashTokenCache.expiresAt > Date.now() + 30_000) {
+    return bkashTokenCache.token;
+  }
+  const res = await fetch(`${bkashBase()}/checkout/token/grant`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      // Basic auth: base64(username:password), per bKash docs.
+      Authorization: `Basic ${Buffer.from(`${env.BKASH_USER_NAME}:${env.BKASH_PASSWORD}`).toString('base64')}`,
+    },
+    body: JSON.stringify({ app_key: env.BKASH_APP_KEY, app_secret: env.BKASH_APP_SECRET }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status !== 200 || !data.id_token) {
+    throw new AppError(502, 'GATEWAY_ERROR', `bKash token grant failed: ${data.statusMessage || res.status}`);
+  }
+  bkashTokenCache = {
+    token: data.id_token,
+    expiresAt: Date.now() + Number(data.expires_in || 3600) * 1000,
+  };
+  return bkashTokenCache.token;
+}
+
+async function createBkashSession(tenant, order, payment) {
+  const token = await bkashToken();
+  const amount = Number(order.grand_total ?? order.total_amount ?? 0);
+  const body = {
+    mode: '0011',
+    payerReference: order.customer_phone || '01700000000',
+    callbackURL: env.BKASH_CALLBACK_URL,
+    amount: amount.toFixed(2),
+    currency: 'BDT',
+    intent: 'sale',
+    // Unique alphanumeric invoice reference (bKash constraint ~20 chars) —
+    // the payment.id makes it unique per transaction.
+    merchantInvoiceNumber: `INV${payment.id}`,
+  };
+  const res = await fetch(`${bkashBase()}/checkout/create`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      authorization: token,
+      'x-app-key': env.BKASH_APP_KEY,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status !== 200 || !data.paymentID || !data.bkashURL) {
+    throw new AppError(502, 'GATEWAY_ERROR', `bKash create failed: ${data.statusMessage || res.status}`);
+  }
+
+  payment.reference = data.paymentID; // the callback/execute looks it up by this
+  await payment.save();
+  return { gateway: 'bkash', paymentUrl: data.bkashURL, sessionId: data.paymentID };
+}
+
+/**
+ * Executes a bKash payment (callback verification): the real transaction
+ * state comes from this call, not from the unsigned browser callback. Returns
+ * the raw gateway response `{ paymentID, trxID, transactionStatus, amount }`.
+ */
+export async function executeBkashPayment(paymentID) {
+  const token = await bkashToken();
+  const res = await fetch(`${bkashBase()}/checkout/execute`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      authorization: token,
+      'x-app-key': env.BKASH_APP_KEY,
+    },
+    body: JSON.stringify({ paymentID }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status !== 200 || !data.trxID) {
+    throw new AppError(502, 'GATEWAY_ERROR', `bKash execute failed: ${data.statusMessage || res.status}`);
+  }
+  return data;
 }
 
 /**

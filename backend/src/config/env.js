@@ -77,13 +77,14 @@ const envSchema = z.object({
   MAX_IMAGE_DIMENSION: z.coerce.number().int().positive().default(4096),
   MAX_IMPORT_BYTES: z.coerce.number().int().positive().default(2 * 1024 * 1024),
   MAX_IMPORT_ROWS: z.coerce.number().int().positive().default(2000),
-  // ── Online payment gateway (Phase 5) ───────────────────────────────────
+  // ── Online payment gateway (Phase 5/6) ─────────────────────────────────
   // 'none' disables online payments (the default). 'sslcommerz' / 'stripe'
-  // enable the hosted-checkout flow: an order placed with `payment_method:
-  // 'online'` returns a gateway redirect URL, and the gateway's webhook
-  // confirms the payment (flips pending → paid). Sandbox by default — set
+  // / 'bkash' enable the hosted-checkout flow: an order placed with
+  // `payment_method: 'online'` returns a gateway redirect URL, and the
+  // gateway confirms the payment (webhook for SSLCommerz/Stripe, callback
+  // + execute for bKash — flips pending → paid). Sandbox by default — set
   // the *_SANDBOX flags to '0' only for production credentials.
-  PAYMENT_GATEWAY: z.enum(['none', 'sslcommerz', 'stripe']).default('none'),
+  PAYMENT_GATEWAY: z.enum(['none', 'sslcommerz', 'stripe', 'bkash']).default('none'),
   SSLCOMMERZ_STORE_ID: z.string().optional(),
   SSLCOMMERZ_STORE_PASSWORD: z.string().optional(),
   SSLCOMMERZ_SANDBOX: z
@@ -98,6 +99,23 @@ const envSchema = z.object({
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_API_URL: z.string().default('https://api.stripe.com'),
+  // ── bKash Tokenized Checkout (Phase 6) ─────────────────────────────────
+  // Credentials from the bKash merchant portal (sandbox by default — set
+  // BKASH_SANDBOX=0 for live). The flow: grant token → create payment →
+  // customer pays on bKash's page → browser redirected to BKASH_CALLBACK_URL
+  // → the backend executes the payment (trxID) and marks it paid.
+  BKASH_APP_KEY: z.string().optional(),
+  BKASH_APP_SECRET: z.string().optional(),
+  BKASH_USER_NAME: z.string().optional(),
+  BKASH_PASSWORD: z.string().optional(),
+  BKASH_SANDBOX: z
+    .string()
+    .optional()
+    .transform((v) => v === '1' || v === 'true'),
+  BKASH_API_URL: z.string().optional(),
+  BKASH_CALLBACK_URL: z
+    .string()
+    .default('http://localhost:4000/api/webhooks/bkash/callback'),
 });
 
 const parsed = envSchema.safeParse(process.env);

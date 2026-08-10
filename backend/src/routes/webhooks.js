@@ -1,20 +1,25 @@
 import express from 'express';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { env } from '../config/env.js';
 import {
   verifySslcommerzSignature,
   verifyStripeSignature,
   applyGatewayConfirmation,
+  executeBkashPayment,
 } from '../services/paymentGateway.js';
 
 /**
- * Payment gateway webhooks (Phase 5).
+ * Payment gateway webhooks (Phase 5/6).
  *
  * These are PUBLIC, unauthenticated endpoints (the gateways call them, not
  * the merchant), so authenticity is enforced with signatures instead:
  *   - SSLCommerz POSTs form data + `verify_sign` (md5 of store password +
  *     store id + tran id + amount + currency + status).
  *   - Stripe POSTs raw JSON with a `Stripe-Signature` HMAC-SHA256 header.
+ *   - bKash redirects the customer's BROWSER to the callback (no signature) —
+ *     the backend verifies by EXECUTING the payment and trusting the real
+ *     transaction state, never the unsigned callback itself.
  *
  * Replayed webhooks are idempotent: the payment lookup requires status
  * `pending`, so a second confirmation simply no-ops.
@@ -68,6 +73,42 @@ router.post(
     }
     // Every verified event is acknowledged — unhandled types are a no-op.
     res.json({ received: true, type: event.type });
+  })
+);
+
+/**
+ * GET/POST /api/webhooks/bkash/callback — the customer's browser lands here
+ * after paying on bKash's page (`?paymentID=…&status=success`). The callback
+ * itself is UNSIGNED, so it is never trusted: the backend executes the
+ * payment with the real gateway (the source of truth) and only then marks it
+ * paid. The browser is redirected to the merchant's success/fail page either
+ * way (a 2xx to the bKash redirect would confuse the browser UX).
+ */
+router.all(
+  '/bkash/callback',
+  express.urlencoded({ extended: false }),
+  asyncHandler(async (req, res) => {
+    const paymentID = req.query?.paymentID || req.body?.paymentID;
+    const status = req.query?.status || req.body?.status;
+    if (!paymentID || typeof paymentID !== 'string') {
+      throw new AppError(400, 'VALIDATION_ERROR', 'paymentID is required');
+    }
+    // Canceled / failed at the bKash page — acknowledge, no state change.
+    if (status && status !== 'success') {
+      return res.redirect(env.SSLCOMMERZ_FAIL_URL);
+    }
+
+    const executed = await executeBkashPayment(paymentID);
+    if (executed.transactionStatus !== 'Completed') {
+      return res.redirect(env.SSLCOMMERZ_FAIL_URL);
+    }
+
+    await applyGatewayConfirmation({
+      gateway: 'bkash',
+      reference: paymentID,
+      gatewayReference: executed.trxID || paymentID,
+    });
+    return res.redirect(env.SSLCOMMERZ_SUCCESS_URL);
   })
 );
 

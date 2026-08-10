@@ -143,11 +143,12 @@ jobs:
 
   gateway-sandbox:
     # Online-payment tier — boots the REAL backend against the local gateway
-    # sandbox (mock SSLCommerz + Stripe with real signature math) and drives
-    # the full loop for BOTH gateways (order → pending + paymentUrl → signed
-    # webhook → paid). Proves the gateway integration on every PR without
-    # external credentials; exits non-zero unless both flows pass.
-    name: Backend — gateway sandbox E2E (SSLCommerz + Stripe)
+    # sandbox (mock SSLCommerz + Stripe with real signature math, bKash with
+    # a faithful callback → execute round-trip) and drives the full loop for
+    # ALL THREE gateways (order → pending + paymentUrl → confirmation → paid).
+    # Proves the gateway integration on every PR without external
+    # credentials; exits non-zero unless all three flows pass.
+    name: Backend — gateway sandbox E2E (SSLCommerz + Stripe + bKash)
     runs-on: ubuntu-latest
     env:
       NODE_ENV: test
@@ -164,7 +165,7 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - name: Install dependencies
         run: npm ci
-      - name: Run gateway test-mode E2E (both gateways)
+      - name: Run gateway test-mode E2E (all three gateways)
         run: npm run gateway:e2e
 
   s3-storage:
