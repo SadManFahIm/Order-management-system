@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import api from '../api';
 import { useI18n } from '../i18n';
 import { PageHeader, Card, Skeleton, Badge } from '../components/ui';
-import { TrendAreaChart, OrdersBarChart, StatusDonut, CloseoutTrendChart } from '../components/charts';
+import { TrendAreaChart, OrdersBarChart, StatusDonut, CloseoutTrendChart, PeakHoursHeatmap, CategoryMixDonut } from '../components/charts';
 
 const fmtTaka = (n) => `৳ ${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
@@ -335,6 +335,35 @@ export default function DashboardPage() {
               ))}
             </div>
           )}
+        </Card>
+      </div>
+
+      {/* Peak hours heatmap + category mix (Phase 7) */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
+          gap: 16,
+          marginTop: 16,
+        }}
+      >
+        <Card title={t('dash.peakHours')} subtitle={t('dash.peakHoursSub')}>
+          <PeakHoursHeatmap
+            grid={data.peakHours?.grid || []}
+            days={data.peakHours?.days || []}
+            hours={data.peakHours?.hours || []}
+            maxRevenue={data.peakHours?.maxRevenue || 0}
+          />
+          {data.peakHours?.busiest ? (
+            <Badge tone="warning" style={{ marginTop: 12 }}>
+              {t('dash.busiestHour')}: {data.peakHours.days[data.peakHours.busiest.day]}{' '}
+              {String(data.peakHours.busiest.hour).padStart(2, '0')}:00 ·{' '}
+              {fmtTaka(data.peakHours.busiest.revenue)}
+            </Badge>
+          ) : null}
+        </Card>
+        <Card title={t('dash.categoryMix')} subtitle={t('dash.categoryMixSub')}>
+          <CategoryMixDonut data={data.categoryMix || []} />
         </Card>
       </div>
     </div>

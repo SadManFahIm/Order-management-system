@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import app from '../app.js';
 import sequelize from '../config/db.js';
 import { resetTestDb } from '../test/resetDb.js';
-import { User, Tenant, UserTenant, Product } from '../models/index.js';
+import { User, Tenant, UserTenant, Product, MenuCategory } from '../models/index.js';
 
 /**
  * Merchant dashboard (Phase 4 completion) — today's revenue/orders, open
@@ -247,6 +247,74 @@ describe('GET /api/dashboard', () => {
   it('requires authentication', async () => {
     const res = await request(app).get('/api/dashboard');
     expect(res.status).toBe(401);
+  });
+
+  it('exposes a peak-hours heatmap grid (Phase 7)', async () => {
+    const res = await request(app)
+      .get('/api/dashboard')
+      .set('Authorization', `Bearer ${managerToken}`);
+    expect(res.status).toBe(200);
+
+    const { peakHours } = res.body;
+    // 7 (Sun-first) × 24 grid, always complete.
+    expect(peakHours.days).toEqual(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']);
+    expect(peakHours.grid).toHaveLength(7);
+    for (const row of peakHours.grid) expect(row).toHaveLength(24);
+    // Every cell carries day/hour/orders/revenue.
+    expect(peakHours.grid[0][0]).toMatchObject({ day: 0, hour: 0, orders: 0, revenue: 0 });
+
+    // Grid totals must reconcile with the closeout trend (3 orders / 700).
+    const gridOrders = peakHours.grid.flat().reduce((s, c) => s + c.orders, 0);
+    const gridRevenue = peakHours.grid.flat().reduce((s, c) => s + c.revenue, 0);
+    const trendOrders = res.body.closeoutTrend.reduce((s, d) => s + d.orders, 0);
+    const trendRevenue = res.body.closeoutTrend.reduce((s, d) => s + d.revenue, 0);
+    expect(gridOrders).toBe(trendOrders);
+    expect(gridOrders).toBe(3);
+    expect(gridRevenue).toBe(trendRevenue);
+    expect(gridRevenue).toBe(700);
+
+    // The busiest slot holds all three orders (placed seconds apart → same
+    // Dhaka hour), with revenue 700.
+    expect(peakHours.busiest.orders).toBe(3);
+    expect(peakHours.busiest.revenue).toBe(700);
+    expect(peakHours.maxRevenue).toBe(700);
+    expect(peakHours.maxOrders).toBe(3);
+  });
+
+  it('breaks down revenue by menu category (Phase 7)', async () => {
+    // Give tenant A a real category and attach a product to it.
+    const cat = await MenuCategory.create({ tenant_id: tenantA.id, name: 'Burgers' });
+    const p = await Product.create({
+      tenant_id: tenantA.id,
+      name: 'Categorized Burger',
+      price: 150,
+      weight_gm: 200,
+      enabled: true,
+      category_id: cat.id,
+    });
+    await placeOrder(managerToken, [{ product_id: p.id, quantity: 1 }]);
+
+    const res = await request(app)
+      .get('/api/dashboard')
+      .set('Authorization', `Bearer ${managerToken}`);
+    expect(res.status).toBe(200);
+
+    // Uncategorized lines (Burger/Fries from before) + the new category.
+    const mix = res.body.categoryMix;
+    const uncat = mix.find((c) => c.name === 'Uncategorized');
+    const burgers = mix.find((c) => c.name === 'Burgers');
+    expect(uncat).toBeDefined();
+    expect(uncat.revenue).toBe(700);
+    expect(uncat.quantity).toBe(4); // 2×Burger + 1×Burger + 1×Fries
+    expect(burgers).toBeDefined();
+    expect(burgers.revenue).toBe(150);
+    expect(burgers.quantity).toBe(1);
+    expect(burgers.pct).toBeCloseTo((150 / 850) * 100, 1); // 17.6%
+    // Percentages sum to ~100 and rows are sorted by revenue desc.
+    const pctSum = mix.reduce((s, c) => s + c.pct, 0);
+    expect(pctSum).toBeGreaterThan(99);
+    expect(pctSum).toBeLessThanOrEqual(100.1);
+    expect(mix[0].name).toBe('Uncategorized');
   });
 
   it('is tenant-scoped — tenant B sees none of tenant A', async () => {
