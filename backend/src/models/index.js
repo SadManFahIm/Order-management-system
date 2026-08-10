@@ -19,6 +19,7 @@ import ItemAddon from './ItemAddon.js';
 import InventoryItem from './InventoryItem.js';
 import Table from './Table.js';
 import Payment from './Payment.js';
+import DailyStat from './DailyStat.js';
 
 // Tenant ↔ Plan / SaaS wiring
 Tenant.belongsTo(Plan, { foreignKey: 'plan_id', as: 'plan' });
@@ -46,4 +47,5 @@ export {
   InventoryItem,
   Table,
   Payment,
+  DailyStat,
 };
