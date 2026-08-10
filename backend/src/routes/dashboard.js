@@ -78,7 +78,7 @@ router.get(
       Date.UTC(prevMonthDate.getUTCFullYear(), prevMonthDate.getUTCMonth(), 1) - DHAKA_OFFSET_MS
     );
 
-    const [todayOrders, openOrders, totalProducts, windowOrders, recentLines, paidPayments, closeoutOrders, closeoutPayments, monthOrders, windowItems] =
+    const [todayOrders, openOrders, totalProducts, windowOrders, recentLines, paidPayments, closeoutOrders, closeoutPayments, monthOrders, windowItems, retentionOrders, fulfillmentOrders] =
       await Promise.all([
         Order.findAll({
           where: { tenant_id: req.tenant.id, createdAt: { [Op.gte]: startOfToday } },
@@ -161,6 +161,26 @@ router.get(
           ],
           attributes: ['item_name', 'quantity', 'line_total'],
           limit: 5000,
+        }),
+        // Customer retention window (Phase 7): last 30 days, non-canceled,
+        // phone-identified orders — the phone is the customer identity in
+        // this system (no separate profile table yet).
+        Order.findAll({
+          where: {
+            tenant_id: req.tenant.id,
+            customer_phone: { [Op.not]: null },
+            status: { [Op.ne]: 'canceled' },
+            createdAt: { [Op.gte]: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
+          },
+          attributes: ['customer_phone', 'grand_total'],
+        }),
+        // Fulfillment-time sample (Phase 7): delivered orders. There is no
+        // order_status_history table yet, so the last status write
+        // (updatedAt) approximates the delivered timestamp — documented
+        // approximation until a proper status-history table lands.
+        Order.findAll({
+          where: { tenant_id: req.tenant.id, status: 'delivered' },
+          attributes: ['type', 'createdAt', 'updatedAt'],
         }),
       ]);
 
@@ -399,6 +419,70 @@ router.get(
         pct: categoryTotal > 0 ? Math.round((c.revenue / categoryTotal) * 1000) / 10 : 0,
       }));
 
+    // ── Customer retention (Phase 7) ────────────────────────────────────
+    // Repeat-customer rate + avg order value over a 30-day window; top
+    // customers by revenue (phone masked — the merchant knows who they are
+    // but the payload stays privacy-safe).
+    const byPhone = new Map();
+    for (const o of retentionOrders) {
+      const entry = byPhone.get(o.customer_phone) || { orders: 0, revenue: 0 };
+      entry.orders += 1;
+      entry.revenue += Number(o.grand_total || 0);
+      byPhone.set(o.customer_phone, entry);
+    }
+    const customerList = [...byPhone.entries()];
+    const totalCustomers = customerList.length;
+    const repeatCustomers = customerList.filter(([, e]) => e.orders >= 2).length;
+    const retentionRevenue = customerList.reduce((s, [, e]) => s + e.revenue, 0);
+    const retentionOrderCount = customerList.reduce((s, [, e]) => s + e.orders, 0);
+    const retention = {
+      windowDays: 30,
+      totalCustomers,
+      repeatCustomers,
+      repeatRate:
+        totalCustomers > 0 ? Math.round((repeatCustomers / totalCustomers) * 1000) / 10 : 0,
+      avgOrderValue:
+        retentionOrderCount > 0
+          ? Math.round((retentionRevenue / retentionOrderCount) * 100) / 100
+          : 0,
+      topCustomers: customerList
+        .sort((a, b) => b[1].revenue - a[1].revenue)
+        .slice(0, 5)
+        .map(([phone, e]) => ({
+          phone: phone.replace(/^(\d{4})\d+(\d{2})$/, '$1••••$2'),
+          orders: e.orders,
+          revenue: Math.round(e.revenue * 100) / 100,
+        })),
+    };
+
+    // ── Fulfillment time (Phase 7) ──────────────────────────────────────
+    // Average placed → delivered duration per order type (minutes).
+    const byTypeMs = new Map();
+    let allMs = 0;
+    let allCount = 0;
+    for (const o of fulfillmentOrders) {
+      const ms = new Date(o.updatedAt).getTime() - new Date(o.createdAt).getTime();
+      if (ms < 0) continue; // clock skew / malformed row — never negative
+      const type = o.type || 'pickup';
+      const entry = byTypeMs.get(type) || { totalMs: 0, count: 0 };
+      entry.totalMs += ms;
+      entry.count += 1;
+      byTypeMs.set(type, entry);
+      allMs += ms;
+      allCount += 1;
+    }
+    const fulfillment = {
+      overallAvgMinutes:
+        allCount > 0 ? Math.round((allMs / allCount / 60000) * 10) / 10 : 0,
+      types: [...byTypeMs.entries()]
+        .sort((a, b) => b[1].totalMs / b[1].count - a[1].totalMs / a[1].count)
+        .map(([type, e]) => ({
+          type,
+          avgMinutes: Math.round((e.totalMs / e.count / 60000) * 10) / 10,
+          orders: e.count,
+        })),
+    };
+
     // Trend stats — totals, average, best day, and the day-over-day delta.
     const paidRevenue = closeoutTrend.reduce((s, d) => s + d.revenue, 0);
     const totalOrders = closeoutTrend.reduce((s, d) => s + d.orders, 0);
@@ -437,6 +521,8 @@ router.get(
       monthOverMonth,
       peakHours,
       categoryMix,
+      retention,
+      fulfillment,
     });
   })
 );

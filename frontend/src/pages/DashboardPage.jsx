@@ -366,6 +366,129 @@ export default function DashboardPage() {
           <CategoryMixDonut data={data.categoryMix || []} />
         </Card>
       </div>
+
+      {/* Customer retention + fulfillment time (Phase 7) */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
+          gap: 16,
+          marginTop: 16,
+        }}
+      >
+        <Card title={t('dash.retention')} subtitle={t('dash.retentionSub')}>
+          {(data.retention?.totalCustomers || 0) === 0 ? (
+            <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>
+              {t('dash.noCustomers')}
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: 14 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="oms-mini-stat">
+                  <div className="oms-mini-stat__value">
+                    {data.retention.repeatRate}%
+                  </div>
+                  <div className="oms-mini-stat__label">{t('dash.repeatRate')}</div>
+                  <div className="oms-mini-stat__hint">
+                    {data.retention.repeatCustomers}/{data.retention.totalCustomers}{' '}
+                    {t('dash.repeatCustomers')}
+                  </div>
+                </div>
+                <div className="oms-mini-stat">
+                  <div className="oms-mini-stat__value">{fmtTaka(data.retention.avgOrderValue)}</div>
+                  <div className="oms-mini-stat__label">{t('dash.avgOrderValue')}</div>
+                  <div className="oms-mini-stat__hint">30 {t('dash.days')}</div>
+                </div>
+              </div>
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>
+                  {t('dash.topCustomers')}
+                </div>
+                {data.retention.topCustomers.map((c) => (
+                  <div
+                    key={c.phone}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'baseline',
+                      padding: '5px 0',
+                      fontSize: 13.5,
+                    }}
+                  >
+                    <span style={{ fontWeight: 650, fontVariantNumeric: 'tabular-nums' }}>
+                      {c.phone}
+                    </span>
+                    <span style={{ color: 'var(--text-muted)' }}>
+                      {c.orders} × · {fmtTaka(c.revenue)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Card>
+
+        <Card title={t('dash.fulfillment')} subtitle={t('dash.fulfillmentSub')}>
+          {(data.fulfillment?.types || []).length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>
+              {t('dash.noData')}
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: 14 }}>
+              <div className="oms-mini-stat">
+                <div className="oms-mini-stat__value">
+                  {data.fulfillment.overallAvgMinutes} {t('dash.minutes')}
+                </div>
+                <div className="oms-mini-stat__label">{t('dash.overallAvg')}</div>
+              </div>
+              {data.fulfillment.types.map((ft) => {
+                const maxMin = Math.max(
+                  ...data.fulfillment.types.map((x) => x.avgMinutes),
+                  1
+                );
+                return (
+                  <div key={ft.type}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'baseline',
+                        marginBottom: 6,
+                      }}
+                    >
+                      <span style={{ fontWeight: 650, textTransform: 'capitalize' }}>
+                        {ft.type}
+                      </span>
+                      <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                        {ft.avgMinutes} {t('dash.minutes')} · {ft.orders}{' '}
+                        {t('dash.ordersTotal')}
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        height: 8,
+                        borderRadius: 999,
+                        background: 'var(--surface-2)',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: '100%',
+                          width: `${Math.max((ft.avgMinutes / maxMin) * 100, 4)}%`,
+                          borderRadius: 999,
+                          background: 'linear-gradient(90deg, var(--primary), var(--accent))',
+                          transition: 'width .5s var(--ease-out)',
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+      </div>
     </div>
   );
 }

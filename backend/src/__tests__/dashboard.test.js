@@ -317,6 +317,66 @@ describe('GET /api/dashboard', () => {
     expect(mix[0].name).toBe('Uncategorized');
   });
 
+  it('measures customer retention over a 30-day window (Phase 7)', async () => {
+    const burger = await Product.findOne({
+      where: { tenant_id: tenantA.id, name: 'Dash Burger' },
+    });
+    const place = (phone) =>
+      request(app)
+        .post('/api/orders')
+        .set('Authorization', `Bearer ${managerToken}`)
+        .send({
+          customer_name: 'Retention Customer',
+          customer_phone: phone,
+          items: [{ product_id: burger.id, quantity: 1 }],
+        });
+
+    // One phone orders twice, another once → 50% repeat rate, 600/3 = 200 avg.
+    await place('01711112222');
+    await place('01711112222');
+    await place('01822223333');
+
+    const res = await request(app)
+      .get('/api/dashboard')
+      .set('Authorization', `Bearer ${managerToken}`);
+    expect(res.status).toBe(200);
+    const r = res.body.retention;
+    expect(r.totalCustomers).toBe(2);
+    expect(r.repeatCustomers).toBe(1);
+    expect(r.repeatRate).toBe(50);
+    expect(r.avgOrderValue).toBe(200);
+    // Top customer by revenue is the repeater; phone is masked.
+    expect(r.topCustomers[0]).toMatchObject({ orders: 2, revenue: 400 });
+    expect(r.topCustomers[0].phone).toMatch(/^0171/);
+    expect(r.topCustomers[0].phone).not.toContain('11112222');
+  });
+
+  it('reports average fulfillment time per order type (Phase 7)', async () => {
+    const placed = await placeOrder(managerToken, [
+      {
+        product_id: (await Product.findOne({ where: { tenant_id: tenantA.id, name: 'Dash Fries' } })).id,
+        quantity: 1,
+      },
+    ]);
+    const orderId = placed.body.id;
+    for (const s of ['preparing', 'ready', 'delivered']) {
+      await request(app)
+        .patch(`/api/orders/${orderId}/status`)
+        .set('Authorization', `Bearer ${managerToken}`)
+        .send({ status: s });
+    }
+
+    const res = await request(app)
+      .get('/api/dashboard')
+      .set('Authorization', `Bearer ${managerToken}`);
+    expect(res.status).toBe(200);
+    const pickup = res.body.fulfillment.types.find((f) => f.type === 'pickup');
+    expect(pickup).toBeDefined();
+    expect(pickup.avgMinutes).toBeGreaterThanOrEqual(0);
+    expect(pickup.orders).toBeGreaterThanOrEqual(1);
+    expect(res.body.fulfillment.overallAvgMinutes).toBeGreaterThanOrEqual(0);
+  });
+
   it('is tenant-scoped — tenant B sees none of tenant A', async () => {
     const other = await Tenant.create({ name: 'Dash Cafe C', slug: 'dash-c' });
     const otherUser = await User.create({
