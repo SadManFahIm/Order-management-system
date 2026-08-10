@@ -28,6 +28,7 @@ import './models/ItemAddon.js';
 import './models/InventoryItem.js';
 import './models/Table.js';
 import './models/Payment.js';
+import './models/DailyStat.js';
 
 import authRoutes from './routes/auth.js';
 import productRoutes from './routes/products.js';

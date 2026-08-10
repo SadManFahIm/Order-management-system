@@ -10,6 +10,7 @@ import Payment from '../models/Payment.js';
 import Product from '../models/Product.js';
 import MenuCategory from '../models/MenuCategory.js';
 import InventoryItem from '../models/InventoryItem.js';
+import DailyStat from '../models/DailyStat.js';
 
 const router = express.Router();
 router.use(authMiddleware, resolveTenant, requireTenant, requirePermission('view:orders'));
@@ -38,6 +39,81 @@ const parseDays = (raw) => {
   const n = Number.parseInt(raw, 10);
   if (!Number.isInteger(n)) return 7;
   return Math.min(Math.max(n, 7), 30);
+};
+
+/**
+ * Forecast (Phase 6): trailing 7-day moving average per day (the smooth
+ * baseline) + a 3-day linear-regression projection on the last 7 actuals,
+ * blended 40/60 with the moving average to tame single-day outliers.
+ */
+const computeForecast = (trend) => {
+  const revenues = trend.map((d) => d.revenue);
+  const movingAverage = trend.map((d, i) => {
+    const win = revenues.slice(Math.max(0, i - 6), i + 1);
+    return {
+      date: d.date,
+      value: Math.round((win.reduce((s, v) => s + v, 0) / win.length) * 100) / 100,
+    };
+  });
+  const n = Math.min(revenues.length, 7);
+  const recent = revenues.slice(-n);
+  let sx = 0;
+  let sy = 0;
+  let sxy = 0;
+  let sxx = 0;
+  recent.forEach((v, i) => {
+    sx += i;
+    sy += v;
+    sxy += i * v;
+    sxx += i * i;
+  });
+  const denom = n * sxx - sx * sx;
+  const slope = n > 1 && denom !== 0 ? (n * sxy - sx * sy) / denom : 0;
+  const intercept = n > 0 ? (sy - slope * sx) / n : 0;
+  const avg7 = recent.reduce((s, v) => s + v, 0) / Math.max(recent.length, 1);
+  const lastKey = trend[trend.length - 1]?.date;
+  const projection = [];
+  if (lastKey) {
+    // Pure UTC date math — local Date parsing would re-introduce the Dhaka
+    // offset and shift the forecast labels back a day.
+    const [ky, km, kd] = lastKey.split('-').map(Number);
+    const lastDateUtc = Date.UTC(ky, km - 1, kd);
+    for (let k = 1; k <= 3; k += 1) {
+      const date = new Date(lastDateUtc + k * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10);
+      const proj = intercept + slope * (recent.length - 1 + k);
+      const value = Math.max(0, Math.round((avg7 * 0.4 + proj * 0.6) * 100) / 100);
+      projection.push({ date, revenue: value, forecast: true });
+    }
+  }
+  return { movingAverage, projection };
+};
+
+/** Trend stats: totals, average, best day, and the day-over-day delta. */
+const computeTrendStats = (trend, days) => {
+  const paidRevenue = trend.reduce((s, d) => s + d.revenue, 0);
+  const totalOrders = trend.reduce((s, d) => s + d.orders, 0);
+  let bestDay = null;
+  for (const d of trend) {
+    if (!bestDay || d.revenue > bestDay.revenue) bestDay = { date: d.date, revenue: d.revenue };
+  }
+  const last = trend[trend.length - 1];
+  const prev = trend[trend.length - 2];
+  const delta = last.revenue - (prev?.revenue || 0);
+  return {
+    days,
+    totalRevenue: Math.round(paidRevenue * 100) / 100,
+    totalOrders,
+    avgPerDay: Math.round((paidRevenue / days) * 100) / 100,
+    bestDay,
+    dayOverDay: {
+      previous: prev ? Math.round(prev.revenue * 100) / 100 : 0,
+      current: Math.round(last.revenue * 100) / 100,
+      delta: Math.round(delta * 100) / 100,
+      pct: prev && prev.revenue > 0 ? Math.round((delta / prev.revenue) * 1000) / 10 : null,
+    },
+  };
 };
 
 /**
@@ -296,50 +372,8 @@ router.get(
     }));
 
     // ── Forecast (Phase 6) ───────────────────────────────────────────────
-    // Trailing 7-day moving average per day (the smooth baseline) + a 3-day
-    // linear-regression projection on the last 7 actuals. The projection is
-    // blended 40/60 with the moving average to tame single-day outliers.
-    const revenues = closeoutTrend.map((d) => d.revenue);
-    const movingAverage = closeoutTrend.map((d, i) => {
-      const win = revenues.slice(Math.max(0, i - 6), i + 1);
-      return {
-        date: d.date,
-        value: Math.round((win.reduce((s, v) => s + v, 0) / win.length) * 100) / 100,
-      };
-    });
-    const n = Math.min(revenues.length, 7);
-    const recent = revenues.slice(-n);
-    let sx = 0;
-    let sy = 0;
-    let sxy = 0;
-    let sxx = 0;
-    recent.forEach((v, i) => {
-      sx += i;
-      sy += v;
-      sxy += i * v;
-      sxx += i * i;
-    });
-    const denom = n * sxx - sx * sx;
-    const slope = n > 1 && denom !== 0 ? (n * sxy - sx * sy) / denom : 0;
-    const intercept = n > 0 ? (sy - slope * sx) / n : 0;
-    const avg7 =
-      recent.reduce((s, v) => s + v, 0) / Math.max(recent.length, 1);
-    const lastKey = closeoutTrend[closeoutTrend.length - 1]?.date;
-    const projection = [];
-    if (lastKey) {
-      // Pure UTC date math — local Date parsing would re-introduce the Dhaka
-      // offset and shift the forecast labels back a day.
-      const [ky, km, kd] = lastKey.split('-').map(Number);
-      const lastDateUtc = Date.UTC(ky, km - 1, kd);
-      for (let k = 1; k <= 3; k += 1) {
-        const date = new Date(lastDateUtc + k * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .slice(0, 10);
-        const proj = intercept + slope * (recent.length - 1 + k);
-        const value = Math.max(0, Math.round((avg7 * 0.4 + proj * 0.6) * 100) / 100);
-        projection.push({ date, revenue: value, forecast: true });
-      }
-    }
+    // Computed below (computeForecast) from the final (possibly rollup-
+    // overridden) trend — see the trend-stats block near the response.
 
     // ── Month-over-month (Dhaka months) ──────────────────────────────────
     let thisMonthRevenue = 0;
@@ -411,6 +445,98 @@ router.get(
         ? { ...busiest, revenue: Math.round(busiest.revenue * 100) / 100 }
         : null,
     };
+
+    // ── Rollup override (Phase 7) ──────────────────────────────────────
+    // `?source=rollup` serves the closeout trend + peak-hours grid from the
+    // nightly daily_stats table (bounded read — the roadmap's query-cost
+    // mitigation). Falls back to the live computation above when the window
+    // has no rollup rows yet, so a fresh install never breaks.
+    let finalCloseoutTrend = closeoutTrend;
+    let finalPeakHours = peakHours;
+    if (req.query.source === 'rollup') {
+      const windowStartKey = windowStartDhaka.toISOString().slice(0, 10);
+      const rollupRows = await DailyStat.findAll({
+        where: {
+          tenant_id: req.tenant.id,
+          stat_date: { [Op.gte]: windowStartKey },
+        },
+        order: [['stat_date', 'ASC']],
+        attributes: ['stat_date', 'revenue', 'orders', 'method_mix', 'peak_hours'],
+      });
+      if (rollupRows.length > 0) {
+        const rollupTrend = closeoutByDay;
+        for (const row of rollupRows) {
+          const entry = rollupTrend.get(row.stat_date);
+          if (!entry) continue;
+          entry.revenue = Math.round(Number(row.revenue) * 100) / 100;
+          entry.orders = row.orders;
+          entry.methodMix = {
+            ...entry.methodMix,
+            ...Object.fromEntries(
+              Object.entries(row.method_mix || {}).map(([k, v]) => [k, Math.round(Number(v) * 100) / 100])
+            ),
+          };
+        }
+        // Merge each day's sparse peak map into the full 7×24 grid.
+        const grid2 = PEAK_DAY_LABELS.map(() => PEAK_HOURS.map(() => ({ orders: 0, revenue: 0 })));
+        let mO = 0;
+        let mR = 0;
+        for (const row of rollupRows) {
+          const pk = row.peak_hours || {};
+          for (const dayStr of Object.keys(pk)) {
+            const day = Number(dayStr);
+            if (!grid2[day]) continue;
+            for (const hourStr of Object.keys(pk[day])) {
+              const hour = Number(hourStr);
+              const cell = pk[day][hourStr] || { orders: 0, revenue: 0 };
+              grid2[day][hour].orders += Number(cell.orders) || 0;
+              grid2[day][hour].revenue += Number(cell.revenue) || 0;
+              if (grid2[day][hour].orders > mO) mO = grid2[day][hour].orders;
+              if (grid2[day][hour].revenue > mR) mR = grid2[day][hour].revenue;
+            }
+          }
+        }
+        let busiest2 = null;
+        for (let day = 0; day < 7; day += 1) {
+          for (let hour = 0; hour < 24; hour += 1) {
+            const cell = grid2[day][hour];
+            if (!cell.revenue && !cell.orders) continue;
+            if (
+              !busiest2 ||
+              cell.revenue > busiest2.revenue ||
+              (cell.revenue === busiest2.revenue && cell.orders > busiest2.orders)
+            ) {
+              busiest2 = { day, hour, ...cell };
+            }
+          }
+        }
+        finalCloseoutTrend = [...rollupTrend.values()].map((d) => ({
+          date: d.date,
+          revenue: Math.round(d.revenue * 100) / 100,
+          orders: d.orders,
+          methodMix: Object.fromEntries(
+            Object.entries(d.methodMix).map(([k, v]) => [k, Math.round(v * 100) / 100])
+          ),
+        }));
+        finalPeakHours = {
+          days: PEAK_DAY_LABELS,
+          hours: PEAK_HOURS,
+          grid: grid2.map((row, day) =>
+            row.map((cell, hour) => ({
+              day,
+              hour,
+              orders: cell.orders,
+              revenue: Math.round(cell.revenue * 100) / 100,
+            }))
+          ),
+          maxOrders: mO,
+          maxRevenue: Math.round(mR * 100) / 100,
+          busiest: busiest2
+            ? { ...busiest2, revenue: Math.round(busiest2.revenue * 100) / 100 }
+            : null,
+        };
+      }
+    }
 
     // ── Category mix (Phase 7) ──────────────────────────────────────────
     // Paid line items grouped by menu category (soft-delete-safe via
@@ -558,29 +684,10 @@ router.get(
       }
     }
 
-    // Trend stats — totals, average, best day, and the day-over-day delta.
-    const paidRevenue = closeoutTrend.reduce((s, d) => s + d.revenue, 0);
-    const totalOrders = closeoutTrend.reduce((s, d) => s + d.orders, 0);
-    let bestDay = null;
-    for (const d of closeoutTrend) {
-      if (!bestDay || d.revenue > bestDay.revenue) bestDay = { date: d.date, revenue: d.revenue };
-    }
-    const last = closeoutTrend[closeoutTrend.length - 1];
-    const prev = closeoutTrend[closeoutTrend.length - 2];
-    const delta = last.revenue - (prev?.revenue || 0);
-    const trendStats = {
-      days,
-      totalRevenue: Math.round(paidRevenue * 100) / 100,
-      totalOrders,
-      avgPerDay: Math.round((paidRevenue / days) * 100) / 100,
-      bestDay,
-      dayOverDay: {
-        previous: prev ? Math.round(prev.revenue * 100) / 100 : 0,
-        current: Math.round(last.revenue * 100) / 100,
-        delta: Math.round(delta * 100) / 100,
-        pct: prev && prev.revenue > 0 ? Math.round((delta / prev.revenue) * 1000) / 10 : null,
-      },
-    };
+    // Trend stats + forecast follow the (possibly rollup-overridden) trend,
+    // so ?source=rollup returns fully rollup-derived analytics.
+    const trendStats = computeTrendStats(finalCloseoutTrend, days);
+    const forecast = computeForecast(finalCloseoutTrend);
 
     res.json({
       today: { orders: todayOrders.length, revenue: Math.round(todayRevenue * 100) / 100 },
@@ -590,11 +697,11 @@ router.get(
       statusBreakdown,
       topItems,
       paymentBreakdown,
-      closeoutTrend,
+      closeoutTrend: finalCloseoutTrend,
       trendStats,
-      forecast: { movingAverage, projection },
+      forecast,
       monthOverMonth,
-      peakHours,
+      peakHours: finalPeakHours,
       categoryMix,
       retention,
       fulfillment,

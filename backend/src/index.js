@@ -5,6 +5,7 @@ import { migrateUp } from '../scripts/migrate.js';
 import { ensureBootstrapData } from './config/schemaSync.js';
 import { startCloseoutScheduler } from './services/reportsScheduler.js';
 import { startReconciliationScheduler } from './services/paymentReconciliation.js';
+import { startRollupScheduler } from './services/rollupService.js';
 
 async function start() {
   try {
@@ -26,6 +27,8 @@ async function start() {
     startCloseoutScheduler();
     // Stale online payment intents → expired (reconciliation).
     startReconciliationScheduler();
+    // Nightly analytics rollup (daily_stats per tenant + Dhaka day).
+    startRollupScheduler();
 
     const shutdown = async () => {
       console.log('Shutting down gracefully…');

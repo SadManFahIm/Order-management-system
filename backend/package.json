@@ -24,6 +24,9 @@
     "db:migrate:status": "node scripts/migrate.js status",
     "db:migrate:v1": "node scripts/migrate-v1-to-v2.js",
     "db:reset": "node scripts/reset-db.js",
+    "db:rollup": "node scripts/db-rollup.mjs",
+    "perf:seed": "node scripts/perf-seed.mjs",
+    "perf:test": "node scripts/perf-test.mjs",
     "gateway:sandbox": "node scripts/gateway-sandbox.mjs",
     "gateway:e2e": "node scripts/gateway-e2e.mjs"
   },
