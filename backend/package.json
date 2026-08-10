@@ -17,6 +17,7 @@
     "seed:admin": "node scripts/seed-admin.js",
     "seed:restaurants": "node scripts/seed-restaurants.js",
     "seed:orders": "node scripts/seed-orders.js",
+    "seed:payment-demo": "node scripts/seed-payment-demo.js",
     "seed:demo": "node scripts/seed-demo.js",
     "db:migrate": "node scripts/migrate.js up",
     "db:migrate:down": "node scripts/migrate.js down",

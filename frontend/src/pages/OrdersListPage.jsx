@@ -309,6 +309,9 @@ export default function OrdersListPage() {
                 const waLink = whatsappLinkFor(waNumber, o);
                 return (
                   <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                    <Button size="sm" variant="ghost" to={`/orders/${o.id}/invoice`} title={`Invoice ${o.order_no || o.id}`}>
+                      🧾 Invoice
+                    </Button>
                     {waLink && (
                       <Button
                         size="sm"
