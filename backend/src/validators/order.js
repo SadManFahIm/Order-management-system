@@ -23,5 +23,18 @@ export const createOrderSchema = z.object({
     .or(z.literal('')),
   // bKash/Nagad transaction ID captured at the counter (optional).
   payment_reference: z.string().trim().max(120).optional().or(z.literal('')),
+  // Split payments (Phase 6) — when present, creates one payment row per part
+  // instead of a single one; each part must be an enabled non-online method
+  // and the parts must sum to the order total (validated in the route/service
+  // where the tenant config + grand total are known).
+  payments: z
+    .array(
+      z.object({
+        method: z.string().trim().max(16, 'Payment method is too long'),
+        amount: z.number().positive('Split amount must be positive'),
+        reference: z.string().trim().max(120).optional().or(z.literal('')),
+      })
+    )
+    .optional(),
   items: z.array(orderItemSchema).min(1, 'Order must contain at least one item'),
 });

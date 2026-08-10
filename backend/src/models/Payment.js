@@ -37,6 +37,16 @@ const Payment = sequelize.define(
     reference: { type: DataTypes.STRING(120) },
     paid_at: { type: DataTypes.DATE },
     notes: { type: DataTypes.STRING(255) },
+    // Refund audit trail (migration 010) — full or partial: who, when, how
+    // much, and why. `refunded_amount` null = not refunded.
+    refunded_amount: { type: DataTypes.FLOAT, allowNull: true },
+    refunded_at: { type: DataTypes.DATE, allowNull: true },
+    refund_reason: { type: DataTypes.STRING(255), allowNull: true },
+    refunded_by: { type: DataTypes.INTEGER, allowNull: true },
+    // Gateway intent reference + expiry window (migration 010) — the
+    // reconciliation job uses these to auto-expire stale pending payments.
+    intent_ref: { type: DataTypes.STRING(120), allowNull: true },
+    expires_at: { type: DataTypes.DATE, allowNull: true },
   },
   {
     tableName: 'payments',

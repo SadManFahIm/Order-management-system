@@ -75,11 +75,66 @@ export function onlineEnabled(tenant) {
 }
 
 /**
- * Creates the payment record for a freshly placed order.
- * cash → paid immediately; bkash/nagad/card → pending until a cashier
- * confirms the transaction.
+ * Validates a split-payment request against the tenant's enabled methods.
+ * Each part must be an enabled non-online method with a positive amount, and
+ * the parts must sum (within rounding) to the order's grand total. Throws a
+ * precise AppError per violation; returns the normalized parts on success.
  */
-export async function createPaymentForOrder(tenant, order, { method, reference } = {}) {
+export function validateSplits(tenant, splits, grandTotal) {
+  if (!Array.isArray(splits) || splits.length < 2) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Split payments need at least two parts');
+  }
+  let total = 0;
+  for (const part of splits) {
+    if (part.method === 'online') {
+      throw new AppError(400, 'SPLIT_NOT_SUPPORTED', 'Online payments cannot be split');
+    }
+    assertMethodEnabled(tenant, part.method);
+    const amount = Number(part.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new AppError(400, 'VALIDATION_ERROR', 'Each split amount must be a positive number');
+    }
+    total += amount;
+  }
+  const expected = Number(grandTotal);
+  if (Math.abs(total - expected) > 0.01) {
+    throw new AppError(
+      400,
+      'SPLIT_MISMATCH',
+      `Split parts (৳${total.toFixed(2)}) must sum to the order total (৳${expected.toFixed(2)})`
+    );
+  }
+  return splits.map((s) => ({
+    method: s.method,
+    amount: Number(s.amount),
+    reference: s.reference || null,
+  }));
+}
+
+/**
+ * Creates the payment record(s) for a freshly placed order.
+ *
+ * Single payment (default): cash → paid immediately; bkash/nagad/card →
+ * pending until a cashier confirms the transaction.
+ *
+ * Split (`splits`): one row per part (validated via validateSplits) — cash
+ * parts paid on the spot, wallet parts pending. Returns an array for splits,
+ * a single Payment otherwise (the online-gateway path needs the single row).
+ */
+export async function createPaymentForOrder(tenant, order, { method, reference, splits } = {}) {
+  if (splits && splits.length > 0) {
+    return Payment.bulkCreate(
+      splits.map((s) => ({
+        tenant_id: order.tenant_id ?? tenant.id,
+        order_id: order.id,
+        method: s.method,
+        amount: Number(s.amount),
+        status: s.method === 'cash' ? 'paid' : 'pending',
+        reference: s.reference || null,
+        paid_at: s.method === 'cash' ? new Date() : null,
+      }))
+    );
+  }
   const resolved = assertMethodEnabled(tenant, method);
   const isCash = resolved === 'cash';
   return Payment.create({
@@ -94,8 +149,45 @@ export async function createPaymentForOrder(tenant, order, { method, reference }
 }
 
 /**
+ * Recomputes an order's denormalised payment_status from ALL of its payment
+ * rows (single or split): fully paid → 'paid'; fully refunded with nothing
+ * collected → 'refunded'; partly collected → 'partial'; any pending →
+ * 'pending'; otherwise 'unpaid'. This is what keeps split orders honest — a
+ * single PATCH to one part re-evaluates the whole picture.
+ */
+export async function recomputeOrderPaymentStatus(order) {
+  const all = await Payment.findAll({ where: { order_id: order.id } });
+  const total = Number(order.grand_total ?? order.total_amount ?? 0);
+  let paid = 0;
+  let refunded = 0;
+  let hasPending = false;
+  for (const p of all) {
+    const amount = Number(p.amount || 0);
+    if (p.status === 'paid') paid += amount;
+    if (p.status === 'refunded') refunded += amount;
+    if (p.status === 'pending') hasPending = true;
+  }
+  if (all.length === 0) {
+    order.payment_status = 'unpaid';
+  } else if (paid >= total - 0.01) {
+    order.payment_status = 'paid';
+  } else if (refunded >= total - 0.01 && paid <= 0.01) {
+    order.payment_status = 'refunded';
+  } else if (paid > 0.01) {
+    order.payment_status = 'partial';
+  } else if (hasPending) {
+    order.payment_status = 'pending';
+  } else {
+    order.payment_status = 'unpaid';
+  }
+  await order.save();
+  return order;
+}
+
+/**
  * Confirms / refunds / fails a payment and keeps the order's payment_status
- * in sync. Returns the updated { payment, order }.
+ * in sync (recomputed across ALL of the order's payments — split-aware).
+ * Returns the updated { payment, order }.
  */
 export async function applyPaymentStatus(payment, { status, reference, notes }, order) {
   if (!['paid', 'refunded', 'failed', 'pending'].includes(status)) {
@@ -108,10 +200,6 @@ export async function applyPaymentStatus(payment, { status, reference, notes }, 
   if (status === 'paid') payment.paid_at = payment.paid_at || new Date();
   await payment.save();
 
-  // Keep the denormalised order-level flag in sync.
-  order.payment_status =
-    status === 'paid' ? 'paid' : status === 'refunded' ? 'refunded' : status === 'failed' ? 'unpaid' : order.payment_status;
-  await order.save();
-
+  await recomputeOrderPaymentStatus(order);
   return { payment, order };
 }
