@@ -185,5 +185,49 @@ if ((await addButtons.count()) >= 2) {
 }
 await shot(page, 'neworder-split-light.png');
 
+// ---------- 14. Merchant Menu — Phase 4 (Wolt/Deliveroo grouped view) --
+page = await login(browser, 'light');
+await page.goto(`${BASE}/menu`, { waitUntil: 'networkidle' });
+await page.getByRole('heading', { name: /Menu/ }).waitFor();
+await page.waitForTimeout(900);
+await shot(page, 'menu-merchant-light.png', { fullPage: true });
+
+// ---------- 15. Promotions — Phase 4 (offers list) ----------
+page = await login(browser, 'light');
+await page.goto(`${BASE}/promotions`, { waitUntil: 'networkidle' });
+await page.getByRole('heading', { name: /Promotions|প্রোমোশন/ }).waitFor();
+await page.waitForTimeout(800);
+await shot(page, 'promotions-light.png');
+
+// ---------- 16. Settings — Phase 4/6 (storefront branding + payments) --
+page = await login(browser, 'light');
+await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' });
+await page.getByRole('heading', { name: /Settings|সেটিংস/ }).waitFor();
+await page.waitForTimeout(900);
+await shot(page, 'settings-light.png', { fullPage: true });
+
+// ---------- 17. Register (no auth) — light ----------
+page = await browser.newPage({ viewport });
+await page.goto(`${BASE}/register`, { waitUntil: 'networkidle' });
+await shot(page, 'register-light.png');
+
+// ---------- 18. Public storefront — dark (design system showcase) -----
+page = await browser.newPage({ viewport });
+await page.addInitScript(() => {
+  localStorage.setItem('oms.theme', 'dark');
+  document.documentElement.setAttribute('data-theme', 'dark');
+});
+await page.goto(`${BASE}/m/default-restaurant`, { waitUntil: 'networkidle' });
+await shot(page, 'public-menu-dark.png');
+
+// ---------- 19. Landing — dark (design system showcase) ----------
+page = await browser.newPage({ viewport });
+await page.addInitScript(() => {
+  localStorage.setItem('oms.theme', 'dark');
+  document.documentElement.setAttribute('data-theme', 'dark');
+});
+await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+await shot(page, 'landing-dark.png', { fullPage: true });
+
 await browser.close();
 console.log('done —', OUT);

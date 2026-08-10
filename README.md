@@ -152,7 +152,7 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 - `cd frontend && npx playwright test`: boots the real API on a scratch DB + the Vite app and drives login, product CRUD, order creation, and the fulfillment UI through the actual browser · runs in CI (dedicated `e2e` job)
 
 ### Roadmap (V2)
-Customer storefront checkout (cart → order) · online payment **split payments** · deeper analytics dashboards · SaaS admin portal · hardening (performance, observability, load) · production release.
+Customer storefront checkout (cart → order) · deeper analytics dashboards (peak-hour heatmap, category mix, retention) · SaaS admin portal · hardening (performance, observability, load) · production release.
 
 > Full audit and phased roadmap: [`docs/01-codebase-audit.md`](docs/01-codebase-audit.md) · [`docs/02-v2-roadmap.md`](docs/02-v2-roadmap.md) · [`docs/03-database-schema.md`](docs/03-database-schema.md)
 
@@ -160,27 +160,49 @@ Customer storefront checkout (cart → order) · online payment **split payments
 
 ## 📸 Screenshots
 
-> Live captures from the running app (Deliveroo-inspired teal theme). Re-capture anytime with `cd frontend && node scripts/screenshots.mjs` while the dev servers are up — the script logs in as the seeded admin and captures every page below.
+> Live captures from the running app (Deliveroo-inspired design system, light & dark). Re-capture anytime with `cd frontend && node scripts/screenshots.mjs` while the dev servers are up — the script logs in as the seeded admin and captures every page below, auto-selecting the workspace that has demo data so no shot is ever empty.
+
+### Phase 3 — Multi-tenant SaaS platform
 
 | | |
 |---|---|
-| **Landing page** — CRAV-style hero, full-page | **Public storefront** — live menu demo at `/m/:slug` |
-| ![Landing](docs/screenshots/landing-light.png) | ![Public storefront](docs/screenshots/public-menu-light.png) |
-| **Dashboard** — closeout trend + 3-day forecast + month-over-month | **Reports** — daily closeout + VAT compliance (NBR-ready) |
-| ![Dashboard](docs/screenshots/dashboard-light.png) | ![Reports](docs/screenshots/reports-light.png) |
-| **QR table menu** — printable table codes | **Customer tracking** — order no + phone |
-| ![QR menu](docs/screenshots/qr-menu-light.png) | ![Tracking](docs/screenshots/track-light.png) |
-| **Login — light mode** | **Login — dark mode** |
-| ![Login light](docs/screenshots/login-light.png) | ![Login dark](docs/screenshots/login-dark.png) |
+| **Register** — create an account | **Login — light mode** |
+| ![Register](docs/screenshots/register-light.png) | ![Login light](docs/screenshots/login-light.png) |
+| **Login — dark mode** | |
+| ![Login dark](docs/screenshots/login-dark.png) | |
+
+### Phase 4 — Menu, media & analytics
+
+| | |
+|---|---|
+| **Landing page** — CRAV-style animated hero (light) | **Landing — dark mode** |
+| ![Landing](docs/screenshots/landing-light.png) | ![Landing dark](docs/screenshots/landing-dark.png) |
+| **Public storefront** — live menu at `/m/:slug` | **Public storefront — dark mode** |
+| ![Public storefront](docs/screenshots/public-menu-light.png) | ![Public storefront dark](docs/screenshots/public-menu-dark.png) |
+| **Merchant Menu** — Wolt/Deliveroo-style grouped categories | **Promotions** — offers manager |
+| ![Menu](docs/screenshots/menu-merchant-light.png) | ![Promotions](docs/screenshots/promotions-light.png) |
 | **Products — light mode** | **Products — dark mode** |
 | ![Products light](docs/screenshots/products-light.png) | ![Products dark](docs/screenshots/products-dark.png) |
+| **Dashboard** — closeout trend + 3-day forecast + month-over-month | |
+| ![Dashboard](docs/screenshots/dashboard-light.png) | |
+
+### Phase 5 — Ordering & fulfillment
+
+| | |
+|---|---|
+| **QR table menu** — printable table codes + per-table PNG | **Customer tracking** — order no + phone |
+| ![QR menu](docs/screenshots/qr-menu-light.png) | ![Tracking](docs/screenshots/track-light.png) |
+| **Settings** — storefront branding editor, payment methods & WhatsApp | |
+| ![Settings](docs/screenshots/settings-light.png) | |
 
 ### Phase 6 — Payments (live captures)
 
 | | | |
 |---|---|---|
-| **Orders** — Split/Partial badges, ↩ Refund, 🧾 Invoice actions | **Order invoice** — per-item VAT split (NBR) + linked payments | **New Order** — split-payment editor (bKash ৳ + Cash ৳ per part) |
-| ![Orders — Phase 6](docs/screenshots/orders-phase6-light.png) | ![Invoice — Phase 6](docs/screenshots/invoice-phase6-light.png) | ![Split editor — Phase 6](docs/screenshots/neworder-split-light.png) |
+| **Orders** — Split/Partial badges, ↩ Refund, 🧾 Invoice actions | **Reports** — daily closeout + VAT compliance (NBR-ready) | **Order invoice** — per-item VAT split + linked payments |
+| ![Orders — Phase 6](docs/screenshots/orders-phase6-light.png) | ![Reports](docs/screenshots/reports-light.png) | ![Invoice — Phase 6](docs/screenshots/invoice-phase6-light.png) |
+| **New Order** — split-payment editor (bKash ৳ + Cash ৳ per part) | | |
+| ![Split editor — Phase 6](docs/screenshots/neworder-split-light.png) | | |
 
 ---
 
