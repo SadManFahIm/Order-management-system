@@ -23,11 +23,14 @@ export default defineConfig({
   webServer: [
     {
       // Real API on a wiped scratch DB (backend/scripts/e2e-server.js).
+      // Generous timeout: a cold boot runs 12 migrations + seeds against a
+      // fresh PostgreSQL 16 service, which is slow under a loaded shared
+      // runner (observed 120s+ wall time on GitHub-hosted ubuntu-latest).
       command: 'node scripts/e2e-server.js',
       cwd: '../backend',
       port: 4100,
       reuseExistingServer: !CI,
-      timeout: 120_000,
+      timeout: 240_000,
     },
     {
       // Vite dev server proxying /api → :4100 (via VITE_API_TARGET).
