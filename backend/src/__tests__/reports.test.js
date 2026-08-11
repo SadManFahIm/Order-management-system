@@ -12,7 +12,7 @@ vi.mock('../services/notifications/email.js', () => ({
 import app from '../app.js';
 import sequelize from '../config/db.js';
 import { resetTestDb } from '../test/resetDb.js';
-import { User, Tenant, UserTenant, Product } from '../models/index.js';
+import { User, Tenant, UserTenant, Product, Order } from '../models/index.js';
 
 /**
  * Daily closeout report (Phase 5) — JSON summary + CSV export, scoped to a
@@ -167,6 +167,73 @@ describe('GET /api/reports/closeout.pdf', () => {
   it('requires authentication', async () => {
     const res = await request(app).get('/api/reports/closeout.pdf');
     expect(res.status).toBe(401);
+  });
+});
+
+describe('split-payment breakdown in closeout (Phase 6)', () => {
+  it('lists every split part with method, amount, status, diner note + reference', async () => {
+    // One order split bKash 200 (pending) + cash 100 (paid), diner-tagged.
+    const placed = await request(app)
+      .post('/api/orders')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        customer_name: 'Split Pair',
+        items: [{ product_id: product.id, quantity: 1 }],
+        payments: [
+          { method: 'bkash', amount: 200, reference: 'SPLIT-TRX-1', note: 'Rahim' },
+          { method: 'cash', amount: 100, note: 'Karim' },
+        ],
+      });
+    expect(placed.status).toBe(201);
+
+    try {
+      const res = await request(app)
+        .get(`/api/reports/closeout?date=${todayDhaka()}`)
+        .set('Authorization', `Bearer ${token}`);
+      expect(res.status).toBe(200);
+      expect(res.body.split.orders).toBeGreaterThanOrEqual(1);
+      expect(res.body.split.revenue).toBe(100); // only the cash part is paid
+      const parts = res.body.split.parts.filter((p) => p.orderNo === placed.body.order_no);
+      expect(parts).toHaveLength(2);
+      const bkash = parts.find((p) => p.method === 'bkash');
+      expect(bkash).toMatchObject({ amount: 200, status: 'pending', note: 'Rahim', reference: 'SPLIT-TRX-1' });
+      const cash = parts.find((p) => p.method === 'cash');
+      expect(cash).toMatchObject({ amount: 100, status: 'paid', note: 'Karim' });
+
+      // CSV carries a SPLIT PARTS section (only when the day had splits).
+      const csv = await request(app)
+        .get(`/api/reports/closeout.csv?date=${todayDhaka()}`)
+        .set('Authorization', `Bearer ${token}`);
+      expect(csv.status).toBe(200);
+      expect(csv.text).toContain('SPLIT PARTS');
+      expect(csv.text).toContain('SPLIT-TRX-1');
+      expect(csv.text).toContain('Rahim');
+
+      // PDF/print view renders the split table.
+      const pdf = await request(app)
+        .get(`/api/reports/closeout.pdf?date=${todayDhaka()}`)
+        .set('Authorization', `Bearer ${token}`);
+      expect(pdf.status).toBe(200);
+      expect(pdf.text).toContain('Split payments');
+      expect(pdf.text).toContain('SPLIT-TRX-1');
+    } finally {
+      // Restore the shared day — the order's payments cascade-delete.
+      await Order.destroy({ where: { id: placed.body.id } });
+    }
+  });
+
+  it('a day without split orders has no split section in JSON or CSV', async () => {
+    const res = await request(app)
+      .get(`/api/reports/closeout?date=${todayDhaka()}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.split.parts).toHaveLength(0);
+    expect(res.body.split.orders).toBe(0);
+
+    const csv = await request(app)
+      .get(`/api/reports/closeout.csv?date=${todayDhaka()}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(csv.text).not.toContain('SPLIT PARTS');
   });
 });
 
