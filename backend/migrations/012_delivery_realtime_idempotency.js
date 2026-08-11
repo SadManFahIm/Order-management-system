@@ -32,7 +32,13 @@ export const up = async (qi, transaction) => {
     );
   }
 
-  const orderCols = await qi.describeTable('orders');
+  // IMPORTANT: introspection must run INSIDE the migration transaction.
+  // PostgreSQL: changeColumn above took an AccessExclusiveLock on `orders`,
+  // held until commit — a describeTable on a SECOND pooled connection would
+  // need AccessShareLock on the same table and block forever (self-deadlock:
+  // the transaction can't commit until up() resolves). Passing the
+  // transaction pins these queries to the same connection/lock holder.
+  const orderCols = await qi.describeTable('orders', t);
   const addCol = async (name, def) => {
     if (!(name in orderCols)) await qi.addColumn('orders', name, def, t);
   };
@@ -46,7 +52,8 @@ export const up = async (qi, transaction) => {
   await addCol('rejected_reason', { type: DataTypes.STRING(255), allowNull: true });
   await addCol('rejected_by', { type: DataTypes.INTEGER, allowNull: true });
 
-  const existingIndexes = await qi.showIndex('orders');
+  // Same transaction-pinning rule as describeTable above.
+  const existingIndexes = await qi.showIndex('orders', t);
   const hasIndex = (name) => existingIndexes.some((i) => i.name === name);
   if (!hasIndex('orders_assigned_to')) {
     await qi.addIndex('orders', ['assigned_to'], { name: 'orders_assigned_to', ...t });
@@ -55,7 +62,7 @@ export const up = async (qi, transaction) => {
     await qi.addIndex('orders', ['scheduled_for'], { name: 'orders_scheduled_for', ...t });
   }
 
-  if (!(await qi.tableExists('idempotency_keys'))) {
+  if (!(await qi.tableExists('idempotency_keys', t))) {
     await qi.createTable(
       'idempotency_keys',
       {
@@ -75,7 +82,7 @@ export const up = async (qi, transaction) => {
       t
     );
   }
-  const idemIndexes = await qi.showIndex('idempotency_keys');
+  const idemIndexes = await qi.showIndex('idempotency_keys', t);
   if (!idemIndexes.some((i) => i.name === 'idempotency_keys_scope_key')) {
     await qi.addIndex('idempotency_keys', ['tenant_id', 'user_id', 'key'], {
       name: 'idempotency_keys_scope_key',
@@ -93,10 +100,11 @@ export const up = async (qi, transaction) => {
 
 export const down = async (qi, transaction) => {
   const t = { transaction };
-  if (await qi.tableExists('idempotency_keys')) {
+  if (await qi.tableExists('idempotency_keys', t)) {
     await qi.dropTable('idempotency_keys', t);
   }
-  const existingIndexes = await qi.showIndex('orders');
+  // Transaction-pinned introspection — see the note in up().
+  const existingIndexes = await qi.showIndex('orders', t);
   if (existingIndexes.some((i) => i.name === 'orders_scheduled_for')) {
     await qi.removeIndex('orders', 'orders_scheduled_for', t);
   }
@@ -107,7 +115,7 @@ export const down = async (qi, transaction) => {
   // delivery_fee / assigned_to belong to migration 004 on migrations-built
   // databases (and were merely backfilled by 012 on legacy dev databases —
   // leaving them is harmless there and keeps the app functional after rollback).
-  const orderCols = await qi.describeTable('orders');
+  const orderCols = await qi.describeTable('orders', t);
   for (const col of ['rejected_by', 'rejected_reason']) {
     if (col in orderCols) await qi.removeColumn('orders', col, t);
   }
