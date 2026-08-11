@@ -345,6 +345,16 @@ npm run seed:restaurants
 
 `npm run db:migrate:down` rolls back the most recent migration. The backend runs pending migrations automatically at boot on **both** dialects (`sync()` is no longer used anywhere — the models are aligned to the migration DDL). Migrating an existing dev SQLite database: back it up, delete it, `npm run db:migrate`, then re-seed (`seed:admin` + `seed:restaurants`) — or preserve the old data with `npm run db:migrate:v1 -- --source <old-data.sqlite> --force`.
 
+**Run the full backend suite against your local PostgreSQL** (the CI PG tier, without Docker) — catches PostgreSQL-only bugs the SQLite suite can't (e.g. migration 012's table-lock self-deadlock):
+
+```bash
+npm run db:pg:test              # scratch DB → migrations → full suite → cleanup
+npm run db:pg:test -- --keep    # keep the scratch DB after a failure for debugging
+# env overrides: PG_ADMIN_URL (default postgres://postgres:postgres@localhost:5432/postgres), PG_TEST_DB
+```
+
+The script creates a throwaway `oms_local_test` database (dropped afterwards unless `--keep`), runs the real migration runner, then the entire backend test suite against it — **385 tests on PostgreSQL** in CI-identical fashion.
+
 > **Cutover to PostgreSQL in production?** Follow [`docs/04-pg-cutover-runbook.md`](docs/04-pg-cutover-runbook.md) — backup, dry-run, migrate, copy, verify, flip, rollback.
 
 ### 2. Frontend
