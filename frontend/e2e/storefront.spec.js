@@ -15,12 +15,23 @@ const BEEF_KEBAB_PRICE = 320;
 
 /** Fetch a seeded item's id from the public menu API (ids are not stable). */
 async function menuItemId(request, name) {
+  return (await menuItem(request, name)).id;
+}
+
+/**
+ * Fetch a seeded item ({ id, price }) from the public menu API. Prices are
+ * NOT stable across the suite — products.spec.js edits Zinger Burger's
+ * price (260 → 275) before the storefront spec runs, and the server always
+ * prices from the DB. Any test that computes expected totals must use the
+ * live price, never a hardcoded constant.
+ */
+async function menuItem(request, name) {
   const res = await request.get(`/api/public/restaurants/${SLUG}/menu`);
   expect(res.status()).toBe(200);
   const body = await res.json();
   const item = body.categories.flatMap((c) => c.items).find((i) => i.name === name);
   expect(item, `seeded item "${name}" should exist`).toBeTruthy();
-  return item.id;
+  return { id: item.id, price: item.price };
 }
 
 /** Seed a guest cart in localStorage, then land on checkout. */
@@ -339,4 +350,47 @@ test('guest splits a pickup order in the UI (bKash + cash) and sees partial stat
   await page.getByRole('link', { name: /Track your order/ }).click();
   await expect(page.getByText(orderNo)).toBeVisible();
   await expect(page.getByText(/Partial/)).toBeVisible();
+});
+
+test('guest splits a QR table order by diner (items + per-diner methods)', async ({ page, request }) => {
+  await enableBkash(request);
+  const beef = await menuItem(request, 'Beef Kebab 250gm');
+  const zinger = await menuItem(request, 'Zinger Burger');
+  // Two items, one per diner — the QR table flow (with the table param).
+  // Live prices: products.spec.js may have re-priced Zinger (260 → 275),
+  // and the server always prices from the DB.
+  await checkoutWithCart(page, [
+    { product_id: beef.id, quantity: 1, variant_id: null, addon_ids: [], name: 'Beef Kebab 250gm', unit_price: beef.price, options: [] },
+    { product_id: zinger.id, quantity: 1, variant_id: null, addon_ids: [], name: 'Zinger Burger', unit_price: zinger.price, options: [] },
+  ]);
+  await page.goto(`/m/${SLUG}/checkout?table=3`);
+  await expect(page.getByRole('heading', { name: /Checkout/ })).toBeVisible();
+  await expect(page.getByText(/Table 3/)).toBeVisible();
+
+  // Split on → switch to the by-diner mode.
+  await page.getByRole('button', { name: /Split payment/ }).click();
+  await page.getByRole('button', { name: /By diner/ }).click();
+
+  // Two diners; lines assigned round-robin (Beef → Diner 1, Zinger → Diner 2).
+  await page.getByPlaceholder('Diner 1').fill('Rahim');
+  // Diner 2 pays bKash; Diner 1 stays cash.
+  await page.getByLabel('Diner 2 method').selectOption('bkash');
+  await expect(page.getByLabel('Diner 1 share')).toHaveText(`৳ ${beef.price.toFixed(2)}`); // Rahim's share
+  await expect(page.getByLabel('Diner 2 share')).toHaveText(`৳ ${zinger.price.toFixed(2)}`); // Karim's share
+
+  await page.getByPlaceholder('Rahim Uddin').fill('Table Split Guest');
+  await page.getByPlaceholder('017XXXXXXXX').fill('01712345678');
+  await page.getByRole('button', { name: /Place order/ }).click();
+
+  // Confirmation lists each part with its diner's name.
+  await expect(page.getByText('Order placed! 🎉')).toBeVisible();
+  await expect(page.getByText(/Rahim/)).toBeVisible();
+
+  // The API stored each part with its diner note + method.
+  const orderNo = (await page.getByText(/^ORD-/).first().textContent()).trim();
+  const track = await request.get('/api/public/track', {
+    params: { orderNo, phone: '01712345678' },
+  });
+  expect(track.status()).toBe(200);
+  expect((await track.json()).paymentStatus).toBe('partial');
 });

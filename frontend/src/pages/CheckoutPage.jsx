@@ -51,6 +51,12 @@ export default function CheckoutPage() {
   // methods; the server re-validates every part + the exact sum.
   const [useSplit, setUseSplit] = useState(false);
   const [splitParts, setSplitParts] = useState({});
+  // Diner bill-split (QR table): group cart lines by diner, each diner
+  // picks a method — amounts auto-computed (their items + an equal
+  // delivery-fee share), each part tagged with the diner's name.
+  const [splitMode, setSplitMode] = useState('amount'); // 'amount' | 'diner'
+  const [diners, setDiners] = useState([]); // [{ name, method }]
+  const [dinerAssign, setDinerAssign] = useState({}); // cartLineIdx -> dinerIdx
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [placed, setPlaced] = useState(null);
@@ -150,6 +156,61 @@ export default function CheckoutPage() {
     setSplitParts((p) => ({ ...p, [m]: sanitized }));
   };
 
+  // ── Diner bill-split (QR table) ────────────────────────────────────────
+  const dinerShareOf = (di) =>
+    cart.reduce(
+      (s, l, li) => s + (dinerAssign[li] === di ? Number(l.unit_price) * l.quantity : 0),
+      0
+    );
+  const dinerCount = diners.length;
+  const dinerShares = diners.map((d, di) => {
+    const itemsTotal = dinerShareOf(di);
+    // Delivery fee split equally; the last diner absorbs the rounding.
+    let feeShare = 0;
+    if (deliveryFee > 0 && dinerCount > 0) {
+      const equal = Math.round((deliveryFee / dinerCount) * 100) / 100;
+      feeShare = di === dinerCount - 1 ? deliveryFee - equal * (dinerCount - 1) : equal;
+    }
+    return Math.round((itemsTotal + feeShare) * 100) / 100;
+  });
+  const dinerParts = diners
+    .map((d, di) => ({
+      method: d.method,
+      amount: dinerShares[di],
+      note: d.name.trim() ? d.name.trim().slice(0, 80) : `Diner ${di + 1}`,
+    }))
+    .filter((p) => p.amount > 0);
+  const dinerSplitValid = dinerParts.length >= 2;
+
+  const switchSplitMode = (mode) => {
+    setSplitMode(mode);
+    if (mode === 'diner') {
+      // Default: two diners, cart lines distributed round-robin.
+      const d = Array.from({ length: 2 }, () => ({
+        name: '',
+        method: splitMethods[0] || 'cash',
+      }));
+      const assign = {};
+      cart.forEach((_, li) => { assign[li] = li % 2; });
+      setDiners(d);
+      setDinerAssign(assign);
+    }
+  };
+  const addDiner = () => {
+    setDiners((ds) => [...ds, { name: '', method: splitMethods[0] || 'cash' }]);
+  };
+  const removeDiner = (di) => {
+    setDiners((ds) => ds.filter((_, i) => i !== di));
+    setDinerAssign((a) => {
+      const next = {};
+      Object.entries(a).forEach(([li, v]) => {
+        if (v === di) next[li] = 0; // reassign to the first diner
+        else next[li] = v > di ? v - 1 : v;
+      });
+      return next;
+    });
+  };
+
   const validate = () => {
     const digits = form.phone.replace(/\D/g, '');
     if (!form.name.trim()) return t('store.requiredField') + ': ' + t('store.fullName');
@@ -164,7 +225,8 @@ export default function CheckoutPage() {
         return t('store.invalidSchedule');
       }
     }
-    if (useSplit && !splitValid) return t('store.splitMismatch');
+    if (useSplit && splitMode === 'diner' && !dinerSplitValid) return t('store.dinerSplitMismatch');
+    if (useSplit && splitMode === 'amount' && !splitValid) return t('store.splitMismatch');
     return null;
   };
 
@@ -193,8 +255,15 @@ export default function CheckoutPage() {
           addon_ids: l.addon_ids || [],
         })),
       };
-      if (useSplit) {
-        // Split: send the parts (server re-validates each method + the sum).
+      if (useSplit && splitMode === 'diner') {
+        // Diner split: parts carry the diner's name as the note.
+        body.payments = dinerParts.map((p) => ({
+          method: p.method,
+          amount: Math.round(p.amount * 100) / 100,
+          note: p.note,
+        }));
+      } else if (useSplit) {
+        // Amount split: send the parts (server re-validates method + sum).
         body.payments = splitMethods
           .filter((m) => Number(splitParts[m]) > 0)
           .map((m) => ({ method: m, amount: Math.round(Number(splitParts[m]) * 100) / 100 }));
@@ -277,6 +346,24 @@ export default function CheckoutPage() {
             <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-muted, #7d9a95)' }}>{t('store.yourOrderNo')}</div>
             <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: '0.5px', marginTop: 4 }}>{placed.order_no}</div>
             <div style={{ marginTop: 8, fontSize: 15, fontWeight: 700 }}>{fmtMoney(placed.grand_total)}</div>
+            {(placed.payments || []).length > 1 && (
+              <div
+                style={{
+                  marginTop: 14, borderTop: '1px dashed var(--border-strong, #b9e0da)',
+                  paddingTop: 12, display: 'grid', gap: 6, textAlign: 'left',
+                }}
+              >
+                {(placed.payments || []).map((p) => (
+                  <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                    <span style={{ textTransform: 'capitalize', fontWeight: 700 }}>
+                      {p.method === 'cash' ? t('store.payAtCounter') : p.method}
+                      {p.notes ? ` · ${p.notes}` : ''}
+                    </span>
+                    <span style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(p.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           {placed.paymentUrl && (
             <a
@@ -466,40 +553,138 @@ export default function CheckoutPage() {
                   </span>
                 </button>
                 {useSplit && (
-                  <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
-                    <div style={{ fontSize: 12.5, color: 'var(--text-muted, #7d9a95)' }}>{t('store.splitHint')}</div>
-                    {splitMethods.map((m) => (
-                      <label
-                        key={m}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: 12,
-                          border: '1.5px solid var(--border-strong, #b9e0da)', borderRadius: 14, padding: '11px 14px',
-                        }}
-                      >
-                        <span style={{ fontSize: 13.5, fontWeight: 700, textTransform: 'capitalize', minWidth: 90 }}>
-                          {m === 'cash' ? t('store.payAtCounter') : m}
-                        </span>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          placeholder="0"
-                          value={splitParts[m] || ''}
-                          onChange={(e) => setSplitPart(m, e.target.value)}
-                          style={{ ...inputStyle, textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}
-                        />
-                        <span style={{ fontSize: 12, color: 'var(--text-muted, #7d9a95)' }}>৳</span>
-                      </label>
-                    ))}
+                  <div style={{ marginTop: 14, display: 'grid', gap: 12 }}>
+                    {/* Mode switch: by amount (free-form) vs by diner (QR table) */}
                     <div
                       style={{
-                        display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 700,
-                        color: splitValid ? 'var(--primary, #00b3a5)' : '#d64541',
+                        display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
+                        background: 'var(--surface-2, #f0faf8)', borderRadius: 12, padding: 4,
                       }}
                     >
-                      <span>{t('store.splitRemaining')}</span>
-                      <span>৳ {splitRemaining.toFixed(2)}</span>
+                      {['amount', 'diner'].map((mode) => (
+                        <button
+                          key={mode}
+                          onClick={() => switchSplitMode(mode)}
+                          style={{
+                            border: 'none', borderRadius: 9, padding: '9px 8px', cursor: 'pointer',
+                            fontSize: 13, fontWeight: 800,
+                            background: splitMode === mode ? '#fff' : 'transparent',
+                            color: splitMode === mode ? 'var(--text, #123b36)' : 'var(--text-muted, #7d9a95)',
+                            boxShadow: splitMode === mode ? '0 2px 8px rgba(15,23,42,0.08)' : 'none',
+                          }}
+                        >
+                          {mode === 'amount' ? t('store.splitByAmount') : t('store.splitByDiner')}
+                        </button>
+                      ))}
                     </div>
+
+                    {splitMode === 'amount' ? (
+                      <>
+                        <div style={{ fontSize: 12.5, color: 'var(--text-muted, #7d9a95)' }}>{t('store.splitHint')}</div>
+                        {splitMethods.map((m) => (
+                          <label
+                            key={m}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 12,
+                              border: '1.5px solid var(--border-strong, #b9e0da)', borderRadius: 14, padding: '11px 14px',
+                            }}
+                          >
+                            <span style={{ fontSize: 13.5, fontWeight: 700, textTransform: 'capitalize', minWidth: 90 }}>
+                              {m === 'cash' ? t('store.payAtCounter') : m}
+                            </span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              placeholder="0"
+                              value={splitParts[m] || ''}
+                              onChange={(e) => setSplitPart(m, e.target.value)}
+                              style={{ ...inputStyle, textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}
+                            />
+                            <span style={{ fontSize: 12, color: 'var(--text-muted, #7d9a95)' }}>৳</span>
+                          </label>
+                        ))}
+                        <div
+                          style={{
+                            display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 700,
+                            color: splitValid ? 'var(--primary, #00b3a5)' : '#d64541',
+                          }}
+                        >
+                          <span>{t('store.splitRemaining')}</span>
+                          <span>৳ {splitRemaining.toFixed(2)}</span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 12.5, color: 'var(--text-muted, #7d9a95)' }}>{t('store.dinerSplitHint')}</div>
+                        {diners.map((d, di) => (
+                          <div
+                            key={di}
+                            style={{
+                              display: 'grid', gridTemplateColumns: '1fr 96px auto', gap: 8, alignItems: 'center',
+                              border: '1.5px solid var(--border-strong, #b9e0da)', borderRadius: 14, padding: '10px 12px',
+                            }}
+                          >
+                            <input
+                              placeholder={`${t('store.diner')} ${di + 1}`}
+                              value={d.name}
+                              onChange={(e) =>
+                                setDiners((ds) => ds.map((x, i) => (i === di ? { ...x, name: e.target.value } : x)))
+                              }
+                              style={{ ...inputStyle, padding: '9px 11px' }}
+                            />
+                            <select
+                              value={d.method}
+                              aria-label={`${t('store.diner')} ${di + 1} method`}
+                              onChange={(e) =>
+                                setDiners((ds) => ds.map((x, i) => (i === di ? { ...x, method: e.target.value } : x)))
+                              }
+                              style={{ ...inputStyle, padding: '9px 8px', fontSize: 13 }}
+                            >
+                              {splitMethods.map((m) => (
+                                <option key={m} value={m}>
+                                  {m === 'cash' ? t('store.payAtCounter') : m}
+                                </option>
+                              ))}
+                            </select>
+                            <span
+                              aria-label={`${t('store.diner')} ${di + 1} share`}
+                              style={{ fontWeight: 800, fontSize: 13.5, fontVariantNumeric: 'tabular-nums', minWidth: 74, textAlign: 'right' }}
+                            >
+                              {fmtMoney(dinerShares[di])}
+                            </span>
+                            {diners.length > 2 && (
+                              <button
+                                onClick={() => removeDiner(di)}
+                                aria-label={`${t('store.removeDiner')} ${di + 1}`}
+                                style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#d64541', fontSize: 14, fontWeight: 800 }}
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        <button
+                          onClick={addDiner}
+                          style={{
+                            border: '1.5px dashed var(--border-strong, #b9e0da)', background: 'none',
+                            borderRadius: 12, padding: '10px', cursor: 'pointer', fontSize: 13, fontWeight: 700,
+                            color: 'var(--text-muted, #7d9a95)',
+                          }}
+                        >
+                          + {t('store.addDiner')}
+                        </button>
+                        <div
+                          style={{
+                            display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 700,
+                            color: dinerSplitValid ? 'var(--primary, #00b3a5)' : '#d64541',
+                          }}
+                        >
+                          <span>{t('store.splitRemaining')}</span>
+                          <span>৳ 0.00</span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -524,6 +709,23 @@ export default function CheckoutPage() {
                   <span style={{ fontWeight: 800, minWidth: 26, textAlign: 'center' }}>{line.quantity}</span>
                   <button onClick={() => updateQty(idx, 1)} style={miniBtn}>+</button>
                   <span style={{ fontWeight: 800, minWidth: 70, textAlign: 'right' }}>{fmtMoney(line.unit_price * line.quantity)}</span>
+                  {useSplit && splitMode === 'diner' && (
+                    <select
+                      value={dinerAssign[idx] ?? 0}
+                      onChange={(e) => setDinerAssign((a) => ({ ...a, [idx]: Number(e.target.value) }))}
+                      aria-label={`${t('store.dinerFor')} ${line.name}`}
+                      style={{
+                        border: '1.5px solid var(--border-strong, #b9e0da)', borderRadius: 10,
+                        padding: '6px 6px', fontSize: 12, fontWeight: 700, background: '#fff', cursor: 'pointer',
+                      }}
+                    >
+                      {diners.map((d, di) => (
+                        <option key={di} value={di}>
+                          {t('store.diner')} {di + 1}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <button onClick={() => removeLine(idx)} style={{ ...miniBtn, color: '#d64541' }}>✕</button>
                 </div>
               ))}

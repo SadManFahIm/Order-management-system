@@ -42,6 +42,9 @@ export const createOrderSchema = z.object({
         method: z.string().trim().max(16, 'Payment method is too long'),
         amount: z.number().positive('Split amount must be positive'),
         reference: z.string().trim().max(120).optional().or(z.literal('')),
+        // Diner label for QR table bill-split — stored on the payment row's
+        // notes (visible to cashiers + in the closeout).
+        note: z.string().trim().max(80).optional().or(z.literal('')),
       })
     )
     .optional(),
