@@ -374,7 +374,7 @@ cd frontend
 npx playwright test           # boots a scratch backend (:4100) + Vite (:5174) automatically
 ```
 
-Uses your installed Chrome locally (`channel: 'chrome'`) — CI installs its own Chromium. The suite covers login, product CRUD, order creation, the fulfillment UI, the public storefront menu, **and the full guest checkout journey** — browse menu → cart → pickup/delivery/scheduled checkout → order → tracking — plus negative cases: server-side pricing ignores client-submitted totals, the same `Idempotency-Key` never duplicates an order, unknown products / bad quantities are rejected, and the public tracking API is phone-verified and privacy-safe. All specs run against a real scratch backend + Vite app.
+Uses your installed Chrome locally (`channel: 'chrome'`) — CI installs its own Chromium. The suite covers login, product CRUD, order creation, the fulfillment UI, the public storefront menu, **and the full guest checkout journey** — browse menu → cart → pickup/delivery/scheduled checkout → order → tracking — plus negative cases: server-side pricing ignores client-submitted totals, the same `Idempotency-Key` never duplicates an order, unknown products / bad quantities are rejected, the public tracking API is phone-verified and privacy-safe, and the confirmation track link pre-fills the tracking form and auto-loads live status (regression-tested). All specs run against a real scratch backend + Vite app.
 
 ### 3. Docker (optional)
 
