@@ -5,31 +5,25 @@ import { DataTypes } from 'sequelize';
  * (Phase 5 completion: storefront checkout / delivery / realtime / retry-safe
  * order creation).
  *
- * The v1-era `orders` schema (migration 004) already carried delivery-ready
- * columns that the app never exposed: `scheduled_for`, `delivery_fee`,
- * `assigned_to`, `delivery_address` (+ lat/lng). This migration activates
- * that surface instead of duplicating it:
+ * The v1-era `orders` schema (migration 004) carried delivery-ready columns
+ * (`scheduled_for`, `delivery_fee`, `assigned_to`) — but legacy dev databases
+ * that were `sync()`-shaped before the migration era may lack them entirely.
+ * This migration therefore ADDS them if missing (existence-guarded), widens
+ * `type` for 'scheduled_delivery' on PostgreSQL, adds kitchen reject audit
+ * fields + indexes, and creates the idempotency_keys table.
  *
- *   - `type` widened 16 → 24 to fit 'scheduled_delivery' (existing rows keep
- *     their value; existing behavior is untouched).
- *   - indexes on `assigned_to` (delivery queue lookups) and `scheduled_for`
- *     (scheduled-order scans) — no column duplicates.
- *   - `rejected_reason` / `rejected_by` — kitchen reject audit trail.
- *
- * idempotency_keys:
- *   DB-level retry guard for order creation — the unique
- *   (tenant_id, user_id, key) constraint guarantees that two concurrent
- *   requests with the same key cannot both create an order, even across
- *   application instances. Guests use user_id = 0.
+ * Why guards: SQLite DDL is not transactional (ALTER TABLE auto-commits), so
+ * a mid-migration failure can leave partial state that a re-run must survive.
+ * Every operation below checks first — safe on fresh DBs, migrations-built
+ * DBs (columns already present from 004) and legacy/partially-migrated DBs.
  */
 export const up = async (qi, transaction) => {
   const t = { transaction };
+  const dialect = qi.sequelize.getDialect();
 
   // SQLite does not enforce VARCHAR length, so the widen is a no-op there and
   // changeColumn would trigger a locked table rebuild inside the transaction.
-  // PostgreSQL (production) genuinely needs the column widened for the
-  // 'scheduled_delivery' literal (18 chars > 16).
-  if (qi.sequelize.getDialect() !== 'sqlite') {
+  if (dialect !== 'sqlite') {
     await qi.changeColumn(
       'orders',
       'type',
@@ -37,61 +31,86 @@ export const up = async (qi, transaction) => {
       t
     );
   }
-  await qi.addColumn('orders', 'rejected_reason', {
-    type: DataTypes.STRING(255),
-    allowNull: true,
-    ...t,
-  });
-  await qi.addColumn('orders', 'rejected_by', {
-    type: DataTypes.INTEGER,
-    allowNull: true,
-    ...t,
-  });
-  await qi.addIndex('orders', ['assigned_to'], {
-    name: 'orders_assigned_to',
-    ...t,
-  });
-  await qi.addIndex('orders', ['scheduled_for'], {
-    name: 'orders_scheduled_for',
-    ...t,
-  });
 
-  await qi.createTable(
-    'idempotency_keys',
-    {
-      id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
-      tenant_id: { type: DataTypes.INTEGER, allowNull: false },
-      // 0 = anonymous guest checkout; authenticated users carry their id.
-      user_id: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
-      key: { type: DataTypes.STRING(128), allowNull: false },
-      request_hash: { type: DataTypes.STRING(64), allowNull: false },
-      // Stored response (statusCode + body) replayed for repeated keys.
-      status_code: { type: DataTypes.INTEGER, allowNull: true },
-      response: { type: DataTypes.JSONB, allowNull: true },
-      expires_at: { type: DataTypes.DATE, allowNull: false },
-      created_at: { type: DataTypes.DATE, allowNull: false },
-      updated_at: { type: DataTypes.DATE, allowNull: false },
-    },
-    t
-  );
-  await qi.addIndex('idempotency_keys', ['tenant_id', 'user_id', 'key'], {
-    name: 'idempotency_keys_scope_key',
-    unique: true,
-    ...t,
+  const orderCols = await qi.describeTable('orders');
+  const addCol = async (name, def) => {
+    if (!(name in orderCols)) await qi.addColumn('orders', name, def, t);
+  };
+  await addCol('scheduled_for', { type: DataTypes.DATE, allowNull: true });
+  await addCol('delivery_fee', {
+    type: DataTypes.FLOAT,
+    allowNull: false,
+    defaultValue: 0,
   });
-  await qi.addIndex('idempotency_keys', ['expires_at'], {
-    name: 'idempotency_keys_expires',
-    ...t,
-  });
+  await addCol('assigned_to', { type: DataTypes.INTEGER, allowNull: true });
+  await addCol('rejected_reason', { type: DataTypes.STRING(255), allowNull: true });
+  await addCol('rejected_by', { type: DataTypes.INTEGER, allowNull: true });
+
+  const existingIndexes = await qi.showIndex('orders');
+  const hasIndex = (name) => existingIndexes.some((i) => i.name === name);
+  if (!hasIndex('orders_assigned_to')) {
+    await qi.addIndex('orders', ['assigned_to'], { name: 'orders_assigned_to', ...t });
+  }
+  if (!hasIndex('orders_scheduled_for')) {
+    await qi.addIndex('orders', ['scheduled_for'], { name: 'orders_scheduled_for', ...t });
+  }
+
+  if (!(await qi.tableExists('idempotency_keys'))) {
+    await qi.createTable(
+      'idempotency_keys',
+      {
+        id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
+        tenant_id: { type: DataTypes.INTEGER, allowNull: false },
+        // 0 = anonymous guest checkout; authenticated users carry their id.
+        user_id: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+        key: { type: DataTypes.STRING(128), allowNull: false },
+        request_hash: { type: DataTypes.STRING(64), allowNull: false },
+        // Stored response (statusCode + body) replayed for repeated keys.
+        status_code: { type: DataTypes.INTEGER, allowNull: true },
+        response: { type: DataTypes.JSONB, allowNull: true },
+        expires_at: { type: DataTypes.DATE, allowNull: false },
+        created_at: { type: DataTypes.DATE, allowNull: false },
+        updated_at: { type: DataTypes.DATE, allowNull: false },
+      },
+      t
+    );
+  }
+  const idemIndexes = await qi.showIndex('idempotency_keys');
+  if (!idemIndexes.some((i) => i.name === 'idempotency_keys_scope_key')) {
+    await qi.addIndex('idempotency_keys', ['tenant_id', 'user_id', 'key'], {
+      name: 'idempotency_keys_scope_key',
+      unique: true,
+      ...t,
+    });
+  }
+  if (!idemIndexes.some((i) => i.name === 'idempotency_keys_expires')) {
+    await qi.addIndex('idempotency_keys', ['expires_at'], {
+      name: 'idempotency_keys_expires',
+      ...t,
+    });
+  }
 };
 
 export const down = async (qi, transaction) => {
   const t = { transaction };
-  await qi.dropTable('idempotency_keys', t);
-  await qi.removeIndex('orders', 'orders_scheduled_for', t);
-  await qi.removeIndex('orders', 'orders_assigned_to', t);
-  await qi.removeColumn('orders', 'rejected_by', t);
-  await qi.removeColumn('orders', 'rejected_reason', t);
+  if (await qi.tableExists('idempotency_keys')) {
+    await qi.dropTable('idempotency_keys', t);
+  }
+  const existingIndexes = await qi.showIndex('orders');
+  if (existingIndexes.some((i) => i.name === 'orders_scheduled_for')) {
+    await qi.removeIndex('orders', 'orders_scheduled_for', t);
+  }
+  if (existingIndexes.some((i) => i.name === 'orders_assigned_to')) {
+    await qi.removeIndex('orders', 'orders_assigned_to', t);
+  }
+  // Only columns this migration always owns are removed. scheduled_for /
+  // delivery_fee / assigned_to belong to migration 004 on migrations-built
+  // databases (and were merely backfilled by 012 on legacy dev databases —
+  // leaving them is harmless there and keeps the app functional after rollback).
+  const orderCols = await qi.describeTable('orders');
+  for (const col of ['rejected_by', 'rejected_reason']) {
+    if (col in orderCols) await qi.removeColumn('orders', col, t);
+  }
   if (qi.sequelize.getDialect() !== 'sqlite') {
     await qi.changeColumn(
       'orders',

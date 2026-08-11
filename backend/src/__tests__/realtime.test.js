@@ -29,7 +29,10 @@ let productId;
 
 /** Connect a WS client, resolving on the first message or close. */
 function connect(token, tenantId) {
-  const url = `${baseUrl}/ws?token=${token}&x-tenant=${tenantId}`;
+  // ?tenant= mirrors the REST X-Tenant header — the ACTIVE workspace outranks
+  // the tenant baked into the token at login (browsers can't set headers on
+  // WebSockets, so the explicit switch rides as a query param instead).
+  const url = `${baseUrl}/ws?token=${token}&tenant=${tenantId}`;
   const ws = new WebSocket(url);
   const messages = [];
   ws.on('message', (data) => messages.push(JSON.parse(data.toString())));
@@ -178,6 +181,108 @@ describe('realtime hub', () => {
     } finally {
       kitchenA.close();
       kitchenBW.close();
+    }
+  });
+
+  it('broadcasts order.created when a GUEST places a storefront checkout order', async () => {
+    const { ws: kitchenW, messages } = await connect(kitchenToken);
+    try {
+      const res = await request(app)
+        .post(`/api/public/restaurants/realtime-a/checkout`)
+        .set('Idempotency-Key', 'rt-guest-1')
+        .send({
+          customer_name: 'Guest Order',
+          customer_phone: '01710000000',
+          order_type: 'pickup',
+          items: [{ product_id: productId, quantity: 1 }],
+          payment_method: 'cash',
+        });
+      expect(res.status).toBe(201);
+
+      const event = await waitFor(messages, (m) => m.event === 'order.created');
+      expect(event.order.id).toBe(res.body.id);
+      expect(event.order.order_no).toBe(res.body.order_no);
+      // Whitelist holds on the guest path too — no phone/address on the wire.
+      expect(event.order.customer_phone).toBeUndefined();
+      expect(event.order.customer_address).toBeUndefined();
+    } finally {
+      kitchenW.close();
+    }
+  });
+
+  it('subscribes to the ACTIVE workspace, not the token default (tenant switch)', async () => {
+    // A user who is a member of BOTH workspaces — their token was minted with
+    // tenant A baked in (login-time default), but they switch to tenant B in
+    // the UI. The socket must join tenant B's room.
+    const multi = await User.create({
+      name: 'Multi Tenant',
+      email: 'multi@rt.test',
+      password: await bcrypt.hash('supersecret1', 10),
+    });
+    await UserTenant.create({ user_id: multi.id, tenant_id: tenantAId, role: 'manager' });
+    await UserTenant.create({ user_id: multi.id, tenant_id: tenantBId, role: 'kitchen' });
+    const token = (
+      await request(app)
+        .post('/api/auth/login')
+        .send({ email: 'multi@rt.test', password: 'supersecret1' })
+    ).body.accessToken;
+
+    // Without ?tenant= the token's baked-in tenant (A) wins.
+    const { ws: wsA, messages: msgsA } = await connect(token);
+    try {
+      const helloA = await waitFor(msgsA, (m) => m.event === 'hello');
+      expect(helloA.tenantId).toBe(tenantAId);
+      expect(helloA.role).toBe('manager');
+    } finally {
+      wsA.close();
+    }
+
+    // With ?tenant=B the explicit switch wins — same user, tenant B's room.
+    const { ws: wsB, messages: msgsB } = await connect(token, tenantBId);
+    try {
+      const helloB = await waitFor(msgsB, (m) => m.event === 'hello');
+      expect(helloB.tenantId).toBe(tenantBId);
+      expect(helloB.role).toBe('kitchen');
+
+      // Events for tenant A must NOT reach the B-subscribed socket.
+      publishOrderEvent(tenantAId, 'order.created', {
+        id: 1001,
+        order_no: 'ORD-A-ONLY',
+        status: 'placed',
+        type: 'pickup',
+        table_no: null,
+        scheduled_at: null,
+        delivery_fee: 0,
+        payment_status: 'paid',
+        payment_method: 'cash',
+        grand_total: 100,
+        customer_name: 'A Guest',
+        assigned_to: null,
+        items: [],
+      });
+      await new Promise((r) => setTimeout(r, 300));
+      expect(msgsB.filter((m) => m.event === 'order.created')).toHaveLength(0);
+
+      // …while tenant B's room hears B's events.
+      publishOrderEvent(tenantBId, 'order.created', {
+        id: 1002,
+        order_no: 'ORD-B-ONLY',
+        status: 'placed',
+        type: 'pickup',
+        table_no: null,
+        scheduled_at: null,
+        delivery_fee: 0,
+        payment_status: 'paid',
+        payment_method: 'cash',
+        grand_total: 100,
+        customer_name: 'B Guest',
+        assigned_to: null,
+        items: [],
+      });
+      const ev = await waitFor(msgsB, (m) => m.event === 'order.created');
+      expect(ev.order.order_no).toBe('ORD-B-ONLY');
+    } finally {
+      wsB.close();
     }
   });
 

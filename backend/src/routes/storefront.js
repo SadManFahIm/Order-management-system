@@ -13,6 +13,7 @@ import { createOnlinePayment } from '../services/paymentGateway.js';
 import { RECONCILIATION_TTL_MS } from '../services/paymentReconciliation.js';
 import { withIdempotency } from '../services/idempotency.js';
 import { sendOrderAlert } from '../services/whatsappService.js';
+import { publishOrderEvent } from '../services/realtime.js';
 
 /**
  * Public storefront checkout (Phase 5) — the customer journey's final step.
@@ -139,6 +140,9 @@ async function placeCheckoutOrder(tenant, payload) {
       { model: Payment, as: 'payments' },
     ],
   });
+
+  // Real-time kitchen/delivery queue (Phase 5): a customer order lands live.
+  publishOrderEvent(tenant.id, 'order.created', fullOrder);
 
   // WhatsApp order alert (fire-and-forget — never blocks order creation).
   if (tenant) void sendOrderAlert(tenant, fullOrder, fullOrder.items || []);

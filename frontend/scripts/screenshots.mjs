@@ -99,6 +99,35 @@ page = await browser.newPage(CONTEXT);
 await page.goto(`${BASE}/m/default-restaurant`, { waitUntil: 'networkidle' });
 await shot(page, 'public-menu-light.png');
 
+// ---------- 2b. Storefront with cart open (Phase 5 checkout journey) ----
+page = await browser.newPage(CONTEXT);
+await page.goto(`${BASE}/m/kfc-dhaka`, { waitUntil: 'networkidle' });
+const addFirst = page.getByRole('button', { name: /Add|যোগ/ }).first();
+if (await addFirst.count()) {
+  await addFirst.click();
+  await page.waitForTimeout(600);
+  // If the item has variants/add-ons an options modal opens — confirm it so
+  // the item lands in the cart (the modal's button says “Add to cart” too).
+  const modalAdd = page.getByRole('button', { name: /Add to cart|কার্টে যোগ/ });
+  if (await modalAdd.count()) {
+    await modalAdd.click();
+    await page.waitForTimeout(600);
+  }
+}
+await shot(page, 'storefront-cart-light.png');
+
+// ---------- 2c. Checkout — guest cart pre-filled (Phase 5) ----------
+page = await browser.newPage(CONTEXT);
+await page.addInitScript(() => {
+  localStorage.setItem(
+    'oms.cart.kfc-dhaka',
+    JSON.stringify([{ product_id: 1, quantity: 2, variant_id: null, addon_ids: [] }])
+  );
+});
+await page.goto(`${BASE}/m/kfc-dhaka/checkout`, { waitUntil: 'networkidle' });
+await page.waitForTimeout(800);
+await shot(page, 'checkout-light.png', { fullPage: true });
+
 // ---------- 3. Login — light ----------
 page = await browser.newPage(CONTEXT);
 await page.goto(`${BASE}/login`, { waitUntil: 'networkidle' });

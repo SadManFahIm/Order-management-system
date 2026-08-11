@@ -75,7 +75,10 @@ export function attachRealtime(server) {
     });
 
     // Auth — the access token arrives as ?token= (browser WS can't set
-    // headers). Same verification as the REST authMiddleware.
+    // headers). Same verification as the REST authMiddleware. The ACTIVE
+    // workspace arrives as ?tenant= and mirrors the REST tenant middleware's
+    // priority (explicit tenant switch > the tenant baked into the token),
+    // because a user can switch workspaces in the UI after login.
     try {
       const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
       const token = url.searchParams.get('token');
@@ -84,7 +87,8 @@ export function attachRealtime(server) {
 
       // Resolve + validate the tenant membership against the DB. Only roles
       // with view:orders may join the room.
-      const tenantId = Number(payload.tenant_id);
+      const claimed = url.searchParams.get('tenant');
+      const tenantId = Number(claimed) || Number(payload.tenant_id);
       if (!Number.isInteger(tenantId) || tenantId <= 0) throw new Error('no tenant context');
 
       let user = payload;
