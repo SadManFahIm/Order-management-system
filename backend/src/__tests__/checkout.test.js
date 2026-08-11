@@ -22,6 +22,7 @@ let tenant; // active, with delivery fee 60 + bKash enabled
 let tenantNoDelivery;
 let productId;
 let disabledProductId;
+let noDeliveryProductId;
 let variantId;
 let addonId;
 
@@ -84,7 +85,7 @@ beforeAll(async () => {
     price: 200,
     weight_gm: 200,
     enabled: true,
-  });
+  }).then((p) => (noDeliveryProductId = p.id));
 
   variantId = (await ItemVariant.create({
     tenant_id: tenant.id,
@@ -342,5 +343,101 @@ describe('POST /api/public/restaurants/:slug/checkout', () => {
       .send(base());
     expect(good.status).toBe(201);
     expect(await Order.count()).toBe(before + 1);
+  });
+
+  it('places a mixed split order (bkash part pending + cash part paid) → partial', async () => {
+    // 1 × 250 burger split 150 bKash + 100 cash.
+    const res = await request(app)
+      .post('/api/public/restaurants/checkout-diner/checkout')
+      .set('Idempotency-Key', 'split-mixed-1')
+      .send(
+        base({
+          payments: [
+            { method: 'bkash', amount: 150, reference: 'SPLITTRX1' },
+            { method: 'cash', amount: 100 },
+          ],
+        })
+      );
+    expect(res.status).toBe(201);
+    expect(res.body.payment_method).toBe('split');
+    expect(res.body.payment_status).toBe('partial');
+    expect(res.body.grand_total).toBe(250);
+    expect(res.body.payments).toHaveLength(2);
+    const byMethod = Object.fromEntries(res.body.payments.map((p) => [p.method, p]));
+    expect(byMethod.bkash.amount).toBe(150);
+    expect(byMethod.bkash.status).toBe('pending');
+    expect(byMethod.bkash.reference).toBe('SPLITTRX1');
+    expect(byMethod.cash.amount).toBe(100);
+    expect(byMethod.cash.status).toBe('paid');
+  });
+
+  it('an all-cash split settles as paid', async () => {
+    const res = await request(app)
+      .post('/api/public/restaurants/checkout-diner/checkout')
+      .set('Idempotency-Key', 'split-cash-1')
+      .send(
+        base({
+          payments: [
+            { method: 'cash', amount: 100 },
+            { method: 'cash', amount: 150 },
+          ],
+        })
+      );
+    expect(res.status).toBe(201);
+    expect(res.body.payment_status).toBe('paid');
+    expect(res.body.payments).toHaveLength(2);
+    expect(res.body.payments.every((p) => p.status === 'paid')).toBe(true);
+  });
+
+  it('rejects split parts that do not sum to the total (SPLIT_MISMATCH, no order)', async () => {
+    const before = await Order.count();
+    const res = await request(app)
+      .post('/api/public/restaurants/checkout-diner/checkout')
+      .set('Idempotency-Key', 'split-bad-sum')
+      .send(
+        base({
+          payments: [
+            { method: 'bkash', amount: 200 },
+            { method: 'cash', amount: 100 }, // 300 ≠ 250
+          ],
+        })
+      );
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('SPLIT_MISMATCH');
+    expect(await Order.count()).toBe(before);
+  });
+
+  it('rejects online as a split part (SPLIT_NOT_SUPPORTED)', async () => {
+    const res = await request(app)
+      .post('/api/public/restaurants/checkout-diner/checkout')
+      .set('Idempotency-Key', 'split-online')
+      .send(
+        base({
+          payments: [
+            { method: 'online', amount: 150 },
+            { method: 'cash', amount: 100 },
+          ],
+        })
+      );
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('SPLIT_NOT_SUPPORTED');
+  });
+
+  it('rejects split parts using a method disabled in this workspace', async () => {
+    // The 'no-delivery' tenant never configured payment methods → cash only.
+    const res = await request(app)
+      .post('/api/public/restaurants/no-delivery/checkout')
+      .set('Idempotency-Key', 'split-disabled')
+      .send({
+        customer_name: 'Rahim',
+        customer_phone: '01712345678',
+        items: [{ product_id: noDeliveryProductId, quantity: 1 }],
+        payments: [
+          { method: 'bkash', amount: 150 },
+          { method: 'cash', amount: 50 },
+        ],
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('INVALID_PAYMENT_METHOD');
   });
 });

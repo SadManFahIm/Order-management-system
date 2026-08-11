@@ -46,6 +46,11 @@ export default function CheckoutPage() {
   const [orderType, setOrderType] = useState('pickup');
   const [form, setForm] = useState({ name: '', phone: '', address: '', scheduled_at: '' });
   const [paymentMethod, setPaymentMethod] = useState('cash');
+  // Split payment (Phase 6): one order, multiple methods — e.g. part bKash
+  // + part cash. Only shown when the workspace enables >= 2 non-online
+  // methods; the server re-validates every part + the exact sum.
+  const [useSplit, setUseSplit] = useState(false);
+  const [splitParts, setSplitParts] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [placed, setPlaced] = useState(null);
@@ -109,6 +114,9 @@ export default function CheckoutPage() {
 
   const checkoutConfig = restaurant?.checkout || { paymentMethods: ['cash'], deliveryEnabled: true, deliveryFee: 0 };
   const methods = checkoutConfig.paymentMethods || ['cash'];
+  // Split is for wallet/cash parts only — online goes through the hosted
+  // gateway and can never be a split part (mirrors the backend rule).
+  const splitMethods = methods.filter((m) => m !== 'online');
   const deliveryFee = orderType === 'delivery' || orderType === 'scheduled_delivery' ? Number(checkoutConfig.deliveryFee || 0) : 0;
 
   const subtotal = useMemo(
@@ -116,6 +124,31 @@ export default function CheckoutPage() {
     [cart]
   );
   const total = Math.round((subtotal + deliveryFee) * 100) / 100;
+
+  const splitTotal = Object.values(splitParts).reduce((s, v) => s + (Number(v) || 0), 0);
+  const splitRemaining = Math.round((total - splitTotal) * 100) / 100;
+  const splitValid =
+    splitMethods.filter((m) => Number(splitParts[m]) > 0).length >= 2 &&
+    Math.abs(splitRemaining) < 0.005;
+
+  const toggleSplit = () => {
+    setUseSplit((s) => {
+      if (!s) {
+        // Seed: first method carries the whole total, the rest empty — the
+        // customer just edits the parts.
+        const seed = {};
+        splitMethods.forEach((m, i) => { seed[m] = i === 0 ? String(total) : ''; });
+        setSplitParts(seed);
+      } else {
+        setSplitParts({});
+      }
+      return !s;
+    });
+  };
+  const setSplitPart = (m, value) => {
+    const sanitized = value.replace(/[^0-9.]/g, '');
+    setSplitParts((p) => ({ ...p, [m]: sanitized }));
+  };
 
   const validate = () => {
     const digits = form.phone.replace(/\D/g, '');
@@ -131,6 +164,7 @@ export default function CheckoutPage() {
         return t('store.invalidSchedule');
       }
     }
+    if (useSplit && !splitValid) return t('store.splitMismatch');
     return null;
   };
 
@@ -143,25 +177,33 @@ export default function CheckoutPage() {
     setSubmitting(true);
     setError(null);
     try {
+      const body = {
+        order_type: orderType,
+        customer_name: form.name.trim(),
+        customer_phone: form.phone.trim(),
+        customer_address: (orderType === 'delivery' || orderType === 'scheduled_delivery') ? form.address.trim() : undefined,
+        scheduled_at:
+          orderType === 'scheduled_pickup' || orderType === 'scheduled_delivery'
+            ? new Date(form.scheduled_at).toISOString()
+            : undefined,
+        items: cart.map((l) => ({
+          product_id: l.product_id,
+          quantity: l.quantity,
+          variant_id: l.variant_id ?? undefined,
+          addon_ids: l.addon_ids || [],
+        })),
+      };
+      if (useSplit) {
+        // Split: send the parts (server re-validates each method + the sum).
+        body.payments = splitMethods
+          .filter((m) => Number(splitParts[m]) > 0)
+          .map((m) => ({ method: m, amount: Math.round(Number(splitParts[m]) * 100) / 100 }));
+      } else {
+        body.payment_method = paymentMethod;
+      }
       const res = await axios.post(
         `/api/public/restaurants/${slug}/checkout`,
-        {
-          order_type: orderType,
-          customer_name: form.name.trim(),
-          customer_phone: form.phone.trim(),
-          customer_address: (orderType === 'delivery' || orderType === 'scheduled_delivery') ? form.address.trim() : undefined,
-          scheduled_at:
-            orderType === 'scheduled_pickup' || orderType === 'scheduled_delivery'
-              ? new Date(form.scheduled_at).toISOString()
-              : undefined,
-          payment_method: paymentMethod,
-          items: cart.map((l) => ({
-            product_id: l.product_id,
-            quantity: l.quantity,
-            variant_id: l.variant_id ?? undefined,
-            addon_ids: l.addon_ids || [],
-          })),
-        },
+        body,
         { headers: { 'Idempotency-Key': idemKey() } }
       );
       clearCart();
@@ -397,6 +439,71 @@ export default function CheckoutPage() {
                 </label>
               ))}
             </div>
+
+            {splitMethods.length >= 2 && (
+              <div style={{ marginTop: 18, borderTop: '1px dashed var(--border-strong, #b9e0da)', paddingTop: 16 }}>
+                <button
+                  onClick={toggleSplit}
+                  style={{
+                    width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                    fontSize: 14, fontWeight: 800, color: 'var(--text, #123b36)',
+                  }}
+                >
+                  <span>⇄ {useSplit ? t('store.splitOff') : t('store.splitPay')}</span>
+                  <span
+                    style={{
+                      width: 34, height: 20, borderRadius: 999, position: 'relative', transition: 'background .15s',
+                      background: useSplit ? 'var(--primary, #00b3a5)' : 'var(--border-strong, #b9e0da)',
+                    }}
+                  >
+                    <span
+                      style={{
+                        position: 'absolute', top: 2, width: 16, height: 16, borderRadius: '50%',
+                        background: '#fff', transition: 'left .15s', left: useSplit ? 16 : 2,
+                      }}
+                    />
+                  </span>
+                </button>
+                {useSplit && (
+                  <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
+                    <div style={{ fontSize: 12.5, color: 'var(--text-muted, #7d9a95)' }}>{t('store.splitHint')}</div>
+                    {splitMethods.map((m) => (
+                      <label
+                        key={m}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 12,
+                          border: '1.5px solid var(--border-strong, #b9e0da)', borderRadius: 14, padding: '11px 14px',
+                        }}
+                      >
+                        <span style={{ fontSize: 13.5, fontWeight: 700, textTransform: 'capitalize', minWidth: 90 }}>
+                          {m === 'cash' ? t('store.payAtCounter') : m}
+                        </span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="0"
+                          value={splitParts[m] || ''}
+                          onChange={(e) => setSplitPart(m, e.target.value)}
+                          style={{ ...inputStyle, textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}
+                        />
+                        <span style={{ fontSize: 12, color: 'var(--text-muted, #7d9a95)' }}>৳</span>
+                      </label>
+                    ))}
+                    <div
+                      style={{
+                        display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 700,
+                        color: splitValid ? 'var(--primary, #00b3a5)' : '#d64541',
+                      }}
+                    >
+                      <span>{t('store.splitRemaining')}</span>
+                      <span>৳ {splitRemaining.toFixed(2)}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </section>
 
           {/* 4. Summary + submit */}
