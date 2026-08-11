@@ -23,6 +23,15 @@ export const createOrderSchema = z.object({
     .or(z.literal('')),
   // bKash/Nagad transaction ID captured at the counter (optional).
   payment_reference: z.string().trim().max(120).optional().or(z.literal('')),
+  // Order type (Phase 5) — pickup default; delivery / scheduled_* supported.
+  // The storefront checkout is the primary consumer; merchant (counter) orders
+  // may also be placed as delivery or scheduled.
+  order_type: z
+    .enum(['pickup', 'delivery', 'scheduled_pickup', 'scheduled_delivery'])
+    .optional(),
+  // Requested pickup/delivery time for scheduled_* orders (ISO datetime,
+  // validated in the route).
+  scheduled_at: z.string().trim().optional().or(z.literal('')),
   // Split payments (Phase 6) — when present, creates one payment row per part
   // instead of a single one; each part must be an enabled non-online method
   // and the parts must sum to the order total (validated in the route/service

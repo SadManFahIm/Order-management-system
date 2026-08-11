@@ -41,10 +41,21 @@ const Order = sequelize.define(
       defaultValue: 'placed',
     },
     type: {
-      type: DataTypes.STRING(16),
+      type: DataTypes.STRING(24),
       allowNull: false,
       defaultValue: 'pickup',
     },
+    // Delivery/schedule fields (storefront checkout, Phase 5) — the v1-era
+    // columns from migration 004 that the app now exposes:
+    //   scheduled_at → scheduled_for (requested pickup/delivery time)
+    //   delivery_fee  (server-computed fee for delivery orders)
+    //   assigned_to   (delivery person user id)
+    scheduled_at: { type: DataTypes.DATE, allowNull: true, field: 'scheduled_for' },
+    delivery_fee: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 0 },
+    assigned_to: { type: DataTypes.INTEGER, allowNull: true },
+    // Kitchen reject audit trail (migration 012).
+    rejected_reason: { type: DataTypes.STRING(255), allowNull: true },
+    rejected_by: { type: DataTypes.INTEGER, allowNull: true },
     payment_status: {
       type: DataTypes.STRING(16),
       allowNull: false,

@@ -43,6 +43,7 @@ const EXPECTED_TABLES = [
   'tables',
   'payments',
   'daily_stats',
+  'idempotency_keys',
 ];
 
 describe('migration runner', () => {
@@ -68,6 +69,7 @@ describe('migration runner', () => {
       '009_vat_and_digest.js',
       '010_split_refund_recon.js',
       '011_daily_stats.js',
+      '012_delivery_realtime_idempotency.js',
     ]);
   });
 
@@ -99,7 +101,7 @@ describe('migration runner', () => {
   it('reports every migration as applied', async () => {
     const status = await migrationStatus(sequelize);
     expect(status.every((row) => row.state === 'applied')).toBe(true);
-    expect(status).toHaveLength(11);
+    expect(status).toHaveLength(12);
   });
 
   it('adds menu_items.vat_rate via migration 009', async () => {
@@ -113,6 +115,14 @@ describe('migration runner', () => {
 
   it('rolls back only the most recent migration, then re-applies', async () => {
     const qi = sequelize.getQueryInterface();
+
+    // Down 012: removes reject fields + idempotency (delivery_fee/assigned_to
+    // are v1-era migration-004 columns and survive — that is by design).
+    expect(await migrateDown(sequelize)).toBe(1);
+    expect(await qi.tableExists('idempotency_keys')).toBe(false);
+    expect((await qi.describeTable('orders')).rejected_reason).toBeUndefined();
+    expect((await qi.describeTable('orders')).delivery_fee).toBeDefined();
+    expect((await qi.describeTable('orders')).assigned_to).toBeDefined();
 
     // Down 011: drops the analytics rollup table.
     expect(await migrateDown(sequelize)).toBe(1);
@@ -135,14 +145,16 @@ describe('migration runner', () => {
     expect(await migrateDown(sequelize)).toBe(1);
     expect((await qi.describeTable('orders')).table_no).toBeUndefined();
 
-    // Re-applying restores all five.
-    expect(await migrateUp(sequelize)).toBe(5);
+    // Re-applying restores all six.
+    expect(await migrateUp(sequelize)).toBe(6);
     expect((await qi.describeTable('menu_items')).vat_rate).toBeDefined();
     expect(await qi.tableExists('payments')).toBe(true);
     expect(await qi.tableExists('daily_stats')).toBe(true);
+    expect(await qi.tableExists('idempotency_keys')).toBe(true);
     expect((await qi.describeTable('payments')).refunded_amount).toBeDefined();
     expect((await qi.describeTable('orders')).payment_method).toBeDefined();
     expect((await qi.describeTable('orders')).table_no).toBeDefined();
+    expect((await qi.describeTable('orders')).rejected_reason).toBeDefined();
   });
 
   it('refuses to roll back a migration that is not the most recent', async () => {

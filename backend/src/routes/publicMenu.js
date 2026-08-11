@@ -12,6 +12,8 @@ import Order from '../models/Order.js';
 import OrderItem from '../models/OrderItem.js';
 import Payment from '../models/Payment.js';
 import { parsePagination } from '../utils/pagination.js';
+import { enabledPaymentMethods } from '../services/paymentsService.js';
+import { deliveryConfig } from '../services/checkoutService.js';
 
 /**
  * Public, read-only storefront menu API (Phase 4).
@@ -62,6 +64,10 @@ function serializeTenant(tenant) {
   // Brand theme (Phase 4 R3): only the public-safe fields the storefront
   // needs to theme itself. Full settings/sensitive data never leave.
   const brand = tenant.settings?.brand;
+  // Checkout config (Phase 5): the storefront needs to know which payment
+  // methods are enabled and whether delivery is available + its fee — all
+  // public-safe (receiving numbers and secrets never leave the API).
+  const delivery = deliveryConfig(tenant);
   return {
     id: tenant.id,
     name: tenant.name,
@@ -75,6 +81,11 @@ function serializeTenant(tenant) {
           tagline: brand.tagline || null,
         }
       : null,
+    checkout: {
+      paymentMethods: enabledPaymentMethods(tenant),
+      deliveryEnabled: delivery.enabled,
+      deliveryFee: delivery.fee,
+    },
   };
 }
 

@@ -13,10 +13,15 @@ import OrderItem from '../models/OrderItem.js';
 import Payment from '../models/Payment.js';
 import Table from '../models/Table.js';
 import Tenant from '../models/Tenant.js';
+import User from '../models/User.js';
+import UserTenant from '../models/UserTenant.js';
 import { applyPromotionsToCart } from '../utils/promotionEngine.js';
 import { parsePagination } from '../utils/pagination.js';
 import { createOrderSchema } from '../validators/order.js';
 import { sendOrderAlert, sendStatusNotification } from '../services/whatsappService.js';
+import { withIdempotency } from '../services/idempotency.js';
+import { publishOrderEvent } from '../services/realtime.js';
+import { DELIVERY_TYPES, validateSchedule, deliveryConfig } from '../services/checkoutService.js';
 import { assertMethodEnabled, createPaymentForOrder, validateSplits } from '../services/paymentsService.js';
 import { createOnlinePayment } from '../services/paymentGateway.js';
 import { RECONCILIATION_TTL_MS } from '../services/paymentReconciliation.js';
@@ -25,7 +30,16 @@ import { buildInvoice, renderInvoiceHtml } from '../services/invoiceService.js';
 const router = express.Router();
 router.use(authMiddleware, attachPermissionCheck, resolveTenant, requireTenant);
 
-const VALID_STATUSES = ['placed', 'preparing', 'ready', 'delivered', 'canceled'];
+const VALID_STATUSES = [
+  'placed',
+  'accepted',
+  'preparing',
+  'ready',
+  'out_for_delivery',
+  'delivered',
+  'rejected',
+  'canceled',
+];
 
 // `sort=open` surfaces active fulfillment orders (placed → preparing → ready)
 // before finished ones — the default kitchen/delivery view.
@@ -59,6 +73,22 @@ router.get(
       if (Number.isInteger(tableNo) && tableNo > 0) where.table_no = tableNo;
     }
 
+    // Delivery assignment filter — `assigned_to=me` for the delivery person's
+    // own queue; a specific user id only for managers (never trust a client
+    // claim of someone else's assignment).
+    if (req.query.assigned_to === 'me') {
+      if (!canDeliver(req)) {
+        throw new AppError(403, 'FORBIDDEN', 'Only delivery/managers can filter assigned orders');
+      }
+      where.assigned_to = req.user.id;
+    } else if (req.query.assigned_to !== undefined) {
+      if (!canManage(req)) {
+        throw new AppError(403, 'FORBIDDEN', 'Only managers can filter by delivery person');
+      }
+      const assignedTo = Number(req.query.assigned_to);
+      if (Number.isInteger(assignedTo) && assignedTo > 0) where.assigned_to = assignedTo;
+    }
+
     const { rows, count } = await Order.findAndCountAll({
       where,
       order: req.query.sort === 'open' ? OPEN_FIRST_ORDER : [['id', 'DESC']],
@@ -79,18 +109,36 @@ router.get(
   })
 );
 
-/** Fulfillment lifecycle (Phase 5 foundation). */
-const ORDER_STATUS_FLOW = ['placed', 'preparing', 'ready', 'delivered'];
-const CANCELABLE_STATUSES = ['placed', 'preparing'];
+/** Fulfillment lifecycle (Phase 5).
+ *
+ * Forward flow (sequential, optional kitchen accept):
+ *   placed → accepted → preparing → ready → [out_for_delivery] → delivered
+ * Kitchen may also reject (placed/accepted) with a reason; managers may
+ * cancel (placed/accepted/preparing). Transitions are gated by role:
+ *   kitchen  → fulfill:orders (accepted/preparing/ready/rejected)
+ *   delivery → deliver:orders (out_for_delivery/delivered)
+ *   owner/manager → manage:orders (everything incl. cancel/assign)
+ */
+const STATUS_TRANSITIONS = {
+  placed: ['preparing', 'accepted', 'rejected'],
+  accepted: ['preparing', 'rejected'],
+  preparing: ['ready'],
+  ready: ['delivered', 'out_for_delivery'],
+  out_for_delivery: ['delivered'],
+  delivered: [],
+  rejected: [],
+  canceled: [],
+};
 
-// Status transitions are gated by role-appropriate permissions:
-//   kitchen  → fulfill:orders (preparing/ready)
-//   delivery → deliver:orders (delivered)
-//   owner/manager → manage:orders (any transition incl. cancel)
-const canAdvance = (req) =>
-  req.userHas('manage:orders') || req.userHas('fulfill:orders');
+// Cancel/reject windows (managers may cancel; kitchen may reject).
+const CANCELABLE_STATUSES = ['placed', 'preparing', 'accepted'];
+const REJECTABLE_STATUSES = ['placed', 'accepted'];
+
+const canManage = (req) => req.userHas('manage:orders');
+const canFulfill = (req) =>
+  canManage(req) || req.userHas('fulfill:orders');
 const canDeliver = (req) =>
-  req.userHas('manage:orders') || req.userHas('deliver:orders');
+  canManage(req) || req.userHas('deliver:orders');
 
 /**
  * GET /api/orders/:id/invoice — VAT-aware invoice for an order (Phase 6):
@@ -119,7 +167,13 @@ router.get(
   })
 );
 
-/** PATCH /api/orders/:id/status — advance/cancel an order's fulfillment state. */
+/** PATCH /api/orders/:id/status — advance/accept/reject/cancel fulfillment.
+ *
+ * Preserves the legacy sequential flow exactly (placed → preparing → ready →
+ * delivered, manager cancel) and adds the Phase 5 branches: kitchen accept /
+ * reject (with reason), and the delivery hop (ready → out_for_delivery →
+ * delivered) for delivery-type orders only.
+ */
 router.patch(
   '/:id/status',
   asyncHandler(async (req, res) => {
@@ -128,13 +182,20 @@ router.patch(
     });
     if (!order) throw new AppError(404, 'NOT_FOUND', 'Order not found');
 
-    const { status } = req.body;
+    const { status, reason } = req.body;
     if (!status || typeof status !== 'string') {
       throw new AppError(400, 'VALIDATION_ERROR', 'status is required');
     }
+    if (!VALID_STATUSES.includes(status)) {
+      throw new AppError(
+        400,
+        'INVALID_STATUS_TRANSITION',
+        `Unknown order status "${status}"`
+      );
+    }
 
     if (status === 'canceled') {
-      if (!req.userHas('manage:orders')) {
+      if (!canManage(req)) {
         throw new AppError(403, 'FORBIDDEN', 'Only managers can cancel orders');
       }
       if (!CANCELABLE_STATUSES.includes(order.status)) {
@@ -144,10 +205,26 @@ router.patch(
           `Order in "${order.status}" cannot be canceled`
         );
       }
+    } else if (status === 'rejected') {
+      if (!canFulfill(req)) {
+        throw new AppError(403, 'FORBIDDEN', 'Only kitchen/managers can reject orders');
+      }
+      if (!REJECTABLE_STATUSES.includes(order.status)) {
+        throw new AppError(
+          409,
+          'INVALID_STATUS_TRANSITION',
+          `Order in "${order.status}" cannot be rejected`
+        );
+      }
+      if (!reason || typeof reason !== 'string' || !reason.trim()) {
+        throw new AppError(400, 'VALIDATION_ERROR', 'A reject reason is required');
+      }
+      order.rejected_reason = reason.trim().slice(0, 255);
+      order.rejected_by = req.user.id;
     } else {
-      const currentIndex = ORDER_STATUS_FLOW.indexOf(order.status);
-      const nextIndex = ORDER_STATUS_FLOW.indexOf(status);
-      if (currentIndex === -1 || nextIndex === -1 || nextIndex !== currentIndex + 1) {
+      // Sequential forward flow — same rule as before: only one step at a time.
+      const nexts = STATUS_TRANSITIONS[order.status] || [];
+      if (!nexts.includes(status)) {
         throw new AppError(
           400,
           'INVALID_STATUS_TRANSITION',
@@ -155,12 +232,21 @@ router.patch(
         );
       }
       const permitted =
-        status === 'delivered' ? canDeliver(req) : canAdvance(req);
+        status === 'delivered' || status === 'out_for_delivery'
+          ? canDeliver(req)
+          : canFulfill(req);
       if (!permitted) {
         throw new AppError(
           403,
           'FORBIDDEN',
           `Your role cannot move orders to "${status}"`
+        );
+      }
+      if (status === 'out_for_delivery' && !DELIVERY_TYPES.includes(order.type)) {
+        throw new AppError(
+          400,
+          'INVALID_STATUS_TRANSITION',
+          'Only delivery orders can be marked out for delivery'
         );
       }
     }
@@ -175,7 +261,58 @@ router.patch(
       if (tenant) void sendStatusNotification(tenant, order, status);
     }
 
-    res.json({ id: order.id, status: order.status });
+    // Real-time kitchen/delivery queue (Phase 5): broadcast the move.
+    publishOrderEvent(req.tenant.id, 'order.status_changed', order);
+
+    res.json({
+      id: order.id,
+      status: order.status,
+      rejected_reason: order.rejected_reason ?? null,
+    });
+  })
+);
+
+/** PATCH /api/orders/:id/assign — (re)assign a delivery order to a rider.
+ *
+ * Manager/owner only. The target must be a member of THIS workspace with the
+ * delivery role (never trust an arbitrary user id); terminal orders cannot be
+ * reassigned. `delivery_user_id: null` unassigns.
+ */
+router.patch(
+  '/:id/assign',
+  asyncHandler(async (req, res) => {
+    if (!canManage(req)) {
+      throw new AppError(403, 'FORBIDDEN', 'Only managers can assign delivery orders');
+    }
+    const order = await Order.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+    });
+    if (!order) throw new AppError(404, 'NOT_FOUND', 'Order not found');
+    if (!DELIVERY_TYPES.includes(order.type)) {
+      throw new AppError(400, 'NOT_DELIVERY_ORDER', 'Only delivery orders can be assigned');
+    }
+    if (['delivered', 'canceled', 'rejected'].includes(order.status)) {
+      throw new AppError(409, 'ORDER_TERMINAL', 'Finished orders cannot be reassigned');
+    }
+
+    const { delivery_user_id } = req.body;
+    if (delivery_user_id != null) {
+      const member = await UserTenant.findOne({
+        where: { user_id: delivery_user_id, tenant_id: req.tenant.id },
+      });
+      const rider = member ? await User.findByPk(delivery_user_id) : null;
+      if (!rider || member.role !== 'delivery') {
+        throw new AppError(400, 'INVALID_DELIVERY_USER', 'Target user is not a delivery member of this workspace');
+      }
+    }
+
+    order.assigned_to = delivery_user_id ?? null;
+    await order.save();
+
+    // Real-time: the rider's queue updates live.
+    publishOrderEvent(req.tenant.id, 'order.assigned', order);
+
+    res.json({ id: order.id, assigned_to: order.assigned_to });
   })
 );
 
@@ -184,16 +321,34 @@ router.post(
   '/',
   requirePermission('place:orders'),
   asyncHandler(async (req, res) => {
-    const {
-      customer_name,
-      customer_phone,
-      customer_address,
-      table_no,
-      payment_method,
-      payment_reference,
-      payments: splitParts,
-      items,
-    } = createOrderSchema.parse(req.body);
+    const parsed = createOrderSchema.parse(req.body);
+    // Retry-safe order creation (Phase 5): the same Idempotency-Key resolves
+    // to the same order — double-clicks, browser/network retries and payment
+    // callback retries can never create duplicates.
+    const result = await withIdempotency({
+      tenantId: req.tenant.id,
+      userId: req.user.id,
+      key: req.headers['idempotency-key'],
+      body: req.body,
+      handler: () => placeStaffOrder(req, parsed),
+    });
+    res.status(result.statusCode).json(result.body);
+  })
+);
+
+/** Shared staff order-placement — wrapped by withIdempotency above. */
+async function placeStaffOrder(req, {
+  customer_name,
+  customer_phone,
+  customer_address,
+  table_no,
+  payment_method,
+  payment_reference,
+  payments: splitParts,
+  items,
+  order_type = 'pickup',
+  scheduled_at,
+}) {
 
     // Validate the payment method against THIS workspace's enabled methods
     // (fail-closed — cash is the default when nothing is configured). Split
@@ -257,6 +412,15 @@ router.post(
     const { items: enriched, subtotal, totalDiscount, grandTotal } =
       applyPromotionsToCart(cartItems, promotions);
 
+    // Delivery/schedule support (Phase 5): delivery-type orders carry the
+    // workspace's delivery fee; scheduled_* orders validate the requested time.
+    const orderType = ['pickup', 'delivery', 'scheduled_pickup', 'scheduled_delivery'].includes(order_type)
+      ? order_type
+      : 'pickup';
+    const isDeliveryType = ['delivery', 'scheduled_delivery'].includes(orderType);
+    const deliveryFee = isDeliveryType ? deliveryConfig(tenantConfig).fee : 0;
+    const scheduledAt = validateSchedule(scheduled_at, orderType);
+
     // Split orders: validate every part against the workspace's enabled
     // methods and the exact grand total, then derive the initial order-level
     // payment status from the parts (all-cash → paid on the spot, mixed →
@@ -264,7 +428,7 @@ router.post(
     let resolvedSplits = null;
     let initialPaymentStatus = method === 'cash' ? 'paid' : 'pending';
     if (useSplit) {
-      resolvedSplits = validateSplits(tenantConfig, splitParts, grandTotal);
+      resolvedSplits = validateSplits(tenantConfig, splitParts, grandTotal + deliveryFee);
       const allCash = resolvedSplits.every((s) => s.method === 'cash');
       const anyCash = resolvedSplits.some((s) => s.method === 'cash');
       initialPaymentStatus = allCash ? 'paid' : anyCash ? 'partial' : 'pending';
@@ -282,11 +446,14 @@ router.post(
         customer_phone: customer_phone || null,
         customer_address: customer_address || null,
         table_no: table_no ?? null,
+        type: orderType,
+        scheduled_at: scheduledAt,
+        delivery_fee: deliveryFee,
         payment_method: method,
         payment_status: initialPaymentStatus,
         subtotal,
         total_discount: totalDiscount,
-        grand_total: grandTotal,
+        grand_total: grandTotal + deliveryFee,
         items: enriched.map((i) => ({
           tenant_id: req.tenant.id,
           product_id: i.product.id,
@@ -344,8 +511,11 @@ router.post(
       body.paymentUrl = paymentUrl;
       body.gateway = gateway;
     }
-    res.status(201).json(body);
-  })
-);
+
+    // Real-time kitchen/delivery queue (Phase 5): a new order lands live.
+    publishOrderEvent(req.tenant.id, 'order.created', fullOrder);
+
+    return { statusCode: 201, body };
+}
 
 export default router;

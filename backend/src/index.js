@@ -6,6 +6,7 @@ import { ensureBootstrapData } from './config/schemaSync.js';
 import { startCloseoutScheduler } from './services/reportsScheduler.js';
 import { startReconciliationScheduler } from './services/paymentReconciliation.js';
 import { startRollupScheduler } from './services/rollupService.js';
+import { attachRealtime } from './services/realtime.js';
 
 async function start() {
   try {
@@ -22,6 +23,9 @@ async function start() {
     const server = app.listen(env.PORT, () => {
       console.log(`Backend listening on port ${env.PORT} (${env.NODE_ENV})`);
     });
+
+    // Real-time kitchen/delivery queue (Phase 5) — /ws, JWT-authenticated.
+    attachRealtime(server);
 
     // Nightly closeout emails (per-tenant, Dhaka hour, once/day).
     startCloseoutScheduler();
