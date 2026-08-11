@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { E2E_ADMIN } from './helpers.js';
 
 /**
  * Storefront checkout journey (Phase 5) — public, no login. The e2e backend
@@ -32,6 +33,36 @@ async function checkoutWithCart(page, lines) {
   );
   await page.goto(`/m/${SLUG}/checkout`);
   await expect(page.getByRole('heading', { name: /Checkout/ })).toBeVisible();
+}
+
+/**
+ * Enable bKash for the e2e tenant (cash is on by default; the split editor
+ * only appears once >= 2 non-online methods are enabled). Settings replace
+ * the whole paymentMethods key, so the full object is sent.
+ */
+async function enableBkash(request) {
+  const login = await request.post('/api/auth/login', {
+    data: { email: E2E_ADMIN.email, password: E2E_ADMIN.password },
+  });
+  expect(login.status()).toBe(200);
+  const { accessToken } = await login.json();
+  const tenants = await request.get('/api/auth/tenants', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const tenant = (await tenants.json()).find((t) => t.slug === SLUG);
+  expect(tenant, 'default-restaurant tenant should exist').toBeTruthy();
+  const patch = await request.patch(`/api/tenants/${tenant.id}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    data: {
+      settings: {
+        paymentMethods: {
+          cash: { enabled: true },
+          bkash: { enabled: true, number: '01711111111' },
+        },
+      },
+    },
+  });
+  expect(patch.status()).toBe(200);
 }
 
 test('guest places a pickup order end-to-end and tracks it', async ({ page }) => {
@@ -226,4 +257,86 @@ test('public tracking API is phone-verified and privacy-safe', async ({ request 
     params: { orderNo, phone: '01799999999' },
   });
   expect(wrong.status()).toBe(404);
+});
+
+test('checkout API: split payment creates one row per part (partial status)', async ({ request }) => {
+  await enableBkash(request);
+  const beefId = await menuItemId(request, 'Beef Kebab 250gm');
+  // 1 × 320 split 200 bKash + 120 cash.
+  const res = await request.post(`/api/public/restaurants/${SLUG}/checkout`, {
+    headers: { 'Idempotency-Key': 'e2e-split-api-1' },
+    data: {
+      customer_name: 'Split Guest',
+      customer_phone: '01712345675',
+      order_type: 'pickup',
+      items: [{ product_id: beefId, quantity: 1 }],
+      payments: [
+        { method: 'bkash', amount: 200, reference: 'SPLIT-E2E-1' },
+        { method: 'cash', amount: 120 },
+      ],
+    },
+  });
+  expect(res.status()).toBe(201);
+  const body = await res.json();
+  expect(body.payment_method).toBe('split');
+  expect(body.payment_status).toBe('partial');
+  expect(body.grand_total).toBe(320);
+  expect(body.payments).toHaveLength(2);
+  const byMethod = Object.fromEntries(body.payments.map((p) => [p.method, p]));
+  expect(byMethod.bkash.status).toBe('pending');
+  expect(byMethod.bkash.amount).toBe(200);
+  expect(byMethod.bkash.reference).toBe('SPLIT-E2E-1');
+  expect(byMethod.cash.status).toBe('paid');
+  expect(byMethod.cash.amount).toBe(120);
+});
+
+test('checkout API: split parts must sum to the server total (SPLIT_MISMATCH)', async ({ request }) => {
+  await enableBkash(request);
+  const beefId = await menuItemId(request, 'Beef Kebab 250gm');
+  const res = await request.post(`/api/public/restaurants/${SLUG}/checkout`, {
+    headers: { 'Idempotency-Key': 'e2e-split-bad-sum' },
+    data: {
+      customer_name: 'Split Guest',
+      customer_phone: '01712345676',
+      order_type: 'pickup',
+      items: [{ product_id: beefId, quantity: 1 }],
+      payments: [
+        { method: 'bkash', amount: 100 },
+        { method: 'cash', amount: 100 }, // 200 ≠ 320
+      ],
+    },
+  });
+  expect(res.status()).toBe(400);
+  expect((await res.json()).error.code).toBe('SPLIT_MISMATCH');
+});
+
+test('guest splits a pickup order in the UI (bKash + cash) and sees partial status on tracking', async ({
+  page,
+  request,
+}) => {
+  await enableBkash(request);
+  const beefId = await menuItemId(request, 'Beef Kebab 250gm');
+  await checkoutWithCart(page, [
+    { product_id: beefId, quantity: 1, variant_id: null, addon_ids: [], name: 'Beef Kebab 250gm', unit_price: BEEF_KEBAB_PRICE, options: [] },
+  ]);
+
+  // Split editor appears (2 methods enabled) — toggle it on.
+  await page.getByRole('button', { name: /Split payment/ }).click();
+  const amountInputs = page.locator('input[type="number"]');
+  await expect(amountInputs).toHaveCount(2);
+  // cash is seeded with the total; re-allocate 120 cash + 200 bKash.
+  await amountInputs.nth(0).fill('120');
+  await amountInputs.nth(1).fill('200');
+  await expect(page.getByText(/Remaining to allocate/)).toBeVisible();
+
+  await page.getByPlaceholder('Rahim Uddin').fill('Split UI Guest');
+  await page.getByPlaceholder('017XXXXXXXX').fill('01712345677');
+  await page.getByRole('button', { name: /Place order/ }).click();
+
+  // Confirmation → tracking shows the split as partial (bKash still pending).
+  await expect(page.getByText('Order placed! 🎉')).toBeVisible();
+  const orderNo = (await page.getByText(/^ORD-/).first().textContent()).trim();
+  await page.getByRole('link', { name: /Track your order/ }).click();
+  await expect(page.getByText(orderNo)).toBeVisible();
+  await expect(page.getByText(/Partial/)).toBeVisible();
 });

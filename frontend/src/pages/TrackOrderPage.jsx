@@ -172,7 +172,16 @@ export default function TrackOrderPage() {
                 {state.data.tableNo && (
                   <div style={{ fontSize: 13, fontWeight: 700 }}>🪑 {t('track.table', state.data.tableNo)}</div>
                 )}
-                <Badge done={state.data.paymentStatus === 'paid'} label={state.data.paymentStatus === 'paid' ? t('track.paid') : t('track.unpaid')} />
+                <Badge
+                  status={state.data.paymentStatus}
+                  label={
+                    state.data.paymentStatus === 'paid'
+                      ? t('track.paid')
+                      : state.data.paymentStatus === 'partial'
+                        ? t('track.partial')
+                        : t('track.unpaid')
+                  }
+                />
               </div>
             </div>
 
@@ -282,7 +291,10 @@ export default function TrackOrderPage() {
   );
 }
 
-function Badge({ done, label }) {
+function Badge({ status, label }) {
+  // paid → green ✓ · partial → amber ⏳ (part collected, part pending) ·
+  // everything else → amber ⏳.
+  const done = status === 'paid';
   return (
     <span
       style={{

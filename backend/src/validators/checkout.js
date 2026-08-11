@@ -34,5 +34,19 @@ export const checkoutSchema = z.object({
   payment_method: z.string().trim().max(16).default('cash'),
   // bKash/Nagad transaction ID captured at the counter (optional).
   payment_reference: z.string().trim().max(120).optional().or(z.literal('')),
+  // Optional split payment (Phase 6): one entry per part — method + amount
+  // (reference optional). When present (>= 2 parts), the route validates that
+  // each part is an enabled non-online method and that the parts sum to the
+  // server-computed grand total; the single `payment_method` path stays for
+  // backward compatibility.
+  payments: z
+    .array(
+      z.object({
+        method: z.string().trim().max(16),
+        amount: z.number().positive('Each split amount must be a positive number'),
+        reference: z.string().trim().max(120).optional().or(z.literal('')),
+      })
+    )
+    .optional(),
   items: z.array(checkoutItemSchema).min(1, 'Cart is empty — add items before checkout'),
 });

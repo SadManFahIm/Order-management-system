@@ -8,7 +8,11 @@ import Payment from '../models/Payment.js';
 import Product from '../models/Product.js';
 import { checkoutSchema } from '../validators/checkout.js';
 import { priceCart, validateSchedule, deliveryConfig, DELIVERY_TYPES } from '../services/checkoutService.js';
-import { assertMethodEnabled, createPaymentForOrder } from '../services/paymentsService.js';
+import {
+  assertMethodEnabled,
+  createPaymentForOrder,
+  validateSplits,
+} from '../services/paymentsService.js';
 import { createOnlinePayment } from '../services/paymentGateway.js';
 import { RECONCILIATION_TTL_MS } from '../services/paymentReconciliation.js';
 import { withIdempotency } from '../services/idempotency.js';
@@ -81,8 +85,18 @@ async function placeCheckoutOrder(tenant, payload) {
   const deliveryFee = isDelivery ? delivery.fee : 0;
   const grandTotal = Math.round((subtotal - totalDiscount + deliveryFee) * 100) / 100;
 
-  // 3. Payment method — validated fail-closed against the workspace config.
-  const method = assertMethodEnabled(tenant, payload.payment_method);
+  // 3. Payment — single method (fail-closed against the workspace config)
+  //    or split parts (each validated + summed to the exact grand total).
+  const useSplit = Array.isArray(payload.payments) && payload.payments.length > 0;
+  let method = useSplit ? 'split' : assertMethodEnabled(tenant, payload.payment_method);
+  let resolvedSplits = null;
+  let initialPaymentStatus = method === 'cash' ? 'paid' : 'pending';
+  if (useSplit) {
+    resolvedSplits = validateSplits(tenant, payload.payments, grandTotal);
+    const allCash = resolvedSplits.every((s) => s.method === 'cash');
+    const anyCash = resolvedSplits.some((s) => s.method === 'cash');
+    initialPaymentStatus = allCash ? 'paid' : anyCash ? 'partial' : 'pending';
+  }
 
   // 4. Create the order + line items (single transaction: a payment failure
   //    must never leave a half-created order behind).
@@ -99,7 +113,7 @@ async function placeCheckoutOrder(tenant, payload) {
       scheduled_at: scheduledAt,
       delivery_fee: deliveryFee,
       payment_method: method,
-      payment_status: method === 'cash' ? 'paid' : 'pending',
+      payment_status: initialPaymentStatus,
       subtotal,
       total_discount: totalDiscount,
       grand_total: grandTotal,
@@ -118,10 +132,13 @@ async function placeCheckoutOrder(tenant, payload) {
     { include: [{ model: OrderItem, as: 'items' }] }
   );
 
-  // 5. Payment record — cash paid on the spot, wallets pending, online → gateway.
+  // 5. Payment record(s) — cash paid on the spot, wallets pending, online
+  //    → gateway; split orders create one row per part (never the gateway:
+  //    validateSplits rejects online parts).
   const payment = await createPaymentForOrder(tenant, order, {
     method,
     reference: payload.payment_reference || null,
+    splits: resolvedSplits,
   });
 
   let paymentUrl = null;
