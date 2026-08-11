@@ -55,8 +55,14 @@ export default function CheckoutPage() {
   // picks a method — amounts auto-computed (their items + an equal
   // delivery-fee share), each part tagged with the diner's name.
   const [splitMode, setSplitMode] = useState('amount'); // 'amount' | 'diner'
-  const [diners, setDiners] = useState([]); // [{ name, method }]
+  const [diners, setDiners] = useState([]); // [{ name, method, ref }]
   const [dinerAssign, setDinerAssign] = useState({}); // cartLineIdx -> dinerIdx
+  // Wallet payment UX (Phase 6): the merchant's receiving numbers + a
+  // transaction-ID field per wallet part — single, split-amount and diner
+  // modes all carry the trxID so the cashier can confirm instantly.
+  const [walletTrxId, setWalletTrxId] = useState('');
+  const [splitRefs, setSplitRefs] = useState({});
+  const [copiedNum, setCopiedNum] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [placed, setPlaced] = useState(null);
@@ -120,6 +126,9 @@ export default function CheckoutPage() {
 
   const checkoutConfig = restaurant?.checkout || { paymentMethods: ['cash'], deliveryEnabled: true, deliveryFee: 0 };
   const methods = checkoutConfig.paymentMethods || ['cash'];
+  // Merchant's wallet receiving numbers (public menu API, Phase 6) — shown
+  // with a copy button so the customer can send money and enter the trxID.
+  const walletNumbers = checkoutConfig.walletNumbers || {};
   // Split is for wallet/cash parts only — online goes through the hosted
   // gateway and can never be a split part (mirrors the backend rule).
   const splitMethods = methods.filter((m) => m !== 'online');
@@ -178,9 +187,20 @@ export default function CheckoutPage() {
       method: d.method,
       amount: dinerShares[di],
       note: d.name.trim() ? d.name.trim().slice(0, 80) : `Diner ${di + 1}`,
+      reference: d.ref && d.ref.trim() ? d.ref.trim().slice(0, 120) : null,
     }))
     .filter((p) => p.amount > 0);
   const dinerSplitValid = dinerParts.length >= 2;
+
+  const copyNumber = async (num) => {
+    try {
+      await navigator.clipboard.writeText(num);
+      setCopiedNum(num);
+      setTimeout(() => setCopiedNum(null), 1600);
+    } catch {
+      /* clipboard unavailable — the number stays visible */
+    }
+  };
 
   const switchSplitMode = (mode) => {
     setSplitMode(mode);
@@ -189,6 +209,7 @@ export default function CheckoutPage() {
       const d = Array.from({ length: 2 }, () => ({
         name: '',
         method: splitMethods[0] || 'cash',
+        ref: '',
       }));
       const assign = {};
       cart.forEach((_, li) => { assign[li] = li % 2; });
@@ -197,7 +218,7 @@ export default function CheckoutPage() {
     }
   };
   const addDiner = () => {
-    setDiners((ds) => [...ds, { name: '', method: splitMethods[0] || 'cash' }]);
+    setDiners((ds) => [...ds, { name: '', method: splitMethods[0] || 'cash', ref: '' }]);
   };
   const removeDiner = (di) => {
     setDiners((ds) => ds.filter((_, i) => i !== di));
@@ -256,19 +277,29 @@ export default function CheckoutPage() {
         })),
       };
       if (useSplit && splitMode === 'diner') {
-        // Diner split: parts carry the diner's name as the note.
+        // Diner split: parts carry the diner's name as the note + trxID.
         body.payments = dinerParts.map((p) => ({
           method: p.method,
           amount: Math.round(p.amount * 100) / 100,
           note: p.note,
+          reference: p.reference || undefined,
         }));
       } else if (useSplit) {
         // Amount split: send the parts (server re-validates method + sum).
         body.payments = splitMethods
           .filter((m) => Number(splitParts[m]) > 0)
-          .map((m) => ({ method: m, amount: Math.round(Number(splitParts[m]) * 100) / 100 }));
+          .map((m) => ({
+            method: m,
+            amount: Math.round(Number(splitParts[m]) * 100) / 100,
+            reference: splitRefs[m]?.trim() || undefined,
+          }));
       } else {
         body.payment_method = paymentMethod;
+        // Wallet flow: the customer sends money to the merchant's number and
+        // pastes the transaction ID for the cashier to confirm.
+        if (['bkash', 'nagad'].includes(paymentMethod) && walletTrxId.trim()) {
+          body.payment_reference = walletTrxId.trim();
+        }
       }
       const res = await axios.post(
         `/api/public/restaurants/${slug}/checkout`,
@@ -527,6 +558,40 @@ export default function CheckoutPage() {
               ))}
             </div>
 
+            {!useSplit && ['bkash', 'nagad'].includes(paymentMethod) && walletNumbers[paymentMethod] && (
+              <div
+                style={{
+                  marginTop: 14, border: '1.5px solid var(--border-strong, #b9e0da)',
+                  borderRadius: 14, padding: '12px 14px', display: 'grid', gap: 8,
+                  background: 'color-mix(in srgb, var(--primary, #00b3a5) 4%, #fff)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700 }}>
+                  <span>{t('store.sendMoneyTo')}</span>
+                  <span style={{ fontVariantNumeric: 'tabular-nums', letterSpacing: '0.4px' }}>
+                    {walletNumbers[paymentMethod]}
+                  </span>
+                  <button
+                    onClick={() => copyNumber(walletNumbers[paymentMethod])}
+                    style={{
+                      marginLeft: 'auto', background: 'none', border: '1px solid var(--border-strong, #b9e0da)',
+                      borderRadius: 999, padding: '4px 10px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer',
+                      color: 'var(--primary, #00b3a5)',
+                    }}
+                  >
+                    {copiedNum === walletNumbers[paymentMethod] ? t('store.copied') : t('store.copyNumber')}
+                  </button>
+                </div>
+                <input
+                  placeholder={t('store.trxId')}
+                  value={walletTrxId}
+                  onChange={(e) => setWalletTrxId(e.target.value)}
+                  style={{ ...inputStyle, padding: '9px 12px', fontSize: 13 }}
+                />
+                <div style={{ fontSize: 11.5, color: 'var(--text-muted, #7d9a95)' }}>{t('store.trxIdHint')}</div>
+              </div>
+            )}
+
             {splitMethods.length >= 2 && (
               <div style={{ marginTop: 18, borderTop: '1px dashed var(--border-strong, #b9e0da)', paddingTop: 16 }}>
                 <button
@@ -582,27 +647,38 @@ export default function CheckoutPage() {
                       <>
                         <div style={{ fontSize: 12.5, color: 'var(--text-muted, #7d9a95)' }}>{t('store.splitHint')}</div>
                         {splitMethods.map((m) => (
-                          <label
+                          <div
                             key={m}
                             style={{
-                              display: 'flex', alignItems: 'center', gap: 12,
+                              display: 'grid', gap: 8,
                               border: '1.5px solid var(--border-strong, #b9e0da)', borderRadius: 14, padding: '11px 14px',
                             }}
                           >
-                            <span style={{ fontSize: 13.5, fontWeight: 700, textTransform: 'capitalize', minWidth: 90 }}>
-                              {m === 'cash' ? t('store.payAtCounter') : m}
-                            </span>
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              placeholder="0"
-                              value={splitParts[m] || ''}
-                              onChange={(e) => setSplitPart(m, e.target.value)}
-                              style={{ ...inputStyle, textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}
-                            />
-                            <span style={{ fontSize: 12, color: 'var(--text-muted, #7d9a95)' }}>৳</span>
-                          </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                              <span style={{ fontSize: 13.5, fontWeight: 700, textTransform: 'capitalize', minWidth: 90 }}>
+                                {m === 'cash' ? t('store.payAtCounter') : m}
+                              </span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                placeholder="0"
+                                value={splitParts[m] || ''}
+                                onChange={(e) => setSplitPart(m, e.target.value)}
+                                style={{ ...inputStyle, textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}
+                              />
+                              <span style={{ fontSize: 12, color: 'var(--text-muted, #7d9a95)' }}>৳</span>
+                            </label>
+                            {['bkash', 'nagad'].includes(m) && (
+                              <input
+                                placeholder={`${t('store.trxId')} ${t('store.optional')}`}
+                                aria-label={`${t('store.trxId')} ${m}`}
+                                value={splitRefs[m] || ''}
+                                onChange={(e) => setSplitRefs((r) => ({ ...r, [m]: e.target.value }))}
+                                style={{ ...inputStyle, padding: '8px 11px', fontSize: 12.5 }}
+                              />
+                            )}
+                          </div>
                         ))}
                         <div
                           style={{
@@ -621,10 +697,11 @@ export default function CheckoutPage() {
                           <div
                             key={di}
                             style={{
-                              display: 'grid', gridTemplateColumns: '1fr 96px auto', gap: 8, alignItems: 'center',
+                              display: 'grid', gap: 8,
                               border: '1.5px solid var(--border-strong, #b9e0da)', borderRadius: 14, padding: '10px 12px',
                             }}
                           >
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 96px auto', gap: 8, alignItems: 'center' }}>
                             <input
                               placeholder={`${t('store.diner')} ${di + 1}`}
                               value={d.name}
@@ -653,14 +730,26 @@ export default function CheckoutPage() {
                             >
                               {fmtMoney(dinerShares[di])}
                             </span>
-                            {diners.length > 2 && (
-                              <button
-                                onClick={() => removeDiner(di)}
-                                aria-label={`${t('store.removeDiner')} ${di + 1}`}
-                                style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#d64541', fontSize: 14, fontWeight: 800 }}
-                              >
-                                ✕
-                              </button>
+                              {diners.length > 2 && (
+                                <button
+                                  onClick={() => removeDiner(di)}
+                                  aria-label={`${t('store.removeDiner')} ${di + 1}`}
+                                  style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#d64541', fontSize: 14, fontWeight: 800 }}
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </div>
+                            {['bkash', 'nagad'].includes(d.method) && (
+                              <input
+                                placeholder={`${t('store.trxId')} ${t('store.optional')}`}
+                                aria-label={`${t('store.trxId')} ${t('store.diner')} ${di + 1}`}
+                                value={d.ref || ''}
+                                onChange={(e) =>
+                                  setDiners((ds) => ds.map((x, i) => (i === di ? { ...x, ref: e.target.value } : x)))
+                                }
+                                style={{ ...inputStyle, padding: '8px 11px', fontSize: 12.5 }}
+                              />
                             )}
                           </div>
                         ))}

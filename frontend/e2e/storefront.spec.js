@@ -394,3 +394,43 @@ test('guest splits a QR table order by diner (items + per-diner methods)', async
   expect(track.status()).toBe(200);
   expect((await track.json()).paymentStatus).toBe('partial');
 });
+
+test('wallet split part captures the trxID and the merchant sees it on the payment', async ({
+  page,
+  request,
+}) => {
+  await enableBkash(request);
+  const beef = await menuItem(request, 'Beef Kebab 250gm');
+  await checkoutWithCart(page, [
+    { product_id: beef.id, quantity: 1, variant_id: null, addon_ids: [], name: 'Beef Kebab 250gm', unit_price: beef.price, options: [] },
+  ]);
+
+  // Split on → amount mode: bKash part carries a trxID.
+  await page.getByRole('button', { name: /Split payment/ }).click();
+  const amountInputs = page.locator('input[type="number"]');
+  await expect(amountInputs).toHaveCount(2);
+  await amountInputs.nth(0).fill(String(beef.price - 200)); // cash
+  await amountInputs.nth(1).fill('200'); // bKash
+  await page.getByLabel('Transaction ID (trxID) bkash').fill('8A7B6C5D4E');
+
+  await page.getByPlaceholder('Rahim Uddin').fill('Trx Guest');
+  await page.getByPlaceholder('017XXXXXXXX').fill('01712345679');
+  await page.getByRole('button', { name: /Place order/ }).click();
+  await expect(page.getByText('Order placed! 🎉')).toBeVisible();
+  const orderNo = (await page.getByText(/^ORD-/).first().textContent()).trim();
+
+  // The merchant API shows the bKash part with the exact trxID.
+  const login = await request.post('/api/auth/login', {
+    data: { email: E2E_ADMIN.email, password: E2E_ADMIN.password },
+  });
+  const { accessToken } = await login.json();
+  const orders = await request.get('/api/orders?limit=50', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  expect(orders.status()).toBe(200);
+  const order = (await orders.json()).find((o) => o.order_no === orderNo);
+  expect(order, 'placed order should be visible to the merchant').toBeTruthy();
+  expect(order.payment_status).toBe('partial');
+  const bkashPart = (order.payments || []).find((p) => p.method === 'bkash');
+  expect(bkashPart).toMatchObject({ amount: 200, status: 'pending', reference: '8A7B6C5D4E' });
+});

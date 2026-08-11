@@ -14,6 +14,7 @@ import { User, Tenant, UserTenant, Product, MenuCategory, ItemVariant, ItemAddon
 
 let tenantA;
 let tenantB;
+let tenantWallet;
 let categoryBurgers;
 let categoryDrinks;
 let itemAvailable;
@@ -24,6 +25,21 @@ beforeAll(async () => {
   tenantA = await Tenant.create({ name: 'Public Cafe A', slug: 'public-a' });
   tenantB = await Tenant.create({ name: 'Public Cafe B', slug: 'public-b' });
   await Tenant.create({ name: 'Hidden Cafe', slug: 'hidden-cafe', status: 'suspended' });
+  // Wallet receiving numbers (Phase 6 UX): a tenant with bKash + Nagad
+  // enabled and numbered — the public API must expose these (customers need
+  // them to pay), but never any gateway/internal settings.
+  tenantWallet = await Tenant.create({
+    name: 'Wallet Cafe',
+    slug: 'wallet-cafe',
+    settings: {
+      paymentMethods: {
+        cash: { enabled: true },
+        bkash: { enabled: true, number: '01711112222' },
+        nagad: { enabled: true, number: '01733334444' },
+      },
+      internalNote: 'do-not-leak-this',
+    },
+  });
 
   categoryBurgers = await MenuCategory.create({ tenant_id: tenantA.id, name: 'Burgers', sort_order: 1 });
   categoryDrinks = await MenuCategory.create({ tenant_id: tenantA.id, name: 'Drinks', sort_order: 2 });
@@ -98,16 +114,31 @@ describe('GET /api/public/restaurants/:slug', () => {
       status: 'active',
       brand: null,
       // Checkout config (Phase 5) — additive, public-safe: only the enabled
-      // method list + delivery availability/fee; never receiving numbers.
+      // method list + wallet numbers + delivery availability/fee.
       checkout: {
         paymentMethods: ['cash'],
+        walletNumbers: {},
         deliveryEnabled: true,
         deliveryFee: 0,
       },
     });
-    // Sensitive payment config never leaks to the public API.
-    expect(JSON.stringify(res.body)).not.toContain('number');
+    // No actual phone number leaks (the empty walletNumbers key is fine).
+    expect(JSON.stringify(res.body)).not.toContain('017');
     expect(JSON.stringify(res.body)).not.toContain('settings');
+  });
+
+  it('exposes only the enabled wallet receiving numbers (never internal settings)', async () => {
+    const res = await request(app).get('/api/public/restaurants/wallet-cafe');
+    expect(res.status).toBe(200);
+    expect(res.body.checkout.paymentMethods).toEqual(['cash', 'bkash', 'nagad']);
+    expect(res.body.checkout.walletNumbers).toEqual({
+      bkash: '01711112222',
+      nagad: '01733334444',
+    });
+    const serialized = JSON.stringify(res.body);
+    // Internal-only settings never leave, even though numbers are public.
+    expect(serialized).not.toContain('internalNote');
+    expect(serialized).not.toContain('do-not-leak-this');
   });
 
   it('exposes only the public-safe brand whitelist when a brand is set', async () => {

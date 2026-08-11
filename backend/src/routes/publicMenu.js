@@ -12,7 +12,10 @@ import Order from '../models/Order.js';
 import OrderItem from '../models/OrderItem.js';
 import Payment from '../models/Payment.js';
 import { parsePagination } from '../utils/pagination.js';
-import { enabledPaymentMethods } from '../services/paymentsService.js';
+import {
+  enabledPaymentMethods,
+  paymentMethodsConfig,
+} from '../services/paymentsService.js';
 import { deliveryConfig } from '../services/checkoutService.js';
 
 /**
@@ -65,9 +68,17 @@ function serializeTenant(tenant) {
   // needs to theme itself. Full settings/sensitive data never leave.
   const brand = tenant.settings?.brand;
   // Checkout config (Phase 5): the storefront needs to know which payment
-  // methods are enabled and whether delivery is available + its fee — all
-  // public-safe (receiving numbers and secrets never leave the API).
+  // methods are enabled, whether delivery is available + its fee, and the
+  // merchant's wallet receiving numbers so customers can pay — all
+  // public-safe (gateway credentials and internal settings never leave).
   const delivery = deliveryConfig(tenant);
+  const methodsConfig = paymentMethodsConfig(tenant);
+  const walletNumbers = {};
+  for (const m of ['bkash', 'nagad']) {
+    if (methodsConfig[m]?.enabled && methodsConfig[m]?.number) {
+      walletNumbers[m] = methodsConfig[m].number;
+    }
+  }
   return {
     id: tenant.id,
     name: tenant.name,
@@ -83,6 +94,9 @@ function serializeTenant(tenant) {
       : null,
     checkout: {
       paymentMethods: enabledPaymentMethods(tenant),
+      // The merchant's wallet receiving numbers (public-safe — customers
+      // need them to send money): { bkash: '01711…', nagad: '01722…' }.
+      walletNumbers,
       deliveryEnabled: delivery.enabled,
       deliveryFee: delivery.fee,
     },
