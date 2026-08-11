@@ -26,9 +26,13 @@ const { ensureBootstrapData } = await import('../src/config/schemaSync.js');
 const { User, Tenant, UserTenant, Product } = await import('../src/models/index.js');
 
 const PORT = 4100;
+const started = Date.now();
+const phase = (label) =>
+  console.log(`[e2e] ${label} (${((Date.now() - started) / 1000).toFixed(1)}s)`);
 
 try {
   sequelize.options.logging = false;
+  phase(`boot on ${sequelize.getDialect()}`);
 
   // Deterministic start: wipe the target, then build the schema.
   // SQLite — delete the scratch file. PostgreSQL — drop every table (the CI
@@ -38,8 +42,11 @@ try {
   } else {
     fs.rmSync('./data.e2e.sqlite', { force: true });
   }
+  phase('schema wiped');
   await migrateUp(sequelize);
+  phase('migrations applied');
   await ensureBootstrapData(); // plans + default tenant + default subscription
+  phase('bootstrap data ready');
 
   const tenant = await Tenant.findOne({ where: { slug: 'default-restaurant' } });
   const admin = await User.create({
@@ -52,6 +59,7 @@ try {
     where: { user_id: admin.id, tenant_id: tenant.id },
     defaults: { role: 'owner' },
   });
+  phase('admin + tenant ready');
 
   // Deterministic menu for the default workspace.
   await Product.create({
@@ -74,7 +82,7 @@ try {
   });
 
   app.listen(PORT, () => {
-    console.log(`[e2e] backend ready on :${PORT} (scratch DB data.e2e.sqlite)`);
+    phase(`backend ready on :${PORT}`);
   });
 } catch (error) {
   console.error('[e2e] boot failed:', error);

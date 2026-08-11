@@ -97,7 +97,17 @@ describe('GET /api/public/restaurants/:slug', () => {
       logoUrl: null,
       status: 'active',
       brand: null,
+      // Checkout config (Phase 5) — additive, public-safe: only the enabled
+      // method list + delivery availability/fee; never receiving numbers.
+      checkout: {
+        paymentMethods: ['cash'],
+        deliveryEnabled: true,
+        deliveryFee: 0,
+      },
     });
+    // Sensitive payment config never leaks to the public API.
+    expect(JSON.stringify(res.body)).not.toContain('number');
+    expect(JSON.stringify(res.body)).not.toContain('settings');
   });
 
   it('exposes only the public-safe brand whitelist when a brand is set', async () => {

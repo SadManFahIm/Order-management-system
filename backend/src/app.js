@@ -29,6 +29,7 @@ import './models/InventoryItem.js';
 import './models/Table.js';
 import './models/Payment.js';
 import './models/DailyStat.js';
+import './models/IdempotencyKey.js';
 
 import authRoutes from './routes/auth.js';
 import productRoutes from './routes/products.js';
@@ -38,6 +39,7 @@ import tenantRoutes from './routes/tenants.js';
 import menuRoutes from './routes/menu.js';
 import uploadRoutes from './routes/uploads.js';
 import publicMenuRoutes from './routes/publicMenu.js';
+import storefrontRoutes from './routes/storefront.js';
 import dashboardRoutes from './routes/dashboard.js';
 import tableRoutes from './routes/tables.js';
 import paymentRoutes from './routes/payments.js';
@@ -118,6 +120,7 @@ app.use('/api/uploads', apiLimiter, uploadRoutes);
 // Public storefront menu — read-only, no auth; use the standard API limiter
 // but slightly relaxed per-IP budget is inherited from apiLimiter defaults.
 app.use('/api/public', apiLimiter, publicMenuRoutes);
+app.use('/api/public', apiLimiter, storefrontRoutes);
 app.use('/api/dashboard', apiLimiter, dashboardRoutes);
 app.use('/api/tables', apiLimiter, tableRoutes);
 app.use('/api/payments', apiLimiter, paymentRoutes);

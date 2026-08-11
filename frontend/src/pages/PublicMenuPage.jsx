@@ -1,20 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
-import { useParams, Link, useSearchParams } from 'react-router-dom';
+import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Skeleton } from '../components/ui';
 import { useI18n, LANGUAGES } from '../i18n';
 
 /**
- * Public storefront menu (Phase 4) — consumes the read-only public API
+ * Public storefront menu (Phase 4/5) — consumes the read-only public API
  * (`/api/public/restaurants/:slug/menu`), no auth required. Since Phase 4 R3
- * the page themes itself from the tenant's brand settings (colours +
- * tagline) so every workspace looks like its own brand.
+ * the page themes itself from the tenant's brand settings.
  *
- * QR table menus (Phase 5 starter): a `?table=N` param shows a table pill in
- * the hero (that is exactly what the printed QR encodes), and the whole page
- * chrome flips between English and বাংলা for the local market.
+ * Phase 5: the page is now the first step of the customer journey — items can
+ * be added to a cart (with variant/add-on options where the menu has them),
+ * the cart persists per restaurant in localStorage, and the floating cart bar
+ * leads to the checkout flow at /m/:slug/checkout. Prices shown are for
+ * display; the checkout re-prices everything server-side.
  */
 const PAGE_SIZE = 50;
+const CART_KEY = (slug) => `oms.cart.${slug}`;
 
 /** Merges a paginated response into the already-fetched categories (by item id). */
 const mergeCategories = (existing, incoming) => {
@@ -36,16 +38,177 @@ const mergeCategories = (existing, incoming) => {
 const brandColor = (value, fallback) =>
   /^#[0-9a-fA-F]{6}$/.test(value || '') ? value : fallback;
 
+const loadCart = (slug) => {
+  try {
+    const raw = window.localStorage.getItem(CART_KEY(slug));
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveCart = (slug, cart) => {
+  try {
+    window.localStorage.setItem(CART_KEY(slug), JSON.stringify(cart));
+  } catch {
+    /* storage unavailable */
+  }
+};
+
+const fmtMoney = (n) => `৳ ${Number(n).toFixed(2)}`;
+
+/** Line display price = base + variant adjustment + add-ons (display only). */
+const linePrice = (item, variantId, addonIds) => {
+  let price = Number(item.price);
+  if (variantId) {
+    const v = (item.variants || []).find((x) => x.id === variantId);
+    price += Number(v?.priceAdjustment || 0);
+  }
+  for (const id of addonIds || []) {
+    const a = (item.addons || []).find((x) => x.id === id);
+    price += Number(a?.price || 0);
+  }
+  return price;
+};
+
+/** Item options modal — variant + add-ons + quantity. */
+function ItemModal({ item, initial, onConfirm, onClose, t }) {
+  const [variantId, setVariantId] = useState(initial?.variant_id ?? null);
+  const [addonIds, setAddonIds] = useState(initial?.addon_ids ?? []);
+  const [qty, setQty] = useState(initial?.quantity ?? 1);
+
+  const toggleAddon = (id) =>
+    setAddonIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 60,
+        background: 'rgba(10,25,23,0.55)', backdropFilter: 'blur(3px)',
+        display: 'grid', placeItems: 'center', padding: 16,
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: '100%', maxWidth: 420, maxHeight: '85vh', overflowY: 'auto',
+          background: '#fff', borderRadius: 20, padding: 24,
+          boxShadow: '0 24px 60px rgba(0,0,0,0.25)',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{item.name}</h3>
+            {item.description && (
+              <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--text-muted, #7d9a95)' }}>{item.description}</p>
+            )}
+          </div>
+          <button onClick={onClose} style={closeBtn}>✕</button>
+        </div>
+
+        {item.variants?.length > 0 && (
+          <div style={{ marginTop: 18 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>{t('store.chooseVariant')}</div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {(item.variants || []).map((v) => (
+                <button
+                  key={v.id}
+                  onClick={() => setVariantId(v.id)}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    border: `1.5px solid ${variantId === v.id ? 'var(--brand)' : 'var(--border-strong, #b9e0da)'}`,
+                    background: variantId === v.id ? 'color-mix(in srgb, var(--brand) 8%, #fff)' : '#fff',
+                    borderRadius: 12, padding: '10px 14px', cursor: 'pointer',
+                  }}
+                >
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>{v.name}</span>
+                  <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-muted, #7d9a95)' }}>
+                    {v.priceAdjustment > 0 ? `+${fmtMoney(v.priceAdjustment)}` : '—'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {item.addons?.length > 0 && (
+          <div style={{ marginTop: 18 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>{t('store.chooseAddons')}</div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {(item.addons || []).map((a) => (
+                <label
+                  key={a.id}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    border: '1.5px solid var(--border-strong, #b9e0da)', borderRadius: 12,
+                    padding: '10px 14px', cursor: 'pointer',
+                  }}
+                >
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>
+                    <input
+                      type="checkbox"
+                      checked={addonIds.includes(a.id)}
+                      onChange={() => toggleAddon(a.id)}
+                      style={{ marginRight: 10, accentColor: 'var(--brand)' }}
+                    />
+                    {a.name}
+                  </span>
+                  <span style={{ fontWeight: 700, fontSize: 13 }}>{fmtMoney(a.price)}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 22 }}>
+          <div style={{ display: 'flex', alignItems: 'center', border: '1.5px solid var(--border-strong, #b9e0da)', borderRadius: 999 }}>
+            <button onClick={() => setQty((q) => Math.max(1, q - 1))} style={{ ...qtyBtn, borderRadius: '999px 0 0 999px' }}>−</button>
+            <span style={{ minWidth: 40, textAlign: 'center', fontWeight: 800 }}>{qty}</span>
+            <button onClick={() => setQty((q) => Math.min(99, q + 1))} style={{ ...qtyBtn, borderRadius: '0 999px 999px 0' }}>+</button>
+          </div>
+          <button
+            onClick={() => onConfirm({ variant_id: variantId, addon_ids: addonIds, quantity: qty })}
+            style={{
+              flex: 1, background: 'var(--brand)', color: '#fff', border: 'none',
+              borderRadius: 999, padding: '12px 20px', fontSize: 15, fontWeight: 800, cursor: 'pointer',
+            }}
+          >
+            {t('store.addToCart')} · {fmtMoney(linePrice(item, variantId, addonIds) * qty)}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const closeBtn = {
+  background: 'var(--surface-3, #e2f5f2)', border: 'none', width: 30, height: 30,
+  borderRadius: '50%', cursor: 'pointer', fontSize: 13, flexShrink: 0,
+};
+const qtyBtn = {
+  background: 'transparent', border: 'none', width: 38, height: 38,
+  fontSize: 18, cursor: 'pointer', fontWeight: 800, color: 'var(--text, #123b36)',
+};
+
 export default function PublicMenuPage() {
   const { slug } = useParams();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const tableNo = searchParams.get('table');
   const { t, lang, toggleLang } = useI18n();
   const [state, setState] = useState({ loading: true, error: null, data: null });
   const [activeCat, setActiveCat] = useState(null);
   const [total, setTotal] = useState(0);
   const [fetchingMore, setFetchingMore] = useState(false);
+  const [cart, setCart] = useState(() => loadCart(slug));
+  const [modalItem, setModalItem] = useState(null);
+  const [modalInitial, setModalInitial] = useState(null);
   const mounted = useRef(true);
+
+  useEffect(() => {
+    saveCart(slug, cart);
+  }, [cart, slug]);
 
   const loadedCount = (data) =>
     data ? data.categories.reduce((n, c) => n + c.items.length, 0) : 0;
@@ -70,12 +233,11 @@ export default function PublicMenuPage() {
 
   useEffect(() => {
     mounted.current = true;
+    setCart(loadCart(slug));
     setState({ loading: true, error: null, data: null });
     setTotal(0);
     loadPage(0, false).catch((err) => {
       if (!mounted.current) return;
-      // Store a code, translate at render — so a language toggle updates
-      // the message instantly without a refetch.
       setState({
         loading: false,
         error: err?.response?.status === 404 ? 'notFound' : 'load',
@@ -97,6 +259,45 @@ export default function PublicMenuPage() {
     } finally {
       setFetchingMore(false);
     }
+  };
+
+  /** Adds a line to the cart, merging identical configurations. */
+  const addLine = (item, { variant_id, addon_ids, quantity }) => {
+    const variant = (item.variants || []).find((v) => v.id === variant_id);
+    const addons = (item.addons || []).filter((a) => (addon_ids || []).includes(a.id));
+    const line = {
+      product_id: item.id,
+      variant_id: variant_id ?? null,
+      addon_ids: addon_ids ?? [],
+      quantity,
+      name: item.name,
+      unit_price: linePrice(item, variant_id, addon_ids),
+      imageUrl: item.imageUrl || null,
+      options: [...(variant ? [variant.name] : []), ...addons.map((a) => a.name)],
+    };
+    setCart((c) => {
+      const idx = c.findIndex(
+        (l) =>
+          l.product_id === line.product_id &&
+          l.variant_id === line.variant_id &&
+          JSON.stringify(l.addon_ids) === JSON.stringify(line.addon_ids)
+      );
+      if (idx === -1) return [...c, line];
+      const next = [...c];
+      next[idx] = { ...next[idx], quantity: Math.min(99, next[idx].quantity + line.quantity) };
+      return next;
+    });
+    setModalItem(null);
+  };
+
+  const quickAdd = (item) => {
+    const hasOptions = (item.variants?.length || 0) > 0 || (item.addons?.length || 0) > 0;
+    if (hasOptions) {
+      setModalInitial(null);
+      setModalItem(item);
+      return;
+    }
+    addLine(item, { variant_id: null, addon_ids: [], quantity: 1 });
   };
 
   if (state.loading) {
@@ -135,8 +336,10 @@ export default function PublicMenuPage() {
   const primary = brandColor(brand.primaryColor, '#00b3a5');
   const accent = brandColor(brand.accentColor, '#f5d300');
   const active = categories.find((c) => c.id === activeCat) || categories[0];
-  const price = (n) => `৳ ${Number(n).toFixed(2)}`;
+  const price = (n) => fmtMoney(n);
   const catCount = categories.filter((c) => c.items.length > 0).length;
+  const cartCount = cart.reduce((s, l) => s + l.quantity, 0);
+  const cartTotal = cart.reduce((s, l) => s + Number(l.unit_price) * l.quantity, 0);
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg, #f5fbfa)', '--brand': primary, '--brand-accent': accent }}>
@@ -219,7 +422,7 @@ export default function PublicMenuPage() {
         </div>
       </div>
 
-      <div style={{ maxWidth: 900, margin: '0 auto', padding: '28px 20px 60px' }}>
+      <div style={{ maxWidth: 900, margin: '0 auto', padding: '28px 20px 120px' }}>
         {/* Category chips */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 24 }}>
           {categories
@@ -319,20 +522,31 @@ export default function PublicMenuPage() {
                   )}
                   <div style={{ fontSize: 15, fontWeight: 700 }}>{price(item.price)}</div>
                 </div>
-                <div
+                <button
+                  onClick={() => quickAdd(item)}
                   style={{
                     borderRadius: 999,
-                    border: '1px solid var(--border-strong, #b9e0da)',
-                    padding: '7px 14px',
-                    fontSize: 13,
-                    fontWeight: 700,
-                    color: 'var(--text, #123b36)',
-                    background: 'var(--surface-2, #f0faf8)',
-                    cursor: 'default',
+                    border: '1.5px solid var(--brand)',
+                    padding: '8px 18px',
+                    fontSize: 13.5,
+                    fontWeight: 800,
+                    color: 'var(--brand)',
+                    background: 'color-mix(in srgb, var(--brand) 8%, #fff)',
+                    cursor: 'pointer',
+                    transition: 'all .15s ease',
+                    flexShrink: 0,
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'var(--brand)';
+                    e.currentTarget.style.color = '#fff';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'color-mix(in srgb, var(--brand) 8%, #fff)';
+                    e.currentTarget.style.color = 'var(--brand)';
                   }}
                 >
-                  {item.weightGm} gm
-                </div>
+                  + {t('store.addToCart')}
+                </button>
               </div>
             ))}
           </div>
@@ -377,6 +591,48 @@ export default function PublicMenuPage() {
           </div>
         </div>
       </div>
+
+      {/* Item options modal */}
+      {modalItem && (
+        <ItemModal
+          item={modalItem}
+          initial={modalInitial}
+          t={t}
+          onClose={() => setModalItem(null)}
+          onConfirm={(sel) => addLine(modalItem, sel)}
+        />
+      )}
+
+      {/* Floating cart bar */}
+      {cartCount > 0 && (
+        <div
+          style={{
+            position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 50,
+            padding: '12px 16px calc(12px + env(safe-area-inset-bottom))',
+            background: 'linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.96) 30%)',
+            display: 'flex', justifyContent: 'center', pointerEvents: 'none',
+          }}
+        >
+          <button
+            onClick={() => navigate(`/m/${slug}/checkout`)}
+            style={{
+              pointerEvents: 'auto',
+              background: 'var(--brand)', color: '#fff', border: 'none',
+              borderRadius: 999, padding: '14px 26px', fontSize: 15, fontWeight: 800,
+              boxShadow: '0 10px 28px color-mix(in srgb, var(--brand) 45%, transparent)',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10,
+              transition: 'transform .15s ease',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; }}
+          >
+            🛒 {t('store.cart')} · {cartCount} {t('store.qty')} · {price(cartTotal)}
+            <span style={{ background: 'rgba(255,255,255,0.22)', borderRadius: 999, padding: '4px 12px', fontSize: 13 }}>
+              {t('store.checkout')} →
+            </span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

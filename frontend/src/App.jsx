@@ -15,6 +15,7 @@ import NewOrderPage from './pages/NewOrderPage';
 import InvoicePage from './pages/InvoicePage';
 import DashboardPage from './pages/DashboardPage';
 import PublicMenuPage from './pages/PublicMenuPage';
+import CheckoutPage from './pages/CheckoutPage';
 import LandingPage from './pages/LandingPage';
 import SettingsPage from './pages/SettingsPage';
 import TableQRPage from './pages/TableQRPage';
@@ -33,8 +34,9 @@ export default function App() {
           <Route path="/verify-email" element={<VerifyEmailPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
-          {/* Public storefront menu — no auth; renders from the public API. */}
+          {/* Public storefront — no auth; renders from the public API. */}
           <Route path="/m/:slug" element={<PublicMenuPage />} />
+          <Route path="/m/:slug/checkout" element={<CheckoutPage />} />
           {/* Public customer tracking — no auth; phone-verified lookup. */}
           <Route path="/track" element={<TrackOrderPage />} />
           <Route path="/track/:orderNo" element={<TrackOrderPage />} />
