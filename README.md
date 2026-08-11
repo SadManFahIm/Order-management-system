@@ -438,16 +438,16 @@ Coverage highlights: promotion engine (all discount types, date windows, best-di
 
 ## 🔄 CI/CD
 
-GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `master` — **6 parallel jobs**:
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `master`, **every night** (03:00 UTC = 09:00 Dhaka, so the PostgreSQL tier re-validates master daily and drift never survives the week), and on demand — **6 parallel jobs**:
 
 1. **Backend:** `npm ci` → lint → test → `npm audit --audit-level=high`
 2. **Backend — PostgreSQL 16:** real `postgres:16` service → `db:migrate` → `db:migrate:status` → full suite with `DB_DIALECT=postgres` → seed + production-mode boot smoke
 3. **Backend — S3 driver vs MinIO:** runs a MinIO server in-process → bucket setup → real S3 driver round-trip tests
-4. **Backend — gateway sandbox E2E:** boots the real backend on a scratch DB pointed at the local sandbox and drives the full online-payment loop for **both** SSLCommerz and Stripe (order → paymentUrl → signed webhook → paid)
-5. **E2E — Playwright:** installs Chromium → boots scratch backend + Vite → browser suite
+4. **Backend — gateway sandbox E2E:** boots the real backend on a scratch DB pointed at the local sandbox and drives the full online-payment loop for **all three** gateways — SSLCommerz, Stripe and bKash (order → paymentUrl → signed webhook → paid)
+5. **E2E — Playwright:** installs Chromium → boots scratch backend + Vite → browser suite (login, product CRUD, order creation, public storefront menu, guest checkout journey)
 6. **Frontend:** `npm ci` → lint → build → `npm audit` (informational)
 
-The workflow exposes a `workflow_dispatch` trigger so CI can always be run manually (`gh workflow run ci.yml`) even when GitHub's webhook events are delayed.
+One live run is kept per branch/PR — a superseded run cancels the one before it (`concurrency` + `cancel-in-progress`), so a wedged stale run can never hold the PostgreSQL service containers and starve the fresh run's jobs. The workflow also exposes a `workflow_dispatch` trigger so CI can always be run manually (`gh workflow run ci.yml`) even when GitHub's webhook events are delayed.
 
 ---
 

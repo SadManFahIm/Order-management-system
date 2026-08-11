@@ -1,12 +1,25 @@
 name: CI
 
-# Triggers: push to master, pull requests targeting master, manual runs.
+# Triggers: push to master, pull requests targeting master, a nightly
+# scheduled run (catches schema drift / flakiness that PRs miss), and manual
+# runs.
 on:
   push:
     branches: [master]
   pull_request:
     branches: [master]
+  schedule:
+    # 03:00 UTC = 09:00 Dhaka (UTC+6) — full pipeline incl. the PostgreSQL
+    # tier runs against master every night, so drift never survives the week.
+    - cron: '0 3 * * *'
   workflow_dispatch:
+
+# One live run per branch/PR: a superseded run cancels the one before it
+# instead of queuing behind it (observed: a wedged stale run held the PG
+# service containers and starved the fresh run's jobs).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend:
@@ -94,7 +107,8 @@ jobs:
 
   e2e:
     # Browser-level suite: the real API on a PostgreSQL 16 service + the Vite
-    # app, driven with Playwright (login, product CRUD, order creation).
+    # app, driven with Playwright (login, product CRUD, order creation, the
+    # public storefront menu, and the full guest checkout journey).
     name: E2E — Playwright (browser, PostgreSQL)
     runs-on: ubuntu-latest
     services:
