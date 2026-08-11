@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useI18n, LANGUAGES } from '../i18n';
 
@@ -21,10 +21,22 @@ const fmtTaka = (n) => `৳ ${Number(n).toLocaleString('en-IN', { maximumFractio
 
 export default function TrackOrderPage() {
   const { orderNo: orderNoParam } = useParams();
+  const [searchParams] = useSearchParams();
   const { t, lang, toggleLang } = useI18n();
-  const [orderNo, setOrderNo] = useState(orderNoParam || '');
-  const [phone, setPhone] = useState('');
+  // The storefront confirmation links to /track?orderNo=…&phone=… — prefer
+  // those query params (real checkout flow) over the route param, so the
+  // customer lands on the live status instead of an empty form.
+  const [orderNo, setOrderNo] = useState(
+    searchParams.get('orderNo') || orderNoParam || ''
+  );
+  const [phone, setPhone] = useState(searchParams.get('phone') || '');
   const [state, setState] = useState({ loading: false, error: null, data: null });
+
+  // Pre-filled from the confirmation link → look up immediately.
+  useEffect(() => {
+    if (orderNo && phone) lookup();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const lookup = async (e) => {
     e?.preventDefault();
