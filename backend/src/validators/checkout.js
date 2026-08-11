@@ -45,6 +45,9 @@ export const checkoutSchema = z.object({
         method: z.string().trim().max(16),
         amount: z.number().positive('Each split amount must be a positive number'),
         reference: z.string().trim().max(120).optional().or(z.literal('')),
+        // Diner label for QR table bill-split (e.g. "Rahim") — stored on the
+        // payment row's notes so the merchant sees who paid which part.
+        note: z.string().trim().max(80).optional().or(z.literal('')),
       })
     )
     .optional(),

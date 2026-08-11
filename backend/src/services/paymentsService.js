@@ -108,6 +108,10 @@ export function validateSplits(tenant, splits, grandTotal) {
     method: s.method,
     amount: Number(s.amount),
     reference: s.reference || null,
+    // Diner/table bill split (Phase 6): who this part belongs to — e.g.
+    // "Rahim" when a QR table order is split across diners. Stored on the
+    // payment row's `notes` so the cashier can see it in the closeout.
+    note: typeof s.note === 'string' && s.note.trim() ? s.note.trim().slice(0, 80) : null,
   }));
 }
 
@@ -131,6 +135,8 @@ export async function createPaymentForOrder(tenant, order, { method, reference, 
         amount: Number(s.amount),
         status: s.method === 'cash' ? 'paid' : 'pending',
         reference: s.reference || null,
+        // Diner/table bill-split label (QR table menu) — visible to cashiers.
+        notes: s.note || null,
         paid_at: s.method === 'cash' ? new Date() : null,
       }))
     );

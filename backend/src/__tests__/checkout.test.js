@@ -346,15 +346,16 @@ describe('POST /api/public/restaurants/:slug/checkout', () => {
   });
 
   it('places a mixed split order (bkash part pending + cash part paid) → partial', async () => {
-    // 1 × 250 burger split 150 bKash + 100 cash.
+    // 1 × 250 burger split 150 bKash + 100 cash, each part tagged with the
+    // diner it belongs to (QR table bill-split).
     const res = await request(app)
       .post('/api/public/restaurants/checkout-diner/checkout')
       .set('Idempotency-Key', 'split-mixed-1')
       .send(
         base({
           payments: [
-            { method: 'bkash', amount: 150, reference: 'SPLITTRX1' },
-            { method: 'cash', amount: 100 },
+            { method: 'bkash', amount: 150, reference: 'SPLITTRX1', note: 'Rahim' },
+            { method: 'cash', amount: 100, note: 'Karim' },
           ],
         })
       );
@@ -367,8 +368,10 @@ describe('POST /api/public/restaurants/:slug/checkout', () => {
     expect(byMethod.bkash.amount).toBe(150);
     expect(byMethod.bkash.status).toBe('pending');
     expect(byMethod.bkash.reference).toBe('SPLITTRX1');
+    expect(byMethod.bkash.notes).toBe('Rahim');
     expect(byMethod.cash.amount).toBe(100);
     expect(byMethod.cash.status).toBe('paid');
+    expect(byMethod.cash.notes).toBe('Karim');
   });
 
   it('an all-cash split settles as paid', async () => {
