@@ -659,3 +659,86 @@ export function renderDinerReceiptHtml(receipt) {
 </div>
 </body></html>`;
 }
+
+/**
+ * Per-diner kitchen order ticket (KOT) — what the kitchen needs and nothing
+ * else: table, order, diner label and the assigned items with quantities.
+ * Deliberately NO prices, VAT or payment info (a kitchen ticket is not a
+ * bill), built from the STORED split allocation so it matches the receipt.
+ */
+export function buildDinerKot({ order, tenant, payment }) {
+  return {
+    kotNo: `KOT-${order.order_no || order.id}-${payment.id}`,
+    restaurantName: tenant?.name || 'Restaurant',
+    tableNo: order.table_no,
+    orderNo: order.order_no,
+    orderId: order.id,
+    dinerLabel: payment.notes || `Diner ${payment.diner_index || 1}`,
+    dinerIndex: payment.diner_index || 1,
+    items: (payment.splitItems || []).map((i) => ({
+      itemName: i.item_name,
+      quantity: i.quantity,
+    })),
+    createdAt: payment.paid_at || order.createdAt?.toISOString?.() || null,
+  };
+}
+
+/**
+ * Print-ready kitchen ticket HTML — big readable quantities, narrow
+ * thermal-friendly sheet; browser print / Save-as-PDF, no PDF dependency.
+ */
+export function renderDinerKotHtml(kot) {
+  const rows = kot.items
+    .map(
+      (i) => `<tr>
+        <td>${esc(i.itemName)}</td>
+        <td class="qty">× ${i.quantity}</td>
+      </tr>`
+    )
+    .join('');
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Kitchen ticket ${esc(kot.dinerLabel)} — ${esc(kot.restaurantName)}</title>
+<style>
+  :root{--ink:#16181d;--muted:#68707a;--line:#e6e8ec;--brand:#e11d48;--bg:#fff}
+  *{box-sizing:border-box}
+  body{font-family:system-ui,'Segoe UI',Roboto,'Noto Sans Bengali',sans-serif;color:var(--ink);margin:0;background:#f6f7f9;padding:32px}
+  .sheet{max-width:380px;margin:0 auto;background:var(--bg);border-radius:16px;padding:28px;box-shadow:0 8px 28px rgba(0,0,0,.06)}
+  .kot-badge{display:inline-block;background:var(--brand);color:#fff;font-weight:800;letter-spacing:.12em;font-size:11px;padding:4px 10px;border-radius:999px}
+  .brand{text-align:center;border-bottom:2px dashed var(--line);padding-bottom:14px;margin-bottom:14px}
+  .brand h1{font-size:18px;margin:4px 0 2px;letter-spacing:.02em}
+  .brand .sub{color:var(--muted);font-size:12px;margin:0}
+  .meta{display:flex;justify-content:space-between;font-size:12.5px;margin:6px 0}
+  .meta b{font-weight:700}
+  .diner{text-align:center;background:#fdeef1;color:var(--brand);font-weight:800;border-radius:999px;padding:6px 14px;font-size:14px;margin:12px 0}
+  h2{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:16px 0 6px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  td{padding:7px 0;border-bottom:1px dashed var(--line);vertical-align:top;font-weight:600}
+  td.qty{text-align:right;font-weight:800;font-size:15px;white-space:nowrap}
+  .foot{margin-top:16px;text-align:center;color:var(--muted);font-size:10.5px;border-top:1px dashed var(--line);padding-top:10px}
+  .btn{display:block;width:100%;margin:18px 0 0;padding:11px;border:none;border-radius:999px;background:var(--brand);color:#fff;font-weight:800;font-size:14px;cursor:pointer}
+  @media print{
+    body{background:#fff;padding:0}
+    .sheet{box-shadow:none;border-radius:0;padding:12px;max-width:none}
+    .btn{display:none}
+  }
+</style></head><body>
+<div class="sheet">
+  <div class="brand">
+    <span class="kot-badge">KITCHEN</span>
+    <h1>${esc(kot.restaurantName)}</h1>
+    <p class="sub">${esc(kot.kotNo)}</p>
+    <p class="sub">${kot.createdAt ? new Date(kot.createdAt).toLocaleString('en-GB', { timeZone: 'Asia/Dhaka', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}</p>
+  </div>
+  <div class="meta"><span><b>Order</b></span><span>${esc(kot.orderNo || kot.orderId)}</span></div>
+  <div class="meta"><span><b>Table</b></span><span>${kot.tableNo ? `🪑 ${kot.tableNo}` : '—'}</span></div>
+  <div class="diner">${esc(kot.dinerLabel)}</div>
+  <h2>Items</h2>
+  <table>
+    <tbody>${rows || '<tr><td>—</td></tr>'}</tbody>
+  </table>
+  <div class="foot">Fulfil on time · Orderly OMS kitchen ticket</div>
+  <button class="btn" onclick="window.print()">🖨️ Print ticket</button>
+</div>
+</body></html>`;
+}
