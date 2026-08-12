@@ -21,6 +21,7 @@ import Table from './Table.js';
 import Payment from './Payment.js';
 import DailyStat from './DailyStat.js';
 import IdempotencyKey from './IdempotencyKey.js';
+import OrderSplitItem from './OrderSplitItem.js';
 
 // Tenant ↔ Plan / SaaS wiring
 Tenant.belongsTo(Plan, { foreignKey: 'plan_id', as: 'plan' });
@@ -50,4 +51,5 @@ export {
   Payment,
   DailyStat,
   IdempotencyKey,
+  OrderSplitItem,
 };

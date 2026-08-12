@@ -576,6 +576,95 @@ export function CategoryMixDonut({ data = [], size = 168 }) {
   );
 }
 
+const SPLIT_METHOD_COLORS = {
+  equal: '#10b981',
+  item: '#6366f1',
+  custom: '#f59e0b',
+  unsplit: '#64748b',
+};
+
+const SPLIT_METHOD_LABELS = {
+  equal: 'Equal split',
+  item: 'Item split',
+  custom: 'Custom split',
+  unsplit: 'Unsplit',
+};
+
+/**
+ * Split-billing donut (dine-in split billing) — how orders in the window
+ * were split (equal / item / custom / unsplit). The legend shows order
+ * count + % for each method and the paid revenue it generated. Shares the
+ * oms-donut styles with CategoryMixDonut / StatusDonut.
+ */
+export function SplitMethodDonut({ data = {}, size = 168 }) {
+  const segments = ['equal', 'item', 'custom', 'unsplit'].map((m) => ({
+    method: m,
+    orders: m === 'unsplit' ? data.splitOrders?.unsplit || 0 : data.splitOrders?.[m] || 0,
+    revenue:
+      m === 'unsplit'
+        ? 0
+        : Number((data.revenue || []).find((r) => r.method === m)?.revenue) || 0,
+  }));
+  const total = segments.reduce((s, d) => s + d.orders, 0);
+  const r = (size - 26) / 2;
+  const c = 2 * Math.PI * r;
+  let acc = 0;
+
+  return (
+    <div className="oms-donut">
+      <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} role="img" aria-label="Orders by split method">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--surface-2)" strokeWidth="22" />
+        {segments.map((d) => {
+          const frac = total > 0 ? d.orders / total : 0;
+          const dash = frac * c;
+          const offset = -acc * c;
+          acc += frac;
+          if (frac === 0) return null;
+          return (
+            <circle
+              key={d.method}
+              cx={size / 2}
+              cy={size / 2}
+              r={r}
+              fill="none"
+              stroke={SPLIT_METHOD_COLORS[d.method]}
+              strokeWidth="22"
+              strokeDasharray={`${Math.max(dash - 3, 0.5)} ${c}`}
+              strokeDashoffset={offset}
+              transform={`rotate(-90 ${size / 2} ${size / 2})`}
+              className="oms-donut__seg"
+            >
+              <title>{`${SPLIT_METHOD_LABELS[d.method]}: ${d.orders} orders (${total > 0 ? Math.round((d.orders / total) * 1000) / 10 : 0}%)`}</title>
+            </circle>
+          );
+        })}
+        <text x="50%" y="47%" textAnchor="middle" className="oms-donut__total">{total}</text>
+        <text x="50%" y="58%" textAnchor="middle" className="oms-donut__caption">orders</text>
+      </svg>
+      <div className="oms-donut__legend">
+        {segments.map((d) => {
+          const pct = total > 0 ? Math.round((d.orders / total) * 1000) / 10 : 0;
+          return (
+            <div key={d.method} className="oms-donut__row">
+              <span className="oms-donut__dot" style={{ background: SPLIT_METHOD_COLORS[d.method] }} />
+              <span className="oms-donut__name">{SPLIT_METHOD_LABELS[d.method]}</span>
+              <span className="oms-donut__count">
+                {pct}% · {d.orders}
+                {d.revenue > 0 ? ` · ${fmtTaka(d.revenue)}` : ''}
+              </span>
+            </div>
+          );
+        })}
+        {total === 0 && (
+          <div style={{ textAlign: 'center', padding: 16, color: 'var(--text-muted)', fontSize: 13 }}>
+            No orders yet
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const STATUS_COLORS = {
   placed: 'var(--primary)',
   preparing: 'var(--accent)',

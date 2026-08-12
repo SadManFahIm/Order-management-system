@@ -3,6 +3,9 @@
  * install can SEE the new lifecycle in the Orders/Reports UI immediately:
  *
  *   - "Split Demo" order: bKash 50% + Cash 50% (one pending part, one paid)
+ *   - "Split Bill Demo" order: 3 diners split BY ITEM with per-diner parts
+ *     + allocation rows (cashier split panel + per-diner receipts + the
+ *     dashboard's split-method analytics chart are live immediately)
  *   - "Refunded Demo" order: paid then fully refunded (audit trail visible)
  *
  * Usage:
@@ -17,8 +20,9 @@ import { parseArgs } from 'node:util';
 import sequelize from '../src/config/db.js';
 import { ensureBootstrapData } from '../src/config/schemaSync.js';
 import '../src/models/index.js';
-import { Tenant, Product, Order, OrderItem, Payment } from '../src/models/index.js';
+import { Tenant, Product, Order, OrderItem, Payment, OrderSplitItem, Table } from '../src/models/index.js';
 import { applyPromotionsToCart } from '../src/utils/promotionEngine.js';
+import { computeSplitParts } from '../src/services/splitService.js';
 
 const { values } = parseArgs({ options: { slug: { type: 'string' } } });
 
@@ -45,10 +49,122 @@ async function seedTenant(tenant) {
   const hasRefund = await Order.count({ where: { tenant_id: tenant.id, customer_name: 'Refunded Demo' } });
   const made = [];
 
+  const hasSplitBilling = await Order.count({
+    where: { tenant_id: tenant.id, customer_name: 'Split Bill Demo' },
+  });
+
+  if (hasSplitBilling === 0) {
+    // Per-diner split billing (migration 013) — a dine-in order split across
+    // three diners by ITEM with per-diner receipts, so the cashier split
+    // panel + diner receipt + split-method analytics chart are live on a
+    // fresh install. Parts: 2 diners pay cash on the spot, 1 pays bKash
+    // (pending until confirmed at the counter).
+    const [p1, p2, p3] = products;
+    if (p1 && p2 && p3) {
+      const table = await Table.findOne({
+        where: { tenant_id: tenant.id, is_active: true },
+      });
+      const { items, subtotal, totalDiscount, grandTotal } = priceItems([
+        { product: p1, quantity: 2 },
+        { product: p2, quantity: 1 },
+        { product: p3, quantity: 1 },
+      ]);
+
+      const order = await Order.create(
+        {
+          tenant_id: tenant.id,
+          order_no: orderNo(tenant.id, 'SPLITBILL'),
+          customer_name: 'Split Bill Demo',
+          customer_phone: '01700000003',
+          table_no: table ? table.table_no : 1,
+          subtotal,
+          total_discount: totalDiscount,
+          grand_total: grandTotal,
+          status: 'placed',
+          type: 'pickup',
+          payment_method: 'split',
+          payment_status: 'partial',
+          items: items.map((li) => ({
+            tenant_id: tenant.id,
+            product_id: li.product.id,
+            item_name: li.product.name,
+            quantity: li.quantity,
+            unit_price: li.product.price,
+            weight_per_unit_gm: li.product.weight_gm,
+            total_weight_gm: li.totalWeightGm,
+            discount: li.discount,
+            line_total: li.lineTotal,
+          })),
+        },
+        { include: [{ model: OrderItem, as: 'items' }] }
+      );
+
+      // Diner 1: first item (2 units), Diner 2: second item, Diner 3:
+      // third item — server-side allocation math (splitService).
+      const orderWithItems = await Order.findByPk(order.id, {
+        include: [{ model: OrderItem, as: 'items' }],
+      });
+      const [line1, line2, line3] = orderWithItems.items;
+      const parts = computeSplitParts({
+        order: orderWithItems,
+        mode: 'item',
+        tenant,
+        diners: [
+          { label: 'Rahim', method: 'cash' },
+          { label: 'Karim', method: 'cash' },
+          { label: 'Sadia', method: 'bkash' },
+        ],
+        allocations: [
+          { orderItemId: line1.id, quantity: 2, dinerIndex: 0 },
+          { orderItemId: line2.id, quantity: 1, dinerIndex: 1 },
+          { orderItemId: line3.id, quantity: 1, dinerIndex: 2 },
+        ],
+      });
+
+      const now = new Date();
+      const payments = await Payment.bulkCreate(
+        parts.map((p, i) => ({
+          tenant_id: tenant.id,
+          order_id: order.id,
+          method: p.method,
+          amount: p.amount,
+          status: p.method === 'cash' ? 'paid' : 'pending',
+          reference: p.reference || (p.method === 'bkash' ? 'SPLITBILL-BK' : null),
+          notes: p.note,
+          paid_at: p.method === 'cash' ? now : null,
+          split_method: 'item',
+          diner_index: i + 1,
+        }))
+      );
+      const splitItems = [];
+      parts.forEach((p, i) => {
+        (p.items || []).forEach((it) => {
+          splitItems.push({
+            tenant_id: tenant.id,
+            order_id: order.id,
+            payment_id: payments[i].id,
+            menu_item_id: it.menu_item_id ?? null,
+            item_name: it.item_name,
+            quantity: it.quantity,
+            unit_amount: it.unit_amount,
+            discount_amount: it.discount_amount,
+            line_amount: it.line_amount,
+            vat_rate: it.vat_rate,
+          });
+        });
+      });
+      if (splitItems.length) await OrderSplitItem.bulkCreate(splitItems);
+      made.push(
+        `Split Bill Demo #${order.id} (৳${grandTotal}: ${parts
+          .map((p) => `${p.note} ${p.method} ${p.amount}`)
+          .join(' + ')})`
+      );
+    }
+  }
+
   if (hasSplit === 0) {
     const a = products[0];
     const b = products[1] || products[0];
-    const price = (p) => Number(p.price);
     const { items, subtotal, totalDiscount, grandTotal } = priceItems([
       { product: a, quantity: 1 },
       { product: b, quantity: 1 },

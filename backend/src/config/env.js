@@ -53,6 +53,10 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((v) => v === '1' || v === 'true'),
+  // Per-IP request budget for the global /api limiter (default 120/min).
+  // The e2e harness raises this so full browser suites never trip the
+  // limiter; production keeps the default unless explicitly raised.
+  RATE_LIMIT_MAX: z.coerce.number().int().positive().optional(),
   // ── Media / object storage (Phase 4 image pipeline) ────────────────────
   // 'local' writes to UPLOAD_DIR (zero-config dev; served via /uploads).
   // 's3' uses an S3-compatible bucket (AWS, MinIO, R2, etc.).

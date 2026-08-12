@@ -12,6 +12,8 @@ import MenuCategory from '../models/MenuCategory.js';
 import InventoryItem from '../models/InventoryItem.js';
 import DailyStat from '../models/DailyStat.js';
 
+const SPLIT_METHODS = ['equal', 'item', 'custom'];
+
 const router = express.Router();
 router.use(authMiddleware, resolveTenant, requireTenant, requirePermission('view:orders'));
 
@@ -155,7 +157,7 @@ router.get(
       Date.UTC(prevMonthDate.getUTCFullYear(), prevMonthDate.getUTCMonth(), 1) - DHAKA_OFFSET_MS
     );
 
-    const [todayOrders, openOrders, totalProducts, windowOrders, recentLines, paidPayments, closeoutOrders, closeoutPayments, monthOrders, windowItems, retentionOrders, fulfillmentOrders, liveOrders, inventoryRows] =
+    const [todayOrders, openOrders, totalProducts, windowOrders, recentLines, paidPayments, closeoutOrders, closeoutPayments, monthOrders, windowItems, retentionOrders, fulfillmentOrders, liveOrders, inventoryRows, splitPayments] =
       await Promise.all([
         Order.findAll({
           where: { tenant_id: req.tenant.id, createdAt: { [Op.gte]: startOfToday } },
@@ -273,6 +275,17 @@ router.get(
           where: { tenant_id: req.tenant.id },
           attributes: ['name', 'stock_qty', 'low_stock_at'],
           limit: 200,
+        }),
+        // Split-billing parts in the same Dhaka window (dine-in split
+        // billing): split_method + payment method/amount/status per part,
+        // for the split-method analytics chart. No join needed — the parts
+        // ARE payment rows.
+        Payment.findAll({
+          where: {
+            tenant_id: req.tenant.id,
+            createdAt: { [Op.gte]: startOfDhakaWindow },
+          },
+          attributes: ['order_id', 'method', 'amount', 'status', 'split_method'],
         }),
       ]);
 
@@ -625,6 +638,74 @@ router.get(
         })),
     };
 
+    // ── Split-method analytics (dine-in split billing) ─────────────────
+    // How orders are being split over the window: usage by split method
+    // (equal / item / custom / unsplit), revenue per method (paid parts —
+    // a split order's revenue is counted ONCE across its parts, so closeout
+    // and VAT stay unduplicated), avg diners per split order and the
+    // payment-method mix WITHIN split orders.
+    const splitOrders = new Set();
+    const bySplitMethod = {};
+    for (const m of SPLIT_METHODS) bySplitMethod[m] = { orders: 0, revenue: 0 };
+    const splitMethodMix = {};
+    let totalSplitParts = 0;
+    let totalSplitRevenue = 0;
+    let paidPartCount = 0;
+    for (const p of splitPayments) {
+      if (!p.split_method || !SPLIT_METHODS.includes(p.split_method)) continue;
+      const entry = bySplitMethod[p.split_method];
+      if (!splitOrders.has(p.order_id)) {
+        entry.orders += 1;
+        splitOrders.add(p.order_id);
+      }
+      totalSplitParts += 1;
+      if (p.status === 'paid') {
+        const amount = Number(p.amount || 0);
+        entry.revenue += amount;
+        totalSplitRevenue += amount;
+        paidPartCount += 1;
+        splitMethodMix[p.method] = (splitMethodMix[p.method] || 0) + amount;
+      }
+    }
+    const splitOrdersTotal = splitOrders.size;
+    const splitAnalytics = {
+      windowDays: days,
+      totalOrders: closeoutOrders.length,
+      splitOrders: {
+        total: splitOrdersTotal,
+        unsplit: Math.max(closeoutOrders.length - splitOrdersTotal, 0),
+        equal: bySplitMethod.equal.orders,
+        item: bySplitMethod.item.orders,
+        custom: bySplitMethod.custom.orders,
+        pctByMethod: SPLIT_METHODS.map((m) => ({
+          method: m,
+          orders: bySplitMethod[m].orders,
+          pct:
+            splitOrdersTotal > 0
+              ? Math.round((bySplitMethod[m].orders / splitOrdersTotal) * 1000) / 10
+              : 0,
+        })),
+      },
+      revenue: SPLIT_METHODS.map((m) => ({
+        method: m,
+        revenue: Math.round(bySplitMethod[m].revenue * 100) / 100,
+      })),
+      avgDiners:
+        splitOrdersTotal > 0
+          ? Math.round((totalSplitParts / splitOrdersTotal) * 100) / 100
+          : 0,
+      avgPerDiner:
+        paidPartCount > 0
+          ? Math.round((totalSplitRevenue / paidPartCount) * 100) / 100
+          : 0,
+      methodMix: Object.entries(splitMethodMix)
+        .map(([method, amount]) => ({
+          method,
+          amount: Math.round(amount * 100) / 100,
+        }))
+        .sort((a, b) => b.amount - a.amount),
+    };
+
     // ── Live fulfillment panel (Phase 7) ────────────────────────────────
     // Open orders as a glanceable queue — the dashboard's live view of what
     // the kitchen/delivery is working on right now.
@@ -703,6 +784,7 @@ router.get(
       monthOverMonth,
       peakHours: finalPeakHours,
       categoryMix,
+      splitAnalytics,
       retention,
       fulfillment,
       livePanel,

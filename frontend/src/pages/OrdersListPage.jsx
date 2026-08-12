@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../i18n';
 import { useRealtimeOrders } from '../hooks/useRealtimeOrders';
 import { PageHeader, Card, Table, Button, Badge, Select, Skeleton, useToast } from '../components/ui';
+import SplitBillModal from '../components/SplitBillModal';
 
 const fmt = (n) => `৳ ${Number(n).toFixed(2)}`;
 
@@ -62,6 +63,7 @@ const typeLabel = (t, type) => t(`orders.type${type.charAt(0).toUpperCase()}${ty
 
 export default function OrdersListPage() {
   const [orders, setOrders] = useState(null);
+  const [splitFor, setSplitFor] = useState(null); // dine-in order to split
   const [tables, setTables] = useState([]);
   const [members, setMembers] = useState([]);
   const [filters, setFilters] = useState({ status: '', tableNo: '', sort: 'open', assignedToMe: false });
@@ -168,6 +170,18 @@ export default function OrdersListPage() {
       await load();
     } catch {
       toast.error(t('orders.couldNotUpdate'));
+    }
+  };
+
+  const removeSplit = async (o) => {
+    if (!window.confirm(t('split.removeConfirm'))) return;
+    try {
+      await api.delete(`/orders/${o.id}/split`);
+      toast.success(t('split.removed'));
+      await load();
+    } catch (err) {
+      const msg = err?.response?.data?.error?.message;
+      toast.error(msg || t('orders.couldNotUpdate'));
     }
   };
 
@@ -350,6 +364,7 @@ export default function OrdersListPage() {
                   `orders.pay${method.charAt(0).toUpperCase()}${method.slice(1)}`
                 );
                 const payment = (o.payments || [])[0];
+                const splitParts = (o.payments || []).filter((p) => p.split_method);
                 const statusTone =
                   o.payment_status === 'paid'
                     ? 'success'
@@ -379,12 +394,38 @@ export default function OrdersListPage() {
                           : t('orders.unpaidStatus')}
                       </Badge>
                     </div>
-                    {canPlace && o.payment_status !== 'paid' && payment && (
+                    {/* Per-diner split parts (dine-in split billing) */}
+                    {splitParts.length > 0 && (
+                      <div style={{ display: 'grid', gap: 4, width: '100%' }}>
+                        {splitParts.map((p) => (
+                          <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <Badge tone="primary">
+                              {p.notes || t('split.diner', p.diner_index || 1)} · {fmt(p.amount)}
+                            </Badge>
+                            <Badge tone={p.status === 'paid' ? 'success' : 'warning'}>{p.status}</Badge>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              to={`/orders/${o.id}/split/receipts/${p.id}`}
+                              title={`${t('split.receiptTitle')} — ${p.notes || p.id}`}
+                            >
+                              🧾 {t('split.receipt')}
+                            </Button>
+                          </div>
+                        ))}
+                        {canPlace && (
+                          <Button size="sm" variant="ghost" onClick={() => removeSplit(o)} style={{ justifySelf: 'start' }}>
+                            ✕ {t('split.removeSplit')}
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                    {!splitParts.length && canPlace && o.payment_status !== 'paid' && payment && (
                       <Button size="sm" variant="ghost" onClick={() => markPaid(o)}>
                         ✓ {t('orders.markPaid')}
                       </Button>
                     )}
-                    {canPlace && o.payment_status === 'paid' && payment && payment.status === 'paid' && (
+                    {!splitParts.length && canPlace && o.payment_status === 'paid' && payment && payment.status === 'paid' && (
                       <Button size="sm" variant="ghost" onClick={() => refundPayment(o)}>
                         ↩ {t('orders.refund')}
                       </Button>
@@ -418,8 +459,15 @@ export default function OrdersListPage() {
                 const assignable = canManage && isDelivery && !['delivered', 'canceled', 'rejected'].includes(o.status);
                 const canAcceptOrder = canFulfill && o.status === 'placed';
                 const canRejectOrder = canFulfill && ['placed', 'accepted'].includes(o.status);
+                // Dine-in orders on a physical table can be split at the counter.
+                const canSplit = canPlace && !!o.table_no && !['canceled', 'rejected'].includes(o.status);
                 return (
                   <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', maxWidth: 320 }}>
+                    {canSplit && (
+                      <Button size="sm" variant="primary" onClick={() => setSplitFor(o)} title={t('split.splitBill')}>
+                        ⇄ {t('split.splitBill')}
+                      </Button>
+                    )}
                     <Button size="sm" variant="ghost" to={`/orders/${o.id}/invoice`} title={`Invoice ${o.order_no || o.id}`}>
                       🧾 Invoice
                     </Button>
@@ -486,6 +534,13 @@ export default function OrdersListPage() {
           />
         )}
       </Card>
+
+      <SplitBillModal
+        open={!!splitFor}
+        order={splitFor}
+        onClose={() => setSplitFor(null)}
+        onSaved={() => load()}
+      />
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import api from '../api';
 import { useI18n } from '../i18n';
 import { PageHeader, Card, Skeleton, Badge } from '../components/ui';
-import { TrendAreaChart, OrdersBarChart, StatusDonut, CloseoutTrendChart, PeakHoursHeatmap, CategoryMixDonut } from '../components/charts';
+import { TrendAreaChart, OrdersBarChart, StatusDonut, CloseoutTrendChart, PeakHoursHeatmap, CategoryMixDonut, SplitMethodDonut } from '../components/charts';
 
 const fmtTaka = (n) => `৳ ${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
@@ -427,6 +427,30 @@ export default function DashboardPage() {
         </Card>
         <Card title={t('dash.categoryMix')} subtitle={t('dash.categoryMixSub')}>
           <CategoryMixDonut data={data.categoryMix || []} />
+        </Card>
+        <Card title={t('dash.splitBilling')} subtitle={t('dash.splitBillingSub')}>
+          <SplitMethodDonut data={data.splitAnalytics || {}} />
+          {(data.splitAnalytics?.splitOrders?.total || 0) > 0 && (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 10,
+                marginTop: 12,
+                paddingTop: 12,
+                borderTop: '1px solid var(--border)',
+              }}
+            >
+              <div className="oms-mini-stat">
+                <div className="oms-mini-stat__value">{data.splitAnalytics.avgDiners}</div>
+                <div className="oms-mini-stat__label">{t('split.avgDiners')}</div>
+              </div>
+              <div className="oms-mini-stat">
+                <div className="oms-mini-stat__value">{fmtTaka(data.splitAnalytics.avgPerDiner)}</div>
+                <div className="oms-mini-stat__label">{t('split.avgPerDiner')}</div>
+              </div>
+            </div>
+          )}
         </Card>
       </div>
 

@@ -13,6 +13,10 @@
  */
 process.env.NODE_ENV = 'development';
 process.env.PORT = '4100';
+// Full browser suites make well over 120 requests/minute through the same
+// loopback IP — raise the API limiter budget for the e2e harness only
+// (production default stays 120/min via RATE_LIMIT_MAX).
+process.env.RATE_LIMIT_MAX = '100000';
 process.env.DB_STORAGE = './data.e2e.sqlite';
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'e2e-only-secret-0123456789abcdef';
 

@@ -11,6 +11,7 @@ import PromotionSlab from '../models/PromotionSlab.js';
 import Order from '../models/Order.js';
 import OrderItem from '../models/OrderItem.js';
 import Payment from '../models/Payment.js';
+import OrderSplitItem from '../models/OrderSplitItem.js';
 import Table from '../models/Table.js';
 import Tenant from '../models/Tenant.js';
 import User from '../models/User.js';
@@ -26,6 +27,15 @@ import { assertMethodEnabled, createPaymentForOrder, validateSplits } from '../s
 import { createOnlinePayment } from '../services/paymentGateway.js';
 import { RECONCILIATION_TTL_MS } from '../services/paymentReconciliation.js';
 import { buildInvoice, renderInvoiceHtml } from '../services/invoiceService.js';
+import { splitRequestSchema } from '../validators/split.js';
+import {
+  applySplit,
+  clearSplit,
+  buildSplitState,
+  buildDinerReceipt,
+  renderDinerReceiptHtml,
+  tenantDefaultVat,
+} from '../services/splitService.js';
 
 const router = express.Router();
 router.use(authMiddleware, attachPermissionCheck, resolveTenant, requireTenant);
@@ -163,6 +173,99 @@ router.get(
       res.type('html').send(renderInvoiceHtml(invoice));
     } else {
       res.json(invoice);
+    }
+  })
+);
+
+/**
+ * Dine-in split billing — cashier split panel + per-diner receipts.
+ *
+ * A split is a set of `payments` rows (one per diner) carrying the split
+ * method + item allocation (order_split_items). All money math lives in
+ * splitService (integer paisa, exact-sum invariant); these endpoints only
+ * authenticate, tenant-scope, gate permissions and shape the response.
+ */
+
+/** GET /api/orders/:id/split — current split state for the panel. */
+router.get(
+  '/:id/split',
+  requirePermission('view:orders'),
+  asyncHandler(async (req, res) => {
+    const order = await Order.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+      include: [
+        { model: OrderItem, as: 'items', include: [{ model: Product }] },
+        { model: Payment, as: 'payments', include: [{ model: OrderSplitItem, as: 'splitItems' }] },
+      ],
+    });
+    if (!order) throw new AppError(404, 'NOT_FOUND', 'Order not found');
+    res.json(buildSplitState(order, tenantDefaultVat(req.tenant)));
+  })
+);
+
+/** POST /api/orders/:id/split — create or replace the split (transactional). */
+router.post(
+  '/:id/split',
+  requirePermission('place:orders'),
+  asyncHandler(async (req, res) => {
+    const order = await Order.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+    });
+    if (!order) throw new AppError(404, 'NOT_FOUND', 'Order not found');
+    const body = splitRequestSchema.parse(req.body);
+    const result = await applySplit({
+      tenant: req.tenant,
+      order,
+      mode: body.mode,
+      diners: body.diners,
+      allocations: body.allocations || [],
+      actorId: req.user?.id,
+      req,
+    });
+    res.status(201).json(result);
+  })
+);
+
+/** DELETE /api/orders/:id/split — remove the split, restore single cash. */
+router.delete(
+  '/:id/split',
+  requirePermission('place:orders'),
+  asyncHandler(async (req, res) => {
+    const order = await Order.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+    });
+    if (!order) throw new AppError(404, 'NOT_FOUND', 'Order not found');
+    res.json(
+      await clearSplit({ tenant: req.tenant, order, actorId: req.user?.id, req })
+    );
+  })
+);
+
+/**
+ * GET /api/orders/:id/split/receipts/:paymentId — one diner's receipt
+ * (JSON, or `?print=1` for the print-ready HTML). view:orders.
+ */
+router.get(
+  '/:id/split/receipts/:paymentId',
+  requirePermission('view:orders'),
+  asyncHandler(async (req, res) => {
+    const order = await Order.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+      include: [
+        { model: OrderItem, as: 'items', include: [{ model: Product }] },
+        { model: Payment, as: 'payments', include: [{ model: OrderSplitItem, as: 'splitItems' }] },
+      ],
+    });
+    if (!order) throw new AppError(404, 'NOT_FOUND', 'Order not found');
+    const payment = (order.payments || []).find(
+      (p) => Number(p.id) === Number(req.params.paymentId)
+    );
+    if (!payment) throw new AppError(404, 'NOT_FOUND', 'Split part not found');
+    const receipt = buildDinerReceipt({ order, tenant: req.tenant, payment });
+    if (req.query.print === '1') {
+      res.type('html').send(renderDinerReceiptHtml(receipt));
+    } else {
+      res.json(receipt);
     }
   })
 );

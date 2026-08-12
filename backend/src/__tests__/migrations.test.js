@@ -44,6 +44,7 @@ const EXPECTED_TABLES = [
   'payments',
   'daily_stats',
   'idempotency_keys',
+  'order_split_items',
 ];
 
 describe('migration runner', () => {
@@ -70,6 +71,7 @@ describe('migration runner', () => {
       '010_split_refund_recon.js',
       '011_daily_stats.js',
       '012_delivery_realtime_idempotency.js',
+      '013_split_billing.js',
     ]);
   });
 
@@ -101,7 +103,7 @@ describe('migration runner', () => {
   it('reports every migration as applied', async () => {
     const status = await migrationStatus(sequelize);
     expect(status.every((row) => row.state === 'applied')).toBe(true);
-    expect(status).toHaveLength(12);
+    expect(status).toHaveLength(13);
   });
 
   it('adds menu_items.vat_rate via migration 009', async () => {
@@ -115,6 +117,11 @@ describe('migration runner', () => {
 
   it('rolls back only the most recent migration, then re-applies', async () => {
     const qi = sequelize.getQueryInterface();
+
+    // Down 013: drops the split-billing table + payments.split columns.
+    expect(await migrateDown(sequelize)).toBe(1);
+    expect(await qi.tableExists('order_split_items')).toBe(false);
+    expect((await qi.describeTable('payments')).split_method).toBeUndefined();
 
     // Down 012: removes reject fields + idempotency (delivery_fee/assigned_to
     // are v1-era migration-004 columns and survive — that is by design).
@@ -145,8 +152,10 @@ describe('migration runner', () => {
     expect(await migrateDown(sequelize)).toBe(1);
     expect((await qi.describeTable('orders')).table_no).toBeUndefined();
 
-    // Re-applying restores all six.
-    expect(await migrateUp(sequelize)).toBe(6);
+    // Re-applying restores all seven.
+    expect(await migrateUp(sequelize)).toBe(7);
+    expect(await qi.tableExists('order_split_items')).toBe(true);
+    expect((await qi.describeTable('payments')).split_method).toBeDefined();
     expect((await qi.describeTable('menu_items')).vat_rate).toBeDefined();
     expect(await qi.tableExists('payments')).toBe(true);
     expect(await qi.tableExists('daily_stats')).toBe(true);
