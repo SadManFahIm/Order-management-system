@@ -34,6 +34,8 @@ import {
   buildSplitState,
   buildDinerReceipt,
   renderDinerReceiptHtml,
+  buildDinerKot,
+  renderDinerKotHtml,
   tenantDefaultVat,
 } from '../services/splitService.js';
 
@@ -266,6 +268,36 @@ router.get(
       res.type('html').send(renderDinerReceiptHtml(receipt));
     } else {
       res.json(receipt);
+    }
+  })
+);
+
+/**
+ * GET /api/orders/:id/split/receipts/:paymentId/kot — one diner's kitchen
+ * order ticket (items + quantities only — no prices/payment; `?print=1`
+ * serves the print-ready HTML). view:orders.
+ */
+router.get(
+  '/:id/split/receipts/:paymentId/kot',
+  requirePermission('view:orders'),
+  asyncHandler(async (req, res) => {
+    const order = await Order.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+      include: [
+        { model: OrderItem, as: 'items', include: [{ model: Product }] },
+        { model: Payment, as: 'payments', include: [{ model: OrderSplitItem, as: 'splitItems' }] },
+      ],
+    });
+    if (!order) throw new AppError(404, 'NOT_FOUND', 'Order not found');
+    const payment = (order.payments || []).find(
+      (p) => Number(p.id) === Number(req.params.paymentId)
+    );
+    if (!payment) throw new AppError(404, 'NOT_FOUND', 'Split part not found');
+    const kot = buildDinerKot({ order, tenant: req.tenant, payment });
+    if (req.query.print === '1') {
+      res.type('html').send(renderDinerKotHtml(kot));
+    } else {
+      res.json(kot);
     }
   })
 );

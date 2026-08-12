@@ -19,23 +19,46 @@ export default function DinerReceiptPage() {
   const { id, paymentId } = useParams();
   const { t } = useI18n();
   const [receipt, setReceipt] = useState(null);
+  const [kot, setKot] = useState(null);
+  const [view, setView] = useState('receipt'); // 'receipt' | 'kot'
   const toast = useToast();
 
   useEffect(() => {
     let mounted = true;
-    api
-      .get(`/orders/${id}/split/receipts/${paymentId}`)
-      .then((res) => {
-        if (mounted) setReceipt(res.data);
-      })
-      .catch(() => {
+    (async () => {
+      try {
+        const [r, k] = await Promise.all([
+          api.get(`/orders/${id}/split/receipts/${paymentId}`),
+          api.get(`/orders/${id}/split/receipts/${paymentId}/kot`),
+        ]);
+        if (mounted) {
+          setReceipt(r.data);
+          setKot(k.data);
+        }
+      } catch {
         if (mounted) toast?.error(t('split.couldNotLoad'));
-      });
+      }
+    })();
     return () => {
       mounted = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, paymentId]);
+
+  // Print the backend's standalone sheet (nav-free, thermal-friendly) via the
+  // authed client — a bare window.open would 401.
+  const printSheet = async () => {
+    const base = `/orders/${id}/split/receipts/${paymentId}`;
+    const url = view === 'kot' ? `${base}/kot?print=1` : `${base}?print=1`;
+    try {
+      const res = await api.get(url, { responseType: 'blob' });
+      const blobUrl = URL.createObjectURL(res.data);
+      const win = window.open(blobUrl, '_blank', 'noopener');
+      if (win) win.onload = () => win.print?.();
+    } catch {
+      toast?.error(t('split.couldNotLoad'));
+    }
+  };
 
   return (
     <div className="oms-page">
@@ -48,14 +71,22 @@ export default function DinerReceiptPage() {
         }
         actions={
           receipt && (
-            <Button variant="primary" onClick={() => window.print()}>
-              🖨️ {t('split.print')}
-            </Button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <Button variant={view === 'receipt' ? 'primary' : 'outline'} size="sm" onClick={() => setView('receipt')}>
+                🧾 {t('split.receiptTitle')}
+              </Button>
+              <Button variant={view === 'kot' ? 'primary' : 'outline'} size="sm" onClick={() => setView('kot')}>
+                🍳 {t('split.kot')}
+              </Button>
+              <Button variant="primary" onClick={printSheet}>
+                🖨️ {view === 'kot' ? t('split.kotPrint') : t('split.print')}
+              </Button>
+            </div>
           )
         }
       />
 
-      {!receipt ? (
+      {!receipt || !kot ? (
         <Card>
           <div style={{ display: 'grid', gap: 12, padding: 8 }}>
             {[1, 2, 3, 4, 5, 6].map((i) => (
@@ -63,6 +94,8 @@ export default function DinerReceiptPage() {
             ))}
           </div>
         </Card>
+      ) : view === 'kot' ? (
+        <KotCard kot={kot} t={t} />
       ) : (
         <Card bodyPadding={false}>
           <div
@@ -249,5 +282,107 @@ export default function DinerReceiptPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+/**
+ * Kitchen order ticket sheet — the diner's assigned items with quantities,
+ * no prices/VAT/payment (a KOT is not a bill). Mirrors the backend's
+ * print-ready HTML so the on-screen and printed views match.
+ */
+function KotCard({ kot, t }) {
+  return (
+    <Card bodyPadding={false}>
+      <div
+        id="diner-kot"
+        style={{
+          maxWidth: 380,
+          margin: '0 auto',
+          padding: '24px 20px',
+          fontFamily: "system-ui, 'Segoe UI', Roboto, 'Noto Sans Bengali', sans-serif",
+        }}
+      >
+        <div style={{ textAlign: 'center', borderBottom: '2px dashed var(--border)', paddingBottom: 12, marginBottom: 12 }}>
+          <span
+            style={{
+              display: 'inline-block',
+              background: 'var(--primary)',
+              color: '#fff',
+              fontWeight: 800,
+              letterSpacing: '0.12em',
+              fontSize: 11,
+              padding: '4px 10px',
+              borderRadius: 999,
+            }}
+          >
+            KITCHEN
+          </span>
+          <div style={{ fontSize: 17, fontWeight: 800, marginTop: 6 }}>{kot.restaurantName}</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 11.5 }}>{kot.kotNo}</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 11.5 }}>
+            {kot.createdAt
+              ? new Date(kot.createdAt).toLocaleString('en-GB', {
+                  timeZone: 'Asia/Dhaka',
+                  day: '2-digit',
+                  month: 'short',
+                  year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })
+              : ''}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, margin: '4px 0' }}>
+          <span style={{ fontWeight: 700 }}>{t('split.orderNo')}</span>
+          <span>{kot.orderNo || kot.orderId}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, margin: '4px 0' }}>
+          <span style={{ fontWeight: 700 }}>{t('split.table')}</span>
+          <span>{kot.tableNo ? `🪑 ${kot.tableNo}` : '—'}</span>
+        </div>
+
+        <div
+          style={{
+            textAlign: 'center',
+            background: 'var(--primary-soft, #eef7f6)',
+            color: 'var(--primary)',
+            fontWeight: 800,
+            borderRadius: 999,
+            padding: '6px 14px',
+            fontSize: 14,
+            margin: '12px 0',
+          }}
+        >
+          {kot.dinerLabel}
+        </div>
+
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', margin: '14px 0 6px' }}>
+          {t('split.items')}
+        </div>
+        {kot.items.length === 0 ? (
+          <div style={{ color: 'var(--text-muted)', fontSize: 12.5 }}>—</div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+            <tbody>
+              {kot.items.map((i, idx) => (
+                <tr key={idx}>
+                  <td style={{ padding: '7px 0', borderBottom: '1px dashed var(--border)', fontWeight: 600 }}>
+                    {i.itemName}
+                  </td>
+                  <td style={{ padding: '7px 0', borderBottom: '1px dashed var(--border)', textAlign: 'right', fontWeight: 800, fontSize: 15, whiteSpace: 'nowrap' }}>
+                    × {i.quantity}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        <div style={{ marginTop: 16, textAlign: 'center', color: 'var(--text-muted)', fontSize: 10.5, borderTop: '1px dashed var(--border)', paddingTop: 10 }}>
+          {t('split.kotFooter')}
+        </div>
+      </div>
+    </Card>
   );
 }

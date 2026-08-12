@@ -469,6 +469,28 @@ describe('discount + VAT allocation', () => {
     expect(receipt.body.items[0].vat).toBeCloseTo(39.13, 2); // 300 × 15/115
     expect(receipt.body.totals.vat).toBeCloseTo(39.13, 2);
     expect(receipt.body.totals.payable).toBeCloseTo(300, 5);
+
+    // Kitchen order ticket — items + quantities ONLY (never prices/payment).
+    const kot = await request(app)
+      .get(`/api/orders/${twoPizza.body.id}/split/receipts/${partA.paymentId}/kot`)
+      .set('Authorization', `Bearer ${cashierToken}`);
+    expect(kot.status).toBe(200);
+    expect(kot.body.kotNo).toMatch(/^KOT-/);
+    expect(kot.body.dinerLabel).toBe('A');
+    expect(kot.body.tableNo).toBe(3);
+    expect(kot.body.items).toEqual([{ itemName: 'Pizza', quantity: 1 }]);
+    expect(JSON.stringify(kot.body)).not.toContain('amount');
+    expect(JSON.stringify(kot.body)).not.toContain('payable');
+    expect(JSON.stringify(kot.body)).not.toContain('vat');
+
+    const kotHtml = await request(app)
+      .get(`/api/orders/${twoPizza.body.id}/split/receipts/${partA.paymentId}/kot?print=1`)
+      .set('Authorization', `Bearer ${cashierToken}`);
+    expect(kotHtml.status).toBe(200);
+    expect(kotHtml.text).toContain('KITCHEN');
+    expect(kotHtml.text).toContain('Pizza');
+    expect(kotHtml.text).not.toContain('Payable');
+    expect(kotHtml.text).not.toContain('৳');
   });
 
   it('per-diner receipt survives product soft-delete (snapshot)', async () => {

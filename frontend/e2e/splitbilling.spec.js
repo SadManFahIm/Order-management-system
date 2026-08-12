@@ -112,12 +112,19 @@ test('cashier splits a dine-in order, prints a receipt, dashboard reflects it', 
   const receiptButtons = row.getByRole('link', { name: 'Receipt' });
   await expect(receiptButtons).toHaveCount(3);
 
-  // ── 7. Per-diner receipt ─────────────────────────────────────────────
+  // ── 7. Per-diner receipt + kitchen ticket (KOT) ─────────────────────
   await receiptButtons.first().click();
   await expect(page.getByRole('heading', { name: 'Diner receipt' })).toBeVisible();
   await expect(page.getByText('Diner 1', { exact: true })).toBeVisible();
   await expect(page.getByText('Payable')).toBeVisible();
   await expect(page.getByRole('button', { name: /Print \/ PDF/ })).toBeVisible();
+
+  // Kitchen ticket — items + quantities only, never prices.
+  await page.getByRole('button', { name: 'Kitchen ticket' }).click();
+  await expect(page.getByText('KITCHEN', { exact: true })).toBeVisible();
+  await expect(page.getByText(zinger.name)).toBeVisible();
+  await expect(page.getByText(`× 1`).first()).toBeVisible();
+  await expect(page.getByText('Payable')).toHaveCount(0);
   await page.goBack();
 
   // ── 8. Dashboard split-billing analytics ─────────────────────────────
