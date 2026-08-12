@@ -93,13 +93,13 @@ function ItemModal({ item, initial, onConfirm, onClose, t }) {
         onClick={(e) => e.stopPropagation()}
         style={{
           width: '100%', maxWidth: 420, maxHeight: '85vh', overflowY: 'auto',
-          background: '#fff', borderRadius: 20, padding: 24,
-          boxShadow: '0 24px 60px rgba(0,0,0,0.25)',
+          background: 'var(--card, #fdfaf3)', borderRadius: 20, padding: 24,
+          boxShadow: '0 24px 60px rgba(20,16,6,0.28)',
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
           <div>
-            <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{item.name}</h3>
+            <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800, fontFamily: "'Bricolage Grotesque', 'Plus Jakarta Sans', sans-serif" }}>{item.name}</h3>
             {item.description && (
               <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--text-muted, #7d9a95)' }}>{item.description}</p>
             )}
@@ -342,255 +342,120 @@ export default function PublicMenuPage() {
   const cartTotal = cart.reduce((s, l) => s + Number(l.unit_price) * l.quantity, 0);
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg, #f5fbfa)', '--brand': primary, '--brand-accent': accent }}>
-      {/* Hero — themed by the tenant's brand settings */}
-      <div
-        style={{
-          background: `linear-gradient(135deg, var(--brand) 0%, color-mix(in srgb, var(--brand) 58%, var(--brand-accent)) 100%)`,
-          color: '#fff',
-          padding: '52px 20px 40px',
-          position: 'relative',
-          overflow: 'hidden',
-        }}
-      >
-        <div
-          style={{
-            position: 'absolute', right: -60, top: -60, width: 260, height: 260, borderRadius: '50%',
-            background: 'rgba(255,255,255,0.14)',
-          }}
-        />
-        {/* Language toggle — customer-facing (English / বাংলা). */}
-        <button
-          onClick={toggleLang}
-          aria-label={lang === 'en' ? 'বাংলায় দেখুন' : 'Switch to English'}
-          title={lang === 'en' ? 'বাংলা' : 'English'}
-          style={{
-            position: 'absolute', top: 18, right: 18,
-            background: 'rgba(255,255,255,0.16)', border: '1px solid rgba(255,255,255,0.35)',
-            color: '#fff', borderRadius: 999, padding: '7px 14px',
-            fontSize: 12.5, fontWeight: 800, cursor: 'pointer', backdropFilter: 'blur(6px)',
-            transition: 'background .15s ease',
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.28)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.16)'; }}
-        >
-          {LANGUAGES.find((l) => l.code !== lang)?.short}
-        </button>
-        <div style={{ maxWidth: 900, margin: '0 auto', display: 'flex', gap: 20, alignItems: 'center', position: 'relative' }}>
-          {restaurant.logoUrl ? (
-            <img
-              src={restaurant.logoUrl}
-              alt=""
-              style={{ width: 76, height: 76, borderRadius: 20, objectFit: 'cover', background: '#fff2', boxShadow: '0 8px 20px rgba(0,0,0,0.18)' }}
-            />
-          ) : (
-            <div
-              style={{
-                width: 76, height: 76, borderRadius: 20,
-                background: 'rgba(255,255,255,0.2)', display: 'grid', placeItems: 'center', fontSize: 34,
-                boxShadow: '0 8px 20px rgba(0,0,0,0.18)',
-              }}
+    <div className="menu" style={{ '--brand': primary, '--brand-accent': accent }}>
+      {/* Ticket-stub hero — the QR-scan first touch. The table number rides
+          the stub like a real ticket; the scalloped tear is the perforation
+          that separates "this table" from "the menu". */}
+      <header className="stub">
+        <div className="stub__inner">
+          <div className="stub__meta">
+            <button
+              onClick={toggleLang}
+              aria-label={lang === 'en' ? 'বাংলায় দেখুন' : 'Switch to English'}
+              title={lang === 'en' ? 'বাংলা' : 'English'}
+              className="stub__lang"
             >
-              🏪
-            </div>
-          )}
-          <div style={{ display: 'grid', gap: 4 }}>
-            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-              <h1 style={{ margin: 0, fontSize: 30, fontWeight: 800 }}>{restaurant.name}</h1>
-              {tableNo && (
-                <span
-                  title={t('store.scanToOrder')}
-                  style={{
-                    background: 'rgba(255,255,255,0.22)', border: '1px solid rgba(255,255,255,0.45)',
-                    borderRadius: 999, padding: '5px 14px', fontSize: 13, fontWeight: 800,
-                    display: 'inline-flex', alignItems: 'center', gap: 6,
-                  }}
-                >
-                  🪑 {t('store.table', tableNo)}
-                </span>
-              )}
-            </div>
-            {brand.tagline && (
-              <div style={{ color: 'rgba(255,255,255,0.95)', fontSize: 15, fontWeight: 600 }}>
-                {brand.tagline}
-              </div>
+              {LANGUAGES.find((l) => l.code !== lang)?.short}
+            </button>
+            {tableNo && (
+              <span className="stub__table" title={t('store.scanToOrder')}>
+                🪑 {t('store.table', tableNo)}
+              </span>
             )}
-            <div style={{ color: 'rgba(255,255,255,0.9)', fontSize: 14 }}>
-              {t('store.openLine', catCount)}
+          </div>
+          <div className="stub__brand">
+            {restaurant.logoUrl ? (
+              <img src={restaurant.logoUrl} alt="" className="stub__logo" />
+            ) : (
+              <div className="stub__logo">🏪</div>
+            )}
+            <div className="stub__copy">
+              <h1 className="stub__name">{restaurant.name}</h1>
+              {brand.tagline && <div className="stub__tagline">{brand.tagline}</div>}
+              <div className="stub__open">{t('store.openLine', catCount)}</div>
             </div>
           </div>
         </div>
-      </div>
+        <div className="stub__tear" aria-hidden="true" />
+      </header>
 
-      <div style={{ maxWidth: 900, margin: '0 auto', padding: '28px 20px 120px' }}>
-        {/* Category chips */}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 24 }}>
+      <main className="menu__body">
+        {/* Category chips — paper tickets, the active one in the tenant brand */}
+        <div className="chip-row">
           {categories
             .filter((c) => c.items.length > 0)
             .map((c) => (
               <button
                 key={c.id ?? 'other'}
                 onClick={() => setActiveCat(c.id)}
-                style={{
-                  border: `1px solid ${c.id === activeCat ? 'var(--brand)' : 'var(--border-strong, #b9e0da)'}`,
-                  background: c.id === activeCat ? 'var(--brand)' : '#fff',
-                  color: c.id === activeCat ? '#fff' : 'var(--text, #123b36)',
-                  borderRadius: 999,
-                  padding: '8px 18px',
-                  fontSize: 13,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  boxShadow: c.id === activeCat ? '0 4px 12px color-mix(in srgb, var(--brand) 35%, transparent)' : 'none',
-                  transition: 'all .18s ease',
-                }}
-                onMouseEnter={(e) => {
-                  if (c.id !== activeCat) {
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                    e.currentTarget.style.borderColor = 'var(--brand)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = 'none';
-                  e.currentTarget.style.borderColor = 'var(--border-strong, #b9e0da)';
-                }}
+                className={`chip${c.id === activeCat ? ' chip--on' : ''}`}
               >
                 {c.name}
-                <span style={{ opacity: 0.7, marginLeft: 6, fontWeight: 500 }}>{c.items.length}</span>
+                <span className="chip__count">{c.items.length}</span>
               </button>
             ))}
         </div>
 
-        {/* Items */}
+        {/* Items — quiet paper rows under the ticket hero. Keying by category
+            re-triggers the staggered reveal on every switch. */}
         {active ? (
-          <div style={{ display: 'grid', gap: 12 }}>
-            <h2 style={{ fontSize: 20, margin: '0 0 4px' }}>{active.name}</h2>
-            {active.items.map((item) => (
-              <div
-                key={item.id}
-                style={{
-                  background: '#fff',
-                  border: '1px solid var(--border, #d8eeea)',
-                  borderRadius: 16,
-                  padding: 16,
-                  display: 'flex',
-                  gap: 16,
-                  alignItems: 'center',
-                  transition: 'transform .15s ease, box-shadow .15s ease',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = 'translateY(-2px)';
-                  e.currentTarget.style.boxShadow = '0 8px 24px rgba(15,23,42,0.08)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = 'none';
-                  e.currentTarget.style.boxShadow = 'none';
-                }}
-              >
+          <section key={active.id} className="dish-list">
+            <div className="section-head">
+              <h2 className="section-head__title">
+                {active.name}
+                <span className="section-head__count">{active.items.length}</span>
+              </h2>
+            </div>
+            {active.items.map((item, i) => (
+              <div key={item.id} className="dish" style={{ '--i': i }}>
                 {item.imageUrl ? (
-                  <img
-                    src={item.imageUrl}
-                    alt={item.name}
-                    loading="lazy"
-                    style={{ width: 76, height: 76, borderRadius: 12, objectFit: 'cover', flexShrink: 0 }}
-                  />
+                  <img src={item.imageUrl} alt={item.name} loading="lazy" className="dish__img" />
                 ) : (
-                  <div
-                    style={{
-                      width: 76, height: 76, borderRadius: 12,
-                      background: 'var(--surface-3, #e2f5f2)', display: 'grid', placeItems: 'center', fontSize: 24, flexShrink: 0,
-                    }}
-                  >
-                    🍔
-                  </div>
+                  <div className="dish__img">🍔</div>
                 )}
-                <div style={{ flex: 1, display: 'grid', gap: 4 }}>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
-                    <span style={{ fontWeight: 700, fontSize: 15 }}>{item.name}</span>
+                <div className="dish__info">
+                  <div className="dish__name">
+                    <span>{item.name}</span>
                     {item.prepMinutes && (
-                      <span style={{ fontSize: 12, color: 'var(--text-muted, #7d9a95)' }}>
-                        ⏱ {item.prepMinutes} min
-                      </span>
+                      <span className="dish__prep">⏱ {item.prepMinutes} min</span>
                     )}
                   </div>
-                  {item.description && (
-                    <div style={{ fontSize: 13, color: 'var(--text-muted, #7d9a95)' }}>{item.description}</div>
-                  )}
+                  {item.description && <div className="dish__desc">{item.description}</div>}
                   {item.addons.length > 0 && (
-                    <div style={{ fontSize: 12, color: 'var(--text-muted, #7d9a95)' }}>
+                    <div className="dish__opts">
                       {t('store.options')}: {item.addons.map((a) => `${a.name} +${price(a.price)}`).join(' · ')}
                     </div>
                   )}
-                  <div style={{ fontSize: 15, fontWeight: 700 }}>{price(item.price)}</div>
+                  <div className="dish__price">{price(item.price)}</div>
                 </div>
-                <button
-                  onClick={() => quickAdd(item)}
-                  style={{
-                    borderRadius: 999,
-                    border: '1.5px solid var(--brand)',
-                    padding: '8px 18px',
-                    fontSize: 13.5,
-                    fontWeight: 800,
-                    color: 'var(--brand)',
-                    background: 'color-mix(in srgb, var(--brand) 8%, #fff)',
-                    cursor: 'pointer',
-                    transition: 'all .15s ease',
-                    flexShrink: 0,
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'var(--brand)';
-                    e.currentTarget.style.color = '#fff';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'color-mix(in srgb, var(--brand) 8%, #fff)';
-                    e.currentTarget.style.color = 'var(--brand)';
-                  }}
-                >
+                <button onClick={() => quickAdd(item)} className="dish__add">
                   + {t('store.addToCart')}
                 </button>
               </div>
             ))}
-          </div>
+          </section>
         ) : (
-          <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted, #7d9a95)' }}>
-            {t('store.noItems')}
-          </div>
+          <div className="menu__empty">{t('store.noItems')}</div>
         )}
 
         {/* Load-more pagination — driven by the API's X-Total-Count header. */}
         {loadedCount(state.data) < total && (
           <div style={{ textAlign: 'center', marginTop: 28 }}>
-            <button
-              onClick={showMore}
-              disabled={fetchingMore}
-              style={{
-                border: '1px solid var(--brand)',
-                background: 'var(--brand)',
-                color: '#fff',
-                borderRadius: 999,
-                padding: '10px 26px',
-                fontSize: 14,
-                fontWeight: 700,
-                cursor: fetchingMore ? 'wait' : 'pointer',
-                boxShadow: '0 6px 16px color-mix(in srgb, var(--brand) 35%, transparent)',
-                transition: 'transform .15s ease, box-shadow .15s ease',
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 10px 22px color-mix(in srgb, var(--brand) 45%, transparent)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 6px 16px color-mix(in srgb, var(--brand) 35%, transparent)'; }}
-            >
+            <button onClick={showMore} disabled={fetchingMore} className="more-btn">
               {fetchingMore ? t('store.loading') : t('store.showMore', total - loadedCount(state.data))}
             </button>
           </div>
         )}
 
-        <div style={{ marginTop: 40, textAlign: 'center', fontSize: 13, color: 'var(--text-muted, #7d9a95)', display: 'grid', gap: 6 }}>
-          <Link to="/track" style={{ color: 'var(--brand)', fontWeight: 700 }}>
+        <footer className="menu__foot">
+          <Link to="/track" className="menu__track">
             🛎️ {t('store.trackOrder')} →
           </Link>
           <div>
             <Link to="/login" style={{ color: 'inherit' }}>{t('store.merchantSignIn')}</Link> · {t('store.poweredBy')}
           </div>
-        </div>
-      </div>
+        </footer>
+      </main>
 
       {/* Item options modal */}
       {modalItem && (
@@ -603,33 +468,12 @@ export default function PublicMenuPage() {
         />
       )}
 
-      {/* Floating cart bar */}
+      {/* Floating cart bar — pops in like a stamped ticket */}
       {cartCount > 0 && (
-        <div
-          style={{
-            position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 50,
-            padding: '12px 16px calc(12px + env(safe-area-inset-bottom))',
-            background: 'linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.96) 30%)',
-            display: 'flex', justifyContent: 'center', pointerEvents: 'none',
-          }}
-        >
-          <button
-            onClick={() => navigate(`/m/${slug}/checkout`)}
-            style={{
-              pointerEvents: 'auto',
-              background: 'var(--brand)', color: '#fff', border: 'none',
-              borderRadius: 999, padding: '14px 26px', fontSize: 15, fontWeight: 800,
-              boxShadow: '0 10px 28px color-mix(in srgb, var(--brand) 45%, transparent)',
-              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10,
-              transition: 'transform .15s ease',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; }}
-          >
+        <div className="cartbar">
+          <button onClick={() => navigate(`/m/${slug}/checkout`)} className="cartbar__pill">
             🛒 {t('store.cart')} · {cartCount} {t('store.qty')} · {price(cartTotal)}
-            <span style={{ background: 'rgba(255,255,255,0.22)', borderRadius: 999, padding: '4px 12px', fontSize: 13 }}>
-              {t('store.checkout')} →
-            </span>
+            <span className="cartbar__go">{t('store.checkout')} →</span>
           </button>
         </div>
       )}

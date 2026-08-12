@@ -1,0 +1,562 @@
+/* ============================================================
+   Public storefront — "The Table Ticket"
+   ------------------------------------------------------------
+   The QR-scanned menu renders like a hand-held ticket from this
+   product's own world: a deep-green stub carries the table
+   number (a real stub, perforated off with a scalloped tear),
+   and the menu below sits on warm rice paper. Chilli-red prices
+   and a gold accent play against Bangladeshi ink-green. The
+   tenant brand still themes the stub, chips and buttons via
+   --brand / --brand-accent (set inline on .menu by the page).
+
+   Palette is fixed-light on purpose: the public menu is the
+   customer's first touch and keeps one consistent identity
+   regardless of the merchant's app theme.
+   ============================================================ */
+
+.menu {
+  /* Token overrides so legacy inline fallbacks (var(--border-strong),
+     var(--surface-3)…) resolve to the paper palette too. */
+  --paper: #f6f1e5;
+  --card: #fdfaf2;
+  --ink: #18342b;
+  --muted: #7d786a;
+  --line: #e6dcc4;
+  --line-strong: #d6c9a6;
+  --chilli: #d2452f;
+  --gold: #c9962e;
+  --tile: #efe7d2;
+
+  --text: var(--ink);
+  --text-muted: var(--muted);
+  --border: var(--line);
+  --border-strong: var(--line-strong);
+  --surface-3: var(--tile);
+
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Stub color = tenant brand deepened so white text pops. */
+  --stub-solid: color-mix(in srgb, var(--brand, #00b3a5) 82%, #0c2f23);
+
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 500px at 85% -10%, rgba(201, 150, 46, 0.08), transparent 60%),
+    radial-gradient(900px 420px at 0% 0%, rgba(24, 52, 43, 0.05), transparent 55%),
+    var(--paper);
+  color: var(--ink);
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+/* ---------------- Ticket stub hero ---------------- */
+
+.stub {
+  position: relative;
+  background: var(--stub-solid);
+  color: #fff;
+  overflow: hidden;
+}
+
+/* warm glow inside the stub */
+.stub::before {
+  content: '';
+  position: absolute;
+  right: -90px;
+  top: -110px;
+  width: 340px;
+  height: 340px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.14), transparent 65%);
+  pointer-events: none;
+}
+
+.stub__inner {
+  position: relative;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 26px 22px 46px;
+}
+
+.stub__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.stub__lang {
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  color: #fff;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 12.5px;
+  font-weight: 800;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background 0.15s ease;
+}
+
+.stub__lang:hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+
+/* The table number as a real ticket stub — gold foil, perforated edge */
+.stub__table {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px dashed rgba(247, 213, 113, 0.7);
+  background: rgba(0, 0, 0, 0.16);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.07), inset 0 0 22px rgba(247, 213, 113, 0.08);
+  color: #f7e08b;
+  border-radius: 12px;
+  padding: 7px 14px;
+  font-family: 'Bricolage Grotesque', 'Plus Jakarta Sans', sans-serif;
+  font-weight: 800;
+  font-size: 14.5px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.stub__brand {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.stub__logo {
+  width: 68px;
+  height: 68px;
+  border-radius: 16px;
+  object-fit: cover;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  font-size: 30px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+}
+
+.stub__copy {
+  min-width: 0;
+}
+
+.stub__name {
+  margin: 0;
+  font-family: 'Bricolage Grotesque', 'Plus Jakarta Sans', sans-serif;
+  font-size: clamp(30px, 6vw, 46px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  color: #fff;
+}
+
+.stub__tagline {
+  margin-top: 6px;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.stub__open {
+  margin-top: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* live dot — "we're open, scan and order" */
+.stub__open::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #7ee2a8;
+  box-shadow: 0 0 0 3px rgba(126, 226, 168, 0.28);
+}
+
+/* The perforation — scalloped tear punched out of the stub's foot.
+   (repeat-x must live on mask-repeat, not inside mask-image.) */
+.stub__tear {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 14px;
+  background: var(--stub-solid);
+  -webkit-mask-image: radial-gradient(circle at 10px -4px, transparent 10px, #000 10.5px);
+  mask-image: radial-gradient(circle at 10px -4px, transparent 10px, #000 10.5px);
+  -webkit-mask-size: 20px 14px;
+  mask-size: 20px 14px;
+  -webkit-mask-repeat: repeat-x;
+  mask-repeat: repeat-x;
+}
+
+/* ---------------- Paper body ---------------- */
+
+.menu__body {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 34px 20px 130px;
+}
+
+.chip-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 26px;
+}
+
+.chip {
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s var(--ease-out), box-shadow 0.15s, border-color 0.15s,
+    background 0.15s, color 0.15s;
+}
+
+.chip:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--brand) 45%, var(--line-strong));
+}
+
+.chip--on {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--brand) 38%, transparent);
+}
+
+.chip__count {
+  opacity: 0.65;
+  font-weight: 600;
+  margin-left: 5px;
+}
+
+/* Section head — a ticket divider: ── BURGERS · 6 ── */
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 36px 0 16px;
+}
+
+.section-head::before,
+.section-head::after {
+  content: '';
+  flex: 1;
+  border-top: 1px dashed var(--line-strong);
+}
+
+.section-head__title {
+  margin: 0;
+  font-family: 'Bricolage Grotesque', 'Plus Jakarta Sans', sans-serif;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.section-head__count {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+/* Dish rows — quiet paper slips, the type carries the personality */
+.dish-list {
+  display: grid;
+  gap: 10px;
+}
+
+.dish {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 14px 16px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  transition: transform 0.15s var(--ease-out), box-shadow 0.2s var(--ease-out),
+    border-color 0.15s;
+  animation: dish-in 0.5s var(--ease-out) both;
+  animation-delay: calc(min(var(--i, 0), 12) * 45ms);
+}
+
+.dish:hover {
+  transform: translateY(-2px);
+  border-color: var(--line-strong);
+  box-shadow: 0 10px 26px rgba(40, 35, 20, 0.08);
+}
+
+@keyframes dish-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+.dish__img {
+  width: 72px;
+  height: 72px;
+  border-radius: 12px;
+  object-fit: cover;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  font-size: 26px;
+  background: var(--tile);
+  border: 1px solid var(--line);
+}
+
+.dish__info {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.dish__name {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-weight: 700;
+  font-size: 15.5px;
+}
+
+.dish__prep {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.dish__desc {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.dish__opts {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.dish__price {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--chilli);
+  font-variant-numeric: tabular-nums;
+}
+
+.dish__add {
+  border: 1.5px solid var(--brand);
+  background: color-mix(in srgb, var(--brand) 8%, var(--card));
+  color: var(--brand);
+  border-radius: 999px;
+  padding: 9px 18px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.15s, color 0.15s, transform 0.15s var(--ease-bounce),
+    box-shadow 0.15s;
+}
+
+.dish__add:hover {
+  background: var(--brand);
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--brand) 40%, transparent);
+}
+
+.menu__empty {
+  text-align: center;
+  padding: 60px 0;
+  color: var(--muted);
+}
+
+/* ---------------- Load more + footer ---------------- */
+
+.more-btn {
+  display: block;
+  margin: 26px auto 0;
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 11px 28px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.more-btn:hover {
+  border-style: solid;
+  border-color: var(--brand);
+  color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 6%, var(--card));
+}
+
+.menu__foot {
+  margin-top: 46px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+  display: grid;
+  gap: 8px;
+}
+
+.menu__track {
+  color: var(--brand);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.menu__foot a:hover {
+  text-decoration: underline;
+}
+
+/* ---------------- Floating cart bar ---------------- */
+
+.cartbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, rgba(246, 241, 229, 0.92) 45%);
+}
+
+.cartbar__pill {
+  pointer-events: auto;
+  background: var(--brand);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 14px 10px 14px 22px;
+  font-size: 15px;
+  font-weight: 800;
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--brand) 45%, transparent);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  animation: cart-pop 0.35s var(--ease-bounce) both;
+  transition: transform 0.15s var(--ease-out);
+}
+
+.cartbar__pill:hover {
+  transform: translateY(-2px);
+}
+
+.cartbar__go {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+@keyframes cart-pop {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.97);
+  }
+}
+
+/* ---------------- Accessibility ---------------- */
+
+.stub__lang:focus-visible,
+.chip:focus-visible,
+.dish__add:focus-visible,
+.more-btn:focus-visible,
+.cartbar__pill:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dish,
+  .cartbar__pill {
+    animation: none !important;
+  }
+  .chip,
+  .dish__add,
+  .more-btn,
+  .cartbar__pill {
+    transition: none !important;
+  }
+}
+
+/* ---------------- Responsive ---------------- */
+
+@media (max-width: 560px) {
+  .stub__inner {
+    padding: 22px 18px 44px;
+  }
+  .stub__brand {
+    gap: 14px;
+  }
+  .stub__logo {
+    width: 54px;
+    height: 54px;
+    font-size: 24px;
+    border-radius: 14px;
+  }
+  .stub__name {
+    font-size: clamp(26px, 8vw, 34px);
+  }
+  .stub__tagline {
+    font-size: 14px;
+  }
+  .menu__body {
+    padding: 28px 14px 120px;
+  }
+  .dish {
+    gap: 12px;
+    padding: 12px;
+    flex-wrap: wrap;
+  }
+  .dish__img {
+    width: 58px;
+    height: 58px;
+    border-radius: 10px;
+    font-size: 22px;
+  }
+  .dish__add {
+    margin-left: auto;
+  }
+  .section-head__title {
+    font-size: 18px;
+  }
+}
