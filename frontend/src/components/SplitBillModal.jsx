@@ -241,6 +241,10 @@ export default function SplitBillModal({ open, order, onClose, onSaved }) {
       body.allocations = (body.allocations || []).filter(
         (a) => Number.isInteger(a.orderItemId) && a.orderItemId > 0
       );
+      if (data?.locked) {
+        setError(data.lockReason || t('split.locked'));
+        return;
+      }
       await api.post(`/orders/${order.id}/split`, body);
       toast.success(t('split.saved'));
       onSaved?.();
@@ -277,7 +281,7 @@ export default function SplitBillModal({ open, order, onClose, onSaved }) {
             <Button variant="ghost" onClick={onClose}>
               {t('common.cancel')}
             </Button>
-            <Button variant="primary" onClick={submit} disabled={saving}>
+            <Button variant="primary" onClick={submit} disabled={saving || data?.locked}>
               {saving ? t('split.saving') : t('split.apply')}
             </Button>
           </div>
@@ -288,6 +292,33 @@ export default function SplitBillModal({ open, order, onClose, onSaved }) {
         <div style={{ padding: 24, color: 'var(--text-muted)' }}>{t('split.loading')}</div>
       ) : (
         <div style={{ display: 'grid', gap: 16 }}>
+          {/* Re-split guard — real money (gateway intent, refund, collected
+              wallet part) already moved, so the panel is read-only here. */}
+          {data.locked && (
+            <div
+              role="alert"
+              aria-label="Split locked"
+              style={{
+                background: 'var(--warning-soft, #fff7e6)',
+                color: 'var(--warning, #b45309)',
+                borderRadius: 10,
+                padding: '10px 12px',
+                fontSize: 13,
+                fontWeight: 600,
+                display: 'flex',
+                gap: 8,
+                alignItems: 'flex-start',
+              }}
+            >
+              <span>🔒</span>
+              <div>
+                <div>{t('split.locked')}</div>
+                {data.lockReason && (
+                  <div style={{ fontWeight: 500, marginTop: 2, opacity: 0.9 }}>{data.lockReason}</div>
+                )}
+              </div>
+            </div>
+          )}
           {error && (
             <div
               style={{
