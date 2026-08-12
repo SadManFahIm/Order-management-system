@@ -150,7 +150,9 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 - **Per-diner receipts** — `GET /api/orders/:id/split/receipts/:paymentId` (+ `?print=1` for the **print-ready HTML**) builds one diner's receipt from the STORED allocation: restaurant, table, order no, date/time (Dhaka), diner label, assigned items (qty × unit), discount, **per-item VAT** (NBR: line × rate/(100+rate)), net, payable and the payment method/status/trxID — with an explicit rounding-adjustment line when per-line rounding leaves a paisa residue. The Orders list shows each part as a chip (**Diner · amount · status**) with a **🧾 Receipt** link; `/orders/:id/split/receipts/:paymentId` renders the narrow thermal-friendly sheet (also A4/print-PDF, Bangla-safe)
 - **Split-method analytics chart** — `GET /api/dashboard` now returns `splitAnalytics`: split **usage by method** (equal / item / custom / unsplit, counts + %), **revenue per method** (paid parts — a split order's revenue is counted ONCE across its parts, so closeout/VAT stay unduplicated), **avg diners per split order**, **avg per diner**, and the **payment-method mix within split orders** (e.g. Cash ৳400 + bKash ৳350 + Card ৳250 = ৳1,000, never ৳3,000). The dashboard renders it as a **Split-method donut** (reusing the dependency-free SVG chart kit) with per-method % and revenue in the legend
 - **API** — `GET/POST/DELETE /api/orders/:id/split` (view:orders / place:orders, tenant-scoped, zod-validated, transactional) — the same conventions as the invoice/status routes; split parts remain **payment rows**, so the daily closeout, revenue-by-method, VAT report and dashboard method mix are automatically split-aware (each part lands in its own method bucket, one order = one revenue figure)
-- **Tests** — `splits.test.js` (19 cases: equal/custom/item math, over/under-allocation, disabled methods, duplicate-submission replacement, wallet-collected lock, canceled-order lock, split clearing, discount + VAT allocation, receipt after product soft-delete, RBAC 403, cross-tenant 404, analytics aggregation) + a **Playwright spec** that logs in as a real cashier, splits a dine-in order across 3 diners in the browser, verifies reconcile, applies, prints a receipt and checks the dashboard donut
+- **Re-split lock surfaced in the panel** — the split state (`GET /api/orders/:id/split`) now reports `locked` + `lockReason` using the same rule the write paths enforce (gateway intent / refunded row / collected wallet part). When real money has moved, the cashier panel shows a **🔒 guard banner** with the exact reason (“A collected bkash payment blocks re-splitting — refund it first”) and **disables Apply**, so the cashier never attempts a change that the backend would reject
+- **Split parts in the cashier closeout** — the Reports page now renders the day's **split-payment parts table** (order · diner/part · method · amount · status · trxID reference) directly on screen (matching the JSON/CSV/PDF views) when the day had split orders, so the register reconciles against wallet statements without downloading anything
+- **Tests** — `splits.test.js` (20 cases: equal/custom/item math, over/under-allocation, disabled methods, duplicate-submission replacement, wallet-collected lock **+ locked/lockReason state**, unlocked all-cash state, canceled-order lock, split clearing, discount + VAT allocation, receipt after product soft-delete, RBAC 403, cross-tenant 404, analytics aggregation) + two **Playwright specs** that log in as a real cashier — one splits a dine-in order across 3 diners in the browser (reconcile → apply → receipt → dashboard donut), the other drives the panel against an order with a **collected bKash part** and asserts the lock banner + disabled Apply
 
 **Customer order tracking (Phase 5)**
 - **`GET /api/public/track?orderNo=&phone=`** — public, unauthenticated lookup that returns only a **privacy-safe whitelist** (status, table, payment status, total, restaurant name/slug, items) — never the customer phone, address, or internal fields; wrong order no / phone returns a uniform `404` (no enumeration)
@@ -237,6 +239,15 @@ Deeper analytics (retention cohorts, funnel, delivery perf) · SaaS admin portal
 | ![Orders — Phase 6](docs/screenshots/orders-phase6-light.png) | ![Reports](docs/screenshots/reports-light.png) | ![Invoice — Phase 6](docs/screenshots/invoice-phase6-light.png) |
 | **New Order** — split-payment editor (bKash ৳ + Cash ৳ per part) | | |
 | ![Split editor — Phase 6](docs/screenshots/neworder-split-light.png) | | |
+
+### Dine-in split billing — cashier panel, per-diner receipts & analytics
+
+| | | |
+|---|---|---|
+| **Split Bill panel** — by item / equal / custom, live reconcile bar, per-diner payment + trxID | **Per-diner receipt** — print-ready (VAT + rounding + payment status) | **Dashboard** — split-method analytics donut (equal / item / custom / unsplit) |
+| ![Split panel](docs/screenshots/split-billing-panel-light.png) | ![Diner receipt](docs/screenshots/diner-receipt-light.png) | ![Dashboard split](docs/screenshots/dashboard-split-light.png) |
+| **Closeout** — split-payment parts table (order · diner · method · amount · status · trxID) | | |
+| ![Closeout split parts](docs/screenshots/reports-split-parts-light.png) | | |
 
 ### Phase 7 — Analytics (live captures)
 

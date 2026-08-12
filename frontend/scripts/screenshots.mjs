@@ -217,6 +217,43 @@ if ((await addButtons.count()) >= 2) {
 }
 await shot(page, 'neworder-split-light.png');
 
+// ---------- 13b. Split-billing panel + diner receipt (dine-in split) --
+// The seeded workspace has a Split Bill Demo order (per-diner item split)
+// — open the panel on that order, capture it, then capture the receipt.
+page = await login(browser, 'light');
+await page.goto(`${BASE}/orders`, { waitUntil: 'networkidle' });
+await page.getByRole('heading', { name: /Orders|অর্ডার/ }).waitFor();
+const splitRow = page.locator('tr', { hasText: 'Split Bill Demo' });
+if (await splitRow.count()) {
+  await splitRow.getByRole('button', { name: /Split bill/ }).first().click();
+  await page.getByRole('dialog').waitFor();
+  await page.waitForTimeout(800);
+  await shot(page, 'split-billing-panel-light.png');
+  await page.getByRole('dialog').getByRole('button', { name: /Close|বন্ধ/ }).click().catch(() => {});
+  // Diner receipt — first receipt link on the demo order row.
+  const receiptHref = await splitRow
+    .locator('a[href*="/receipts/"]')
+    .first()
+    .getAttribute('href')
+    .catch(() => null);
+  if (receiptHref) {
+    await page.goto(`${BASE}${receiptHref}`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(800);
+    await shot(page, 'diner-receipt-light.png', { fullPage: true });
+  }
+} else {
+  console.log('skipped split-billing shots — no Split Bill Demo order found');
+}
+
+// ---------- 13c. Reports — closeout split-parts table (Phase 6) --------
+page = await login(browser, 'light');
+await page.goto(`${BASE}/reports`, { waitUntil: 'networkidle' });
+await page.getByRole('heading', { name: /Daily closeout|দৈনিক ক্লোজআউট/ }).waitFor();
+// The seeded split orders fall on the seeding day — keep today's date unless
+// the day has no splits (then leave it; the capture just shows the normal view).
+await page.waitForTimeout(1200);
+await shot(page, 'reports-split-parts-light.png', { fullPage: true });
+
 // ---------- 14. Merchant Menu — Phase 4 (Wolt/Deliveroo grouped view) --
 page = await login(browser, 'light');
 await page.goto(`${BASE}/menu`, { waitUntil: 'networkidle' });
