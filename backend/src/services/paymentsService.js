@@ -163,8 +163,11 @@ export async function createPaymentForOrder(tenant, order, { method, reference, 
  * split AND refunded orders honest — a single PATCH re-evaluates the whole
  * picture.
  */
-export async function recomputeOrderPaymentStatus(order) {
-  const all = await Payment.findAll({ where: { order_id: order.id } });
+export async function recomputeOrderPaymentStatus(order, options = {}) {
+  const all = await Payment.findAll({
+    where: { order_id: order.id },
+    transaction: options.transaction || null,
+  });
   const total = Number(order.grand_total ?? order.total_amount ?? 0);
   let paid = 0;
   let refunded = 0;
@@ -195,7 +198,7 @@ export async function recomputeOrderPaymentStatus(order) {
   } else {
     order.payment_status = 'unpaid';
   }
-  await order.save();
+  await order.save({ transaction: options.transaction || null });
   return order;
 }
 
