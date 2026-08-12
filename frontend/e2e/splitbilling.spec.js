@@ -236,3 +236,62 @@ test('a collected wallet part locks re-splitting in the cashier panel', async ({
   await expect(dialog.getByRole('alert', { name: 'Split locked' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Apply split' })).toBeDisabled();
 });
+
+test('one-tap diner preset opens the panel ready for N diners', async ({ page, request }) => {
+  // ── 1. API setup ─────────────────────────────────────────────────────
+  const loginRes = await request.post('/api/auth/login', {
+    data: { email: ADMIN.email, password: ADMIN.password },
+  });
+  const { accessToken } = await loginRes.json();
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  const tenants = await (await request.get('/api/tenants', { headers: auth })).json();
+  const tenantId = tenants[0].id;
+  await request.post('/api/tables', {
+    headers: auth,
+    data: { table_no: 11, name: 'Preset Table', capacity: 6 },
+  });
+  const member = await request.post(`/api/tenants/${tenantId}/members`, {
+    headers: auth,
+    data: {
+      email: 'presetcash@oms.dev',
+      name: 'Preset Cashier',
+      password: 'PresetCash!42',
+      role: 'cashier',
+    },
+  });
+  expect(member.status()).toBe(201);
+  const products = await (await request.get('/api/products', { headers: auth })).json();
+  const zinger = products.find((p) => p.name === 'Zinger Burger');
+  const orderRes = await request.post('/api/orders', {
+    headers: auth,
+    data: {
+      customer_name: 'Preset E2E Guest',
+      table_no: 11,
+      payment_method: 'cash',
+      items: [{ product_id: zinger.id, quantity: 3 }],
+    },
+  });
+  expect(orderRes.status()).toBe(201);
+  const order = await orderRes.json();
+
+  // ── 2. UI: one tap on the 👥 3 preset ────────────────────────────────
+  await page.goto('/login');
+  await page.fill('#login-email', 'presetcash@oms.dev');
+  await page.fill('#login-password', 'PresetCash!42');
+  await page.click('button[type="submit"]');
+  await page.getByRole('link', { name: 'Orders' }).click();
+  await expect(page.getByRole('heading', { name: 'Orders' })).toBeVisible();
+
+  const row = page.locator('tr', { hasText: 'Preset E2E Guest' });
+  await expect(row).toBeVisible();
+  await row.getByRole('button', { name: 'Quick split by diners 3' }).click();
+
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  // Preset landed in Equal mode with 3 diners — no clicking needed.
+  await expect(dialog.getByText('Diner 1', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Diner 2', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Diner 3', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('TOTAL ORDER')).toBeVisible();
+  await expect(dialog.getByText('SUM OF SPLITS ৳ ' + Number(order.grand_total).toLocaleString('en-IN', { maximumFractionDigits: 2 }))).toBeVisible();
+});
