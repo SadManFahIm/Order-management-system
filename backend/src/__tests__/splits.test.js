@@ -94,7 +94,11 @@ beforeAll(async () => {
   expect(res.status).toBe(201);
   orderId = res.body.id;
   expect(res.body.grand_total).toBe(500);
-  orderItemIds = res.body.items.map((i) => i.id);
+  // PG returns included rows in arbitrary order — resolve line ids by product
+  // so orderItemIds[0] is always the Burger line (deterministic fixtures).
+  const burgerLine = res.body.items.find((i) => i.product_id === burger.id);
+  const friesLine = res.body.items.find((i) => i.product_id === fries.id);
+  orderItemIds = [burgerLine.id, friesLine.id];
 
   // Promotion order — 10% off everything (line discounts to allocate).
   await Promotion.create({

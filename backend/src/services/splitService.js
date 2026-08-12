@@ -236,7 +236,9 @@ function paymentLocksSplit(payment) {
 export async function applySplit({ tenant, order, mode, diners, allocations = [], actorId, req }) {
   const orderFull = await Order.findByPk(order.id, {
     include: [
-      { model: OrderItem, as: 'items', include: [{ model: Product }] },
+      // Deterministic item order (PG returns included rows arbitrarily) so
+      // validation errors like "Over-allocated: …" are stable across dialects.
+      { model: OrderItem, as: 'items', order: [['id', 'ASC']], include: [{ model: Product }] },
       { model: Payment, as: 'payments' },
     ],
   });
