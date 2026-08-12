@@ -221,6 +221,83 @@ async function seedTenant(tenant) {
     made.push(`Split Demo #${order.id} (৳${grandTotal}: bKash ${half} + cash ${rest})`);
   }
 
+  // Locked Split Demo — a dine-in split whose bKash part has been COLLECTED
+  // at the counter, so the re-split guard is live (🔒 banner, Apply disabled)
+  // on a fresh install. Only seeded when the workspace accepts bKash — the
+  // demo must look real to the merchant.
+  const hasLocked = await Order.count({
+    where: { tenant_id: tenant.id, customer_name: 'Locked Split Demo' },
+  });
+  const bkashEnabled = tenant.settings?.paymentMethods?.bkash?.enabled;
+  if (hasLocked === 0 && bkashEnabled) {
+    const p = products[0];
+    const table = await Table.findOne({
+      where: { tenant_id: tenant.id, is_active: true },
+    });
+    const { items, subtotal, totalDiscount, grandTotal } = priceItems([
+      { product: p, quantity: 2 },
+    ]);
+    const order = await Order.create(
+      {
+        tenant_id: tenant.id,
+        order_no: orderNo(tenant.id, 'LOCKED'),
+        customer_name: 'Locked Split Demo',
+        customer_phone: '01700000004',
+        table_no: table ? table.table_no : 1,
+        subtotal,
+        total_discount: totalDiscount,
+        grand_total: grandTotal,
+        status: 'placed',
+        type: 'pickup',
+        payment_method: 'split',
+        payment_status: 'paid',
+        items: items.map((li) => ({
+          tenant_id: tenant.id,
+          product_id: li.product.id,
+          item_name: li.product.name,
+          quantity: li.quantity,
+          unit_price: li.product.price,
+          weight_per_unit_gm: li.product.weight_gm,
+          total_weight_gm: li.totalWeightGm,
+          discount: li.discount,
+          line_total: li.lineTotal,
+        })),
+      },
+      { include: [{ model: OrderItem, as: 'items' }] }
+    );
+    const orderWithItems = await Order.findByPk(order.id, {
+      include: [{ model: OrderItem, as: 'items' }],
+    });
+    const parts = computeSplitParts({
+      order: orderWithItems,
+      mode: 'equal',
+      tenant,
+      diners: [
+        { label: 'Sadia', method: 'bkash' },
+        { label: 'Karim', method: 'cash' },
+      ],
+    });
+    const now = new Date();
+    await Payment.bulkCreate(
+      parts.map((pt, i) => ({
+        tenant_id: tenant.id,
+        order_id: order.id,
+        method: pt.method,
+        amount: pt.amount,
+        // Both collected at the counter — the bKash part is what LOCKS it.
+        status: 'paid',
+        reference: pt.method === 'bkash' ? 'LOCKED-BK-1' : null,
+        notes: pt.note,
+        paid_at: now,
+        split_method: 'equal',
+        diner_index: i + 1,
+      }))
+    );
+    made.push(
+      `Locked Split Demo #${order.id} (৳${grandTotal}: bKash collected → re-split locked)`
+    );
+  }
+
   if (hasRefund === 0) {
     const p = products[0];
     const { items, subtotal, totalDiscount, grandTotal } = priceItems([
