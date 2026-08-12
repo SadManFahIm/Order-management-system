@@ -263,6 +263,34 @@ export default function ReportsPage() {
             )}
           </Card>
 
+          {/* Split-payment parts (dine-in split billing) — the cashier
+              reconciles each diner's part (method, amount, status, trx
+              reference) against the wallet statements and receipts. */}
+          {(data.split?.parts || []).length > 0 && (
+            <Card title={t('reports.splitTitle')} subtitle={t('reports.splitSub')} style={{ marginTop: 16 }}>
+              <Table
+                columns={[
+                  { key: 'orderNo', label: t('reports.colOrder') },
+                  { key: 'note', label: t('reports.colDiner') },
+                  { key: 'label', label: t('reports.colMethod') },
+                  { key: 'amount', label: t('reports.colAmount'), align: 'right' },
+                  { key: 'status', label: t('reports.colStatus') },
+                  { key: 'reference', label: t('reports.colRef') },
+                ]}
+                rows={data.split.parts}
+                render={(row, key) => {
+                  if (key === 'amount') return <span className="oms-table__cell-strong">{fmt(row.amount)}</span>;
+                  if (key === 'status') {
+                    const tone = row.status === 'paid' ? 'success' : row.status === 'refunded' ? 'danger' : 'warning';
+                    return <Badge tone={tone}>{row.status}</Badge>;
+                  }
+                  if (key === 'note' || key === 'reference') return row[key] || '—';
+                  return row[key];
+                }}
+              />
+            </Card>
+          )}
+
           {/* VAT compliance (Phase 6) */}
           <Card
             title={t('reports.vatTitle')}
