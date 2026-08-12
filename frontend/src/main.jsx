@@ -9,6 +9,7 @@ import './theme/tokens.css';
 import './components/ui/ui.css';
 import './styles/app.css';
 import './styles/landing.css';
+import './styles/storefront.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

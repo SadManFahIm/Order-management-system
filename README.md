@@ -66,6 +66,7 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 **Public storefront menu (Phase 4)**
 - Read-only, unauthenticated `GET /api/public/restaurants/:slug[/menu]` with whitelist-only serialization (never internal/user fields), category + availability filters, suspended/archived tenants 404
 - **HTTP caching** — `Cache-Control: public, max-age=60` + `ETag` with `304 Not Modified` round-trips (10× faster storefront reads); **pagination** via `?limit&offset` + `X-Total-Count` (storefront "Show more" loads in pages); live demo page at `/m/:slug`
+- **"The Table Ticket" storefront design** — the QR-scanned menu renders like a hand-held ticket from this product's own world: a brand-themed **stub hero** carries the 🪑 table number as a real gold-foil stub (perforated edge, dashed border) above a **scalloped CSS tear** that separates "this table" from "the menu"; the menu itself sits on warm **rice paper** with quiet dish slips — **Bricolage Grotesque** display type, **chilli-red prices**, gold accents, dashed ticket-divider section heads (── BURGERS · 6 ──), a live OPEN dot, a staggered dish reveal + popping cart bar (reduced-motion aware), and a fixed-light identity that stays consistent in both app themes while the tenant brand still themes the stub, chips, buttons and cart
 
 **Inventory (Phase 4 completion)**
 - `inventory_items` snapshots per menu item (stock qty, low-stock threshold, unit) — set via product create/edit or `PATCH /api/products/:id/inventory`; low-stock items get a warning badge in the Products table
@@ -214,8 +215,10 @@ Deeper analytics (retention cohorts, funnel, delivery perf) · SaaS admin portal
 |---|---|
 | **Landing page** — CRAV-style animated hero (light) | **Landing — dark mode** |
 | ![Landing](docs/screenshots/landing-light.png) | ![Landing dark](docs/screenshots/landing-dark.png) |
-| **Public storefront** — live menu at `/m/:slug` | **Public storefront — dark mode** |
-| ![Public storefront](docs/screenshots/public-menu-light.png) | ![Public storefront dark](docs/screenshots/public-menu-dark.png) |
+| **Public storefront — "The Table Ticket"** (QR-scan first touch: stub hero, table stub, scalloped tear, rice-paper menu) | **Public storefront — legacy light mode** |
+| ![Public storefront ticket](docs/screenshots/public-menu-ticket-light.png) | ![Public storefront light](docs/screenshots/public-menu-light.png) |
+| **Public storefront — dark mode** | |
+| ![Public storefront dark](docs/screenshots/public-menu-dark.png) | |
 | **Merchant Menu** — Wolt/Deliveroo-style grouped categories | **Promotions** — offers manager |
 | ![Menu](docs/screenshots/menu-merchant-light.png) | ![Promotions](docs/screenshots/promotions-light.png) |
 | **Products — light mode** | **Products — dark mode** |
