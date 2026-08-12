@@ -73,8 +73,8 @@ export function TrendAreaChart({ data, height = 220 }) {
           </linearGradient>
         </defs>
 
-        {grid.map((g) => (
-          <g key={g.v}>
+        {grid.map((g, gi) => (
+          <g key={`g-${gi}`}>
             <line
               x1={PAD.l}
               x2={W - PAD.r}
@@ -155,8 +155,8 @@ export function OrdersBarChart({ data, height = 220 }) {
         className="oms-chart__svg"
         onMouseLeave={() => setHover(null)}
       >
-        {grid.map((g) => (
-          <g key={g.v}>
+        {grid.map((g, gi) => (
+          <g key={`g-${gi}`}>
             <line x1={PAD.l} x2={W - PAD.r} y1={g.yy} y2={g.yy} stroke="var(--border)" strokeDasharray="3 5" />
             <text x={PAD.l - 8} y={g.yy + 3.5} textAnchor="end" className="oms-chart__axis">
               {g.v}
@@ -291,8 +291,8 @@ export function CloseoutTrendChart({ data, forecast = null, height = 240 }) {
         className="oms-chart__svg"
         onMouseLeave={() => setHover(null)}
       >
-        {grid.map((g) => (
-          <g key={g.v}>
+        {grid.map((g, gi) => (
+          <g key={`g-${gi}`}>
             <line x1={PAD.l} x2={W - PAD.r} y1={g.yy} y2={g.yy} stroke="var(--border)" strokeDasharray="3 5" />
             <text x={PAD.l - 8} y={g.yy + 3.5} textAnchor="end" className="oms-chart__axis">
               {fmtTaka(g.v)}
