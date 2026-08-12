@@ -129,3 +129,110 @@ test('cashier splits a dine-in order, prints a receipt, dashboard reflects it', 
     page.locator('.oms-donut__row').filter({ hasText: 'Item split' }).first()
   ).toBeVisible();
 });
+
+test('a collected wallet part locks re-splitting in the cashier panel', async ({ page, request }) => {
+  // ── 1. API setup (admin) ─────────────────────────────────────────────
+  const loginRes = await request.post('/api/auth/login', {
+    data: { email: ADMIN.email, password: ADMIN.password },
+  });
+  expect(loginRes.ok()).toBeTruthy();
+  const { accessToken } = await loginRes.json();
+  const auth = { Authorization: `Bearer ${accessToken}` };
+
+  const tenant = (await (await request.get('/api/auth/tenants', { headers: auth })).json()).find(
+    (t) => t.slug === 'default-restaurant'
+  );
+  expect(tenant, 'default-restaurant tenant should exist').toBeTruthy();
+
+  // Enable bKash (the settings PATCH replaces the whole paymentMethods key).
+  await request.patch(`/api/tenants/${tenant.id}`, {
+    headers: auth,
+    data: {
+      settings: {
+        ...(tenant.settings || {}),
+        paymentMethods: {
+          cash: { enabled: true },
+          bkash: { enabled: true, number: '01711111111' },
+          nagad: { enabled: true, number: '01722222222' },
+          card: { enabled: false },
+        },
+      },
+    },
+  });
+
+  await request.post('/api/tables', {
+    headers: auth,
+    data: { table_no: 10, name: 'Lock Table', capacity: 4 },
+  });
+
+  const member = await request.post(`/api/tenants/${tenant.id}/members`, {
+    headers: auth,
+    data: {
+      email: 'lockcash@oms.dev',
+      name: 'Lock Cashier',
+      password: 'LockCash!42',
+      role: 'cashier',
+    },
+  });
+  expect(member.status()).toBe(201);
+
+  const products = await (await request.get('/api/products', { headers: auth })).json();
+  const zinger = products.find((p) => p.name === 'Zinger Burger');
+  const kebab = products.find((p) => p.name === 'Beef Kebab 250gm');
+  const orderRes = await request.post('/api/orders', {
+    headers: auth,
+    data: {
+      customer_name: 'Lock E2E Guest',
+      table_no: 10,
+      payment_method: 'cash',
+      items: [
+        { product_id: zinger.id, quantity: 1 },
+        { product_id: kebab.id, quantity: 1 },
+      ],
+    },
+  });
+  expect(orderRes.status()).toBe(201);
+  const order = await orderRes.json();
+
+  // Split via API (bKash + cash), then COLLECT the bKash part — real money
+  // has now moved, so the order must be locked for re-splitting.
+  const cashLogin = await request.post('/api/auth/login', {
+    data: { email: 'lockcash@oms.dev', password: 'LockCash!42' },
+  });
+  const { accessToken: cashToken } = await cashLogin.json();
+  const cashAuth = { Authorization: `Bearer ${cashToken}` };
+  const splitRes = await request.post(`/api/orders/${order.id}/split`, {
+    headers: cashAuth,
+    data: {
+      mode: 'equal',
+      diners: [
+        { label: 'A', method: 'bkash' },
+        { label: 'B', method: 'cash' },
+      ],
+    },
+  });
+  expect(splitRes.status()).toBe(201);
+  const split = await splitRes.json();
+  const bkashPart = split.parts.find((p) => p.method === 'bkash');
+  const confirm = await request.patch(`/api/payments/${bkashPart.paymentId}`, {
+    headers: cashAuth,
+    data: { status: 'paid', reference: 'TRX-LOCK-1' },
+  });
+  expect(confirm.status()).toBe(200);
+
+  // ── 2. UI: the panel shows the lock and refuses to apply ──────────────
+  await page.goto('/login');
+  await page.fill('#login-email', 'lockcash@oms.dev');
+  await page.fill('#login-password', 'LockCash!42');
+  await page.click('button[type="submit"]');
+  await page.getByRole('link', { name: 'Orders' }).click();
+  await expect(page.getByRole('heading', { name: 'Orders' })).toBeVisible();
+
+  const row = page.locator('tr', { hasText: 'Lock E2E Guest' });
+  await expect(row).toBeVisible();
+  await row.getByRole('button', { name: /Split bill/ }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('alert', { name: 'Split locked' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Apply split' })).toBeDisabled();
+});

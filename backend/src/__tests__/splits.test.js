@@ -335,6 +335,12 @@ describe('payment reconciliation + guards', () => {
       .send({ status: 'paid', reference: 'TRX-ABC-123' });
     expect(confirm.status).toBe(200);
 
+    // The panel's GET state now surfaces the lock (with the reason), so the
+    // cashier sees why before attempting a change.
+    const after = await getSplit(managerToken, fresh.body.id);
+    expect(after.body.locked).toBe(true);
+    expect(after.body.lockReason).toMatch(/refund it first/);
+
     const res = await splitOrder(cashierToken, fresh.body.id, {
       mode: 'equal',
       diners: [
@@ -344,6 +350,20 @@ describe('payment reconciliation + guards', () => {
     });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('SPLIT_LOCKED');
+  });
+
+  it('an all-cash split is not locked (re-splittable while nothing collected)', async () => {
+    const fresh = await placeDineIn(managerToken, [{ product_id: burger.id, quantity: 1 }]);
+    await splitOrder(cashierToken, fresh.body.id, {
+      mode: 'equal',
+      diners: [
+        { label: 'A', method: 'cash' },
+        { label: 'B', method: 'cash' },
+      ],
+    });
+    const state = await getSplit(managerToken, fresh.body.id);
+    expect(state.body.locked).toBe(false);
+    expect(state.body.lockReason).toBeNull();
   });
 
   it('cannot split a canceled order', async () => {

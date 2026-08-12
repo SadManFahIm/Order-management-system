@@ -463,7 +463,15 @@ export function buildSplitState(order, defaultVatRate = 5) {
   const grandTotal = Number(order.grand_total || 0);
   const sumOfParts = round2(parts.reduce((s, p) => s + p.amount, 0));
 
+  // Re-split guard — mirror applySplit/clearSplit's rule so the cashier
+  // panel can surface WHY an order can't be re-split before they try
+  // (gateway intent, refunded row, or collected wallet payment).
+  const lockReason =
+    (order.payments || []).map((p) => paymentLocksSplit(p)).find((r) => r) || null;
+
   return {
+    locked: Boolean(lockReason),
+    lockReason,
     order: {
       id: order.id,
       order_no: order.order_no,
