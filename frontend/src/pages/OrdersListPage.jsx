@@ -63,7 +63,7 @@ const typeLabel = (t, type) => t(`orders.type${type.charAt(0).toUpperCase()}${ty
 
 export default function OrdersListPage() {
   const [orders, setOrders] = useState(null);
-  const [splitFor, setSplitFor] = useState(null); // dine-in order to split
+  const [splitFor, setSplitFor] = useState(null); // { order, presetDiners? } — dine-in split
   const [tables, setTables] = useState([]);
   const [members, setMembers] = useState([]);
   const [filters, setFilters] = useState({ status: '', tableNo: '', sort: 'open', assignedToMe: false });
@@ -464,9 +464,37 @@ export default function OrdersListPage() {
                 return (
                   <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', maxWidth: 320 }}>
                     {canSplit && (
-                      <Button size="sm" variant="primary" onClick={() => setSplitFor(o)} title={t('split.splitBill')}>
-                        ⇄ {t('split.splitBill')}
-                      </Button>
+                      <>
+                        <Button size="sm" variant="primary" onClick={() => setSplitFor({ order: o })} title={t('split.splitBill')}>
+                          ⇄ {t('split.splitBill')}
+                        </Button>
+                        {/* One-tap diner preset — open the split panel already
+                            set for N diners (equal mode, the common case). */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }} title={t('split.quickDiners')}>
+                          <span style={{ fontSize: 12.5, color: 'var(--text-muted)', fontWeight: 600 }}>👥</span>
+                          {[2, 3, 4, 5].map((n) => (
+                            <button
+                              key={n}
+                              type="button"
+                              aria-label={`${t('split.quickDiners')} ${n}`}
+                              onClick={() => setSplitFor({ order: o, presetDiners: n })}
+                              style={{
+                                minWidth: 26,
+                                height: 26,
+                                borderRadius: 8,
+                                border: '1px solid var(--border)',
+                                background: 'transparent',
+                                cursor: 'pointer',
+                                fontWeight: 700,
+                                fontSize: 12.5,
+                                color: 'var(--text)',
+                              }}
+                            >
+                              {n}
+                            </button>
+                          ))}
+                        </div>
+                      </>
                     )}
                     <Button size="sm" variant="ghost" to={`/orders/${o.id}/invoice`} title={`Invoice ${o.order_no || o.id}`}>
                       🧾 Invoice
@@ -537,7 +565,8 @@ export default function OrdersListPage() {
 
       <SplitBillModal
         open={!!splitFor}
-        order={splitFor}
+        order={splitFor?.order}
+        presetDiners={splitFor?.presetDiners}
         onClose={() => setSplitFor(null)}
         onSaved={() => load()}
       />

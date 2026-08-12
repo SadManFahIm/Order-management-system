@@ -41,7 +41,7 @@ function reconcile(fullPaisa, targetPaisa) {
   return out;
 }
 
-export default function SplitBillModal({ open, order, onClose, onSaved }) {
+export default function SplitBillModal({ open, order, onClose, onSaved, presetDiners }) {
   const { t } = useI18n();
   const toast = useToast();
   const { tenants, activeTenantId } = useAuth();
@@ -75,6 +75,21 @@ export default function SplitBillModal({ open, order, onClose, onSaved }) {
         if (!mounted) return;
         setData(res.data);
         // Prefill an existing split so the cashier can adjust it.
+        // One-tap preset (cashier quick action): open straight into Equal
+        // mode with N diners — the most common table split.
+        if (!res.data.isSplit && presetDiners && presetDiners >= 2) {
+          setMode('equal');
+          setDiners(
+            Array.from({ length: Math.min(presetDiners, 20) }, () => ({
+              label: '',
+              method: 'cash',
+              trxID: '',
+              amount: '',
+            }))
+          );
+          return;
+        }
+        // Prefill an existing split so the cashier can adjust it.
         if (res.data.isSplit && res.data.parts.length >= 2) {
           const d = res.data.parts.map((p) => ({
             label: p.dinerLabel || '',
@@ -107,7 +122,7 @@ export default function SplitBillModal({ open, order, onClose, onSaved }) {
       mounted = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, order?.id]);
+  }, [open, order?.id, presetDiners]);
 
   const items = useMemo(() => data?.items || [], [data]);
   const grandTotal = Number(data?.order?.grand_total ?? order?.grand_total ?? 0);
