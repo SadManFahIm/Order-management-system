@@ -100,25 +100,18 @@ export default function DinerReceiptPage() {
         <Card bodyPadding={false}>
           <div
             id="diner-receipt"
+            className="ink-sheet"
             style={{
               maxWidth: 380,
               margin: '0 auto',
-              padding: '24px 20px',
               fontFamily: "system-ui, 'Segoe UI', Roboto, 'Noto Sans Bengali', sans-serif",
             }}
           >
-            {/* Brand */}
-            <div
-              style={{
-                textAlign: 'center',
-                borderBottom: '2px dashed var(--border)',
-                paddingBottom: 12,
-                marginBottom: 12,
-              }}
-            >
-              <div style={{ fontSize: 17, fontWeight: 800 }}>{receipt.restaurantName}</div>
-              <div style={{ color: 'var(--text-muted)', fontSize: 11.5 }}>{receipt.receiptNo}</div>
-              <div style={{ color: 'var(--text-muted)', fontSize: 11.5 }}>
+            {/* Brand — gold-foil stub torn off the ink-paper sheet */}
+            <div className="ink-sheet__stub">
+              <div className="ink-sheet__stub-name">{receipt.restaurantName}</div>
+              <div className="ink-sheet__stub-sub">{receipt.receiptNo}</div>
+              <div className="ink-sheet__stub-sub">
                 {receipt.createdAt
                   ? new Date(receipt.createdAt).toLocaleString('en-GB', {
                       timeZone: 'Asia/Dhaka',
@@ -131,6 +124,8 @@ export default function DinerReceiptPage() {
                   : ''}
               </div>
             </div>
+
+            <div className="ink-sheet__body">
 
             {/* Meta */}
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, margin: '4px 0' }}>
@@ -213,10 +208,11 @@ export default function DinerReceiptPage() {
                 </div>
               )}
               <div
+                className="ink-sheet__payable"
                 style={{
                   display: 'flex',
                   justifyContent: 'space-between',
-                  borderTop: '2px solid var(--text)',
+                  borderTop: '2px solid var(--chilli)',
                   marginTop: 6,
                   paddingTop: 8,
                   fontSize: 16,
@@ -267,16 +263,17 @@ export default function DinerReceiptPage() {
             </div>
 
             <div
+              className="ink-sheet__foot"
               style={{
                 marginTop: 16,
                 textAlign: 'center',
-                color: 'var(--text-muted)',
                 fontSize: 10.5,
                 borderTop: '1px dashed var(--border)',
                 paddingTop: 10,
               }}
             >
               Thank you! · VAT per item (NBR: line × rate/(100+rate))
+            </div>
             </div>
           </div>
         </Card>
@@ -295,31 +292,18 @@ function KotCard({ kot, t }) {
     <Card bodyPadding={false}>
       <div
         id="diner-kot"
+        className="ink-sheet"
         style={{
           maxWidth: 380,
           margin: '0 auto',
-          padding: '24px 20px',
           fontFamily: "system-ui, 'Segoe UI', Roboto, 'Noto Sans Bengali', sans-serif",
         }}
       >
-        <div style={{ textAlign: 'center', borderBottom: '2px dashed var(--border)', paddingBottom: 12, marginBottom: 12 }}>
-          <span
-            style={{
-              display: 'inline-block',
-              background: 'var(--primary)',
-              color: '#fff',
-              fontWeight: 800,
-              letterSpacing: '0.12em',
-              fontSize: 11,
-              padding: '4px 10px',
-              borderRadius: 999,
-            }}
-          >
-            KITCHEN
-          </span>
-          <div style={{ fontSize: 17, fontWeight: 800, marginTop: 6 }}>{kot.restaurantName}</div>
-          <div style={{ color: 'var(--text-muted)', fontSize: 11.5 }}>{kot.kotNo}</div>
-          <div style={{ color: 'var(--text-muted)', fontSize: 11.5 }}>
+        <div className="ink-sheet__stub">
+          <span className="ink-sheet__kot-badge">KITCHEN</span>
+          <div className="ink-sheet__stub-name" style={{ marginTop: 6 }}>{kot.restaurantName}</div>
+          <div className="ink-sheet__stub-sub">{kot.kotNo}</div>
+          <div className="ink-sheet__stub-sub">
             {kot.createdAt
               ? new Date(kot.createdAt).toLocaleString('en-GB', {
                   timeZone: 'Asia/Dhaka',
@@ -332,6 +316,8 @@ function KotCard({ kot, t }) {
               : ''}
           </div>
         </div>
+
+        <div className="ink-sheet__body">
 
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, margin: '4px 0' }}>
           <span style={{ fontWeight: 700 }}>{t('split.orderNo')}</span>
@@ -379,8 +365,9 @@ function KotCard({ kot, t }) {
           </table>
         )}
 
-        <div style={{ marginTop: 16, textAlign: 'center', color: 'var(--text-muted)', fontSize: 10.5, borderTop: '1px dashed var(--border)', paddingTop: 10 }}>
+        <div className="ink-sheet__foot" style={{ marginTop: 16, textAlign: 'center', fontSize: 10.5, borderTop: '1px dashed var(--border)', paddingTop: 10 }}>
           {t('split.kotFooter')}
+        </div>
         </div>
       </div>
     </Card>

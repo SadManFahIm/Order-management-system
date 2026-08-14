@@ -1,0 +1,139 @@
+/* ============================================================
+   QR table cards — each table is a mini ticket
+   ------------------------------------------------------------
+   The merchant's table list keeps the page header but every QR
+   card becomes a hand-held ticket: a brand stub band carries
+   the table number as a gold-foil stub (perforated with a
+   scalloped tear), the QR sits on clean white so scanners
+   read it reliably, and the actions row lives on the paper
+   body below. The stub band follows the admin brand token
+   (--primary) just like the storefront stub follows the
+   tenant brand.
+   ============================================================ */
+
+.qr-card {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+  gap: 0;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* Stub band — the table number rides it like a real ticket */
+.qr-card__head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: color-mix(in srgb, var(--primary) 78%, #0c2f23);
+  padding: 14px 14px 18px;
+}
+
+/* Scalloped tear — perforation between the stub and the paper body */
+.qr-card__head::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 11px;
+  background: color-mix(in srgb, var(--primary) 78%, #0c2f23);
+  -webkit-mask-image: radial-gradient(circle at 10px -4px, transparent 10px, #000 10.5px);
+  mask-image: radial-gradient(circle at 10px -4px, transparent 10px, #000 10.5px);
+  -webkit-mask-size: 20px 11px;
+  mask-size: 20px 11px;
+  -webkit-mask-repeat: repeat-x;
+  mask-repeat: repeat-x;
+  pointer-events: none;
+}
+
+/* Gold-foil table number */
+.qr-card__no {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+  color: #f7e08b;
+  border: 1px dashed rgba(247, 213, 113, 0.7);
+  background: rgba(0, 0, 0, 0.16);
+  border-radius: 10px;
+  padding: 6px 10px;
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.07), inset 0 0 14px rgba(247, 213, 113, 0.08);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.qr-card__meta {
+  color: rgba(255, 255, 255, 0.78);
+  min-width: 0;
+}
+
+.qr-card__meta b {
+  color: #fff;
+}
+
+/* QR on clean white — scanners first, the ticket second */
+.qr-card__code {
+  margin: 14px 14px 0;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.qr-card__actions {
+  padding: 0 12px 12px;
+  gap: 6px;
+}
+
+.qr-card--hidden {
+  opacity: 0.55;
+}
+
+.qr-card--hidden .qr-card__head {
+  background: color-mix(in srgb, var(--primary) 45%, #0c2f23);
+}
+
+.qr-card--hidden .qr-card__head::after {
+  background: color-mix(in srgb, var(--primary) 45%, #0c2f23);
+}
+
+.qr-card--hidden .qr-card__code {
+  border-style: dashed;
+  background: #f6f7f9;
+}
+
+.qr-card__placeholder {
+  width: 150px;
+  height: 150px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  color: var(--text-muted);
+  text-align: center;
+  font-size: 12px;
+}
+
+.qr-card__placeholder span {
+  font-size: 28px;
+}
+
+.qr-card__placeholder small {
+  max-width: 120px;
+  line-height: 1.35;
+}
+
+/* Print sheet header — a light ticket strip (stays ink-light on paper) */
+@media print {
+  .qr-print-sheet__header h1 {
+    display: inline-block;
+    color: var(--primary, #00b3a5);
+    border: 1px dashed currentColor;
+    border-radius: 999px;
+    padding: 6px 16px;
+    font-size: 18px;
+  }
+}

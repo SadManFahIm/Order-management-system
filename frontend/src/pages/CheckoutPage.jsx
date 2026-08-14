@@ -56,7 +56,7 @@ export default function CheckoutPage() {
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState([]);
   const [orderType, setOrderType] = useState('pickup');
-  const [form, setForm] = useState({ name: '', phone: '', address: '', scheduled_at: '' });
+  const [form, setForm] = useState({ name: '', phone: '', email: '', address: '', scheduled_at: '' });
   const [paymentMethod, setPaymentMethod] = useState('cash');
   // Split payment (Phase 6): one order, multiple methods — e.g. part bKash
   // + part cash. Only shown when the workspace enables >= 2 non-online
@@ -276,6 +276,7 @@ export default function CheckoutPage() {
         order_type: orderType,
         customer_name: form.name.trim(),
         customer_phone: form.phone.trim(),
+        customer_email: form.email.trim() || undefined,
         customer_address: (orderType === 'delivery' || orderType === 'scheduled_delivery') ? form.address.trim() : undefined,
         scheduled_at:
           orderType === 'scheduled_pickup' || orderType === 'scheduled_delivery'
@@ -568,6 +569,19 @@ export default function CheckoutPage() {
               inputMode="tel"
             />
             <div className="ticket-hint">{t('store.phoneHint')}</div>
+          </div>
+          <div className="ticket-field">
+            <label className="ticket-label" htmlFor="ticket-email">{t('store.email')}</label>
+            <input
+              id="ticket-email"
+              type="email"
+              className="ticket-input"
+              value={form.email}
+              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+              placeholder="rahim@example.com"
+              autoComplete="email"
+            />
+            <div className="ticket-hint">{t('store.emailHint')}</div>
           </div>
           {(orderType === 'delivery' || orderType === 'scheduled_delivery') && (
             <div className="ticket-field">

@@ -12,6 +12,8 @@ import './styles/landing.css';
 import './styles/storefront.css';
 import './styles/storefront-checkout.css';
 import './styles/invoice-ink.css';
+import './styles/diner-receipt-ink.css';
+import './styles/table-qr-ticket.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

@@ -28,6 +28,8 @@ const Order = sequelize.define(
     order_no: { type: DataTypes.STRING(40), allowNull: false },
     customer_name: { type: DataTypes.STRING(255), allowNull: false },
     customer_phone: { type: DataTypes.STRING(30) },
+    // Optional email for the ticket-styled order confirmation (migration 014).
+    customer_email: { type: DataTypes.STRING(255), allowNull: true },
     customer_address: { type: DataTypes.TEXT },
     subtotal: { type: DataTypes.FLOAT, allowNull: false, field: 'subtotal_amount' },
     total_discount: { type: DataTypes.FLOAT, allowNull: false, field: 'discount_amount' },

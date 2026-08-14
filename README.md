@@ -70,6 +70,10 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 - **Ticket checkout + confirmation** — the customer never leaves the ticket they tore off the menu: the checkout page (`/m/:slug/checkout`) opens with the same brand stub + food orbs + scalloped tear, and the order form renders as **ticket cards** with dashed ticket-divider section heads, ticket-toggle order types, paper payment rows, a **wallet "send money" panel** (copyable number + trxID), the ⇄ split-payment / per-diner editors restyled to the paper, a chilli-red total row, and a **confirmation stub** that lands with a little bounce and stamps the order number as a **gold-foil ticket stub** (`ticket-done__no`) with the total and each split part — all sharing the paper theme + EN/বাংলা
 - **Track-order ticket** — the customer tracking page (`/track`) is the same hand-held ticket: an Orderly brand stub with floating food orbs, scalloped tear and the **order number stamped as a gold-foil stub pill** when the live status loads, then the lookup form and the 4-step progress / items / total as ticket cards on paper (the paper toggle rides along via `usePaperTheme`, so a customer's 🌓 choice follows menu → checkout → confirmation → tracking)
 - **Ink-paper merchant invoice** — the order invoice (`/orders/:id/invoice`) renders as the **merchant's copy of the ticket** in its ink-paper form: a gold-foil brand stub torn off the top (scalloped tear), a deep ink-green sheet with sage ink, dashed ticket rows for items and payments, and a chilli-red grand-total tile — while `@media print` flips the sheet to a clean white ink-on-paper invoice for printing/PDF
+- **QR table cards as tickets** — the merchant's table list (`/tables`) renders every QR card as a mini hand-held ticket: a brand stub band carries the table number as a **gold-foil stub**, scalloped with the same perforation tear, and the QR sits on clean white so scanners read it first; the printable A4 QR sheet keeps a light ticket-strip header
+- **Ink-paper diner receipt + kitchen ticket** — the per-diner receipt (`/orders/:id/split/receipts/:paymentId`) and its kitchen order ticket are the same ink-paper sheet as the invoice: a gold-foil brand stub (with a gold **KITCHEN** badge on the KOT), dark ink-green paper with sage ink, dashed ticket rows and a chilli-red payable — on screen and in the backend's print-ready HTML (which flips to white for thermal/A4 printing)
+- **Ticket-styled order confirmation email** — when a customer leaves an email at checkout (new optional field, stored on the order via migration 014), the platform emails them the same hand-held ticket: a gold-foil brand stub with the order number, the scalloped tear, dashed item rows, a chilli-red total and a **Track your order** button — fully inline-styled for every mail client, HTML-escaped, fire-and-forget (never blocks order creation), sent through the existing SMTP/stub mailer
+- **Print CSS for the storefront ticket** — the menu, checkout and confirmation print as one clean light slip: the stub becomes a light gray band (still perforated), orbs/toggles/chips drop out, and the paper body keeps its dashed dividers + chilli totals — in both paper themes
 
 **Inventory (Phase 4 completion)**
 - `inventory_items` snapshots per menu item (stock qty, low-stock threshold, unit) — set via product create/edit or `PATCH /api/products/:id/inventory`; low-stock items get a warning badge in the Products table
@@ -237,7 +241,7 @@ Deeper analytics (retention cohorts, funnel, delivery perf) · SaaS admin portal
 | ![Storefront cart](docs/screenshots/storefront-cart-light.png) | ![Checkout](docs/screenshots/checkout-light.png) |
 | **Checkout — ink paper (dark ticket)** | |
 | ![Checkout ink paper](docs/screenshots/checkout-ink-paper.png) | |
-| **QR table menu** — printable table codes + per-table PNG | **Customer tracking** — the lookup ticket |
+| **QR table menu** — each table a mini ticket (gold-foil stub + scalloped tear, QR on white) | **Customer tracking** — the lookup ticket |
 | ![QR menu](docs/screenshots/qr-menu-light.png) | ![Tracking](docs/screenshots/track-light.png) |
 | **Track a live order** — status ticket (light) | **Track a live order — ink paper (dark)** |
 | ![Track ticket light](docs/screenshots/track-ticket-light.png) | ![Track ticket ink paper](docs/screenshots/track-ticket-ink-paper.png) |
@@ -257,10 +261,10 @@ Deeper analytics (retention cohorts, funnel, delivery perf) · SaaS admin portal
 
 | | | |
 |---|---|---|
-| **Split Bill panel** — by item / equal / custom, live reconcile bar, per-diner payment + trxID | **Per-diner receipt** — print-ready (VAT + rounding + payment status) | **Dashboard** — split-method analytics donut (equal / item / custom / unsplit) |
-| ![Split panel](docs/screenshots/split-billing-panel-light.png) | ![Diner receipt](docs/screenshots/diner-receipt-light.png) | ![Dashboard split](docs/screenshots/dashboard-split-light.png) |
-| **Closeout** — split-payment parts table (order · diner · method · amount · status · trxID) | **Orders** — one-tap 👥 diner presets next to ⇄ Split bill | **Per-diner kitchen ticket** — items + quantities only (no prices) |
-| ![Closeout split parts](docs/screenshots/reports-split-parts-light.png) | ![Quick diner preset](docs/screenshots/orders-quick-diner-preset-light.png) | ![Diner KOT](docs/screenshots/diner-kot-light.png) |
+| **Split Bill panel** — by item / equal / custom, live reconcile bar, per-diner payment + trxID | **Diner receipt — ink-paper** (gold stub, sage ink, chilli payable; prints white) | **Dashboard** — split-method analytics donut (equal / item / custom / unsplit) |
+| ![Split panel](docs/screenshots/split-billing-panel-light.png) | ![Diner receipt](docs/screenshots/diner-receipt-ink-paper.png) | ![Dashboard split](docs/screenshots/dashboard-split-light.png) |
+| **Closeout** — split-payment parts table (order · diner · method · amount · status · trxID) | **Orders** — one-tap 👥 diner presets next to ⇄ Split bill | **Kitchen ticket — ink-paper** (gold KITCHEN badge, items + quantities only) |
+| ![Closeout split parts](docs/screenshots/reports-split-parts-light.png) | ![Quick diner preset](docs/screenshots/orders-quick-diner-preset-light.png) | ![Diner KOT](docs/screenshots/diner-kot-ink-paper.png) |
 
 ### Phase 7 — Analytics (live captures)
 

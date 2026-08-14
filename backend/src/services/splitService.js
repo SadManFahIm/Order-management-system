@@ -597,16 +597,18 @@ export function renderDinerReceiptHtml(receipt) {
 <html lang="en"><head><meta charset="utf-8">
 <title>Diner receipt ${esc(receipt.dinerLabel)} — ${esc(receipt.restaurantName)}</title>
 <style>
-  :root{--ink:#16181d;--muted:#68707a;--line:#e6e8ec;--brand:#e11d48;--bg:#fff}
+  :root{--ink:#e8efe9;--muted:#8ba397;--line:#1e3129;--line-strong:#2b453b;--chilli:#ff6b4a;--gold:#e0b04e;--brand:#00b3a5;--stub:color-mix(in srgb,var(--brand) 74%,#04100b)}
   *{box-sizing:border-box}
-  body{font-family:system-ui,'Segoe UI',Roboto,'Noto Sans Bengali',sans-serif;color:var(--ink);margin:0;background:#f6f7f9;padding:32px}
-  .sheet{max-width:380px;margin:0 auto;background:var(--bg);border-radius:16px;padding:28px;box-shadow:0 8px 28px rgba(0,0,0,.06)}
-  .brand{text-align:center;border-bottom:2px dashed var(--line);padding-bottom:14px;margin-bottom:14px}
-  .brand h1{font-size:18px;margin:0 0 2px;letter-spacing:.02em}
-  .brand .sub{color:var(--muted);font-size:12px;margin:0}
+  body{font-family:system-ui,'Segoe UI',Roboto,'Noto Sans Bengali',sans-serif;color:var(--ink);margin:0;background:#0b1210;padding:32px}
+  .sheet{max-width:380px;margin:0 auto;background:radial-gradient(320px 140px at 85% -8%,rgba(224,176,78,.09),transparent 60%),radial-gradient(280px 160px at 0% 0%,rgba(24,52,43,.5),transparent 55%),#0b1210;border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:0 8px 28px rgba(0,0,0,.4)}
+  .stub{position:relative;text-align:center;background:var(--stub);color:#fff;padding:18px 16px 26px}
+  .stub::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:12px;background:var(--stub);-webkit-mask-image:radial-gradient(circle at 10px -4px,transparent 10px,#000 10.5px);mask-image:radial-gradient(circle at 10px -4px,transparent 10px,#000 10.5px);-webkit-mask-size:20px 12px;mask-size:20px 12px;-webkit-mask-repeat:repeat-x;mask-repeat:repeat-x}
+  .stub h1{font-size:18px;margin:0 0 2px;letter-spacing:.02em}
+  .stub .sub{color:rgba(255,255,255,.72);font-size:12px;margin:2px 0 0}
+  .body{padding:22px 20px 24px}
   .meta{display:flex;justify-content:space-between;font-size:12.5px;margin:6px 0}
   .meta b{font-weight:700}
-  .diner{text-align:center;background:#fdeef1;color:var(--brand);font-weight:800;border-radius:999px;padding:6px 14px;font-size:14px;margin:12px 0}
+  .diner{text-align:center;background:rgba(0,179,165,.12);color:var(--brand);font-weight:800;border-radius:999px;padding:6px 14px;font-size:14px;margin:12px 0}
   h2{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:16px 0 6px}
   table{width:100%;border-collapse:collapse;font-size:12.5px}
   td{padding:6px 0;border-bottom:1px dashed var(--line);vertical-align:top}
@@ -614,25 +616,29 @@ export function renderDinerReceiptHtml(receipt) {
   .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
   .totals{margin-top:12px;font-size:13px}
   .totals .row{display:flex;justify-content:space-between;padding:4px 0}
-  .totals .row.total{border-top:2px solid var(--ink);margin-top:6px;padding-top:8px;font-size:16px;font-weight:800}
+  .totals .row.total{border-top:2px solid var(--chilli);margin-top:6px;padding-top:8px;font-size:16px;font-weight:800;color:var(--chilli)}
   .totals .row.adj{color:var(--muted);font-size:12px}
-  .pay{margin-top:14px;background:#fafbfc;border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:12.5px;display:grid;gap:4px}
+  .pay{margin-top:14px;background:#13211c;border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:12.5px;display:grid;gap:4px}
   .pay .row{display:flex;justify-content:space-between}
   .mono{font-family:'JetBrains Mono',Consolas,monospace;font-size:11.5px}
   .foot{margin-top:16px;text-align:center;color:var(--muted);font-size:10.5px;border-top:1px dashed var(--line);padding-top:10px}
   .btn{display:block;width:100%;margin:18px 0 0;padding:11px;border:none;border-radius:999px;background:var(--brand);color:#fff;font-weight:800;font-size:14px;cursor:pointer}
   @media print{
+    :root{--ink:#111;--muted:#555;--line:#e0e0e0;--chilli:#c0392b;--stub:#eef2ef}
     body{background:#fff;padding:0}
-    .sheet{box-shadow:none;border-radius:0;padding:12px;max-width:none}
+    .sheet{box-shadow:none;border-radius:0;max-width:none;border:1px solid #ddd;background:#fff;color:#111}
+    .stub{color:#111;border-bottom:2px dashed #bbb}
+    .stub .sub{color:#444}
     .btn{display:none}
   }
 </style></head><body>
 <div class="sheet">
-  <div class="brand">
+  <div class="stub">
     <h1>${esc(receipt.restaurantName)}</h1>
     <p class="sub">${esc(receipt.receiptNo)}</p>
     <p class="sub">${receipt.createdAt ? new Date(receipt.createdAt).toLocaleString('en-GB', { timeZone: 'Asia/Dhaka', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}</p>
   </div>
+  <div class="body">
   <div class="meta"><span><b>Order</b></span><span>${esc(receipt.orderNo || receipt.orderId)}</span></div>
   <div class="meta"><span><b>Table</b></span><span>${receipt.tableNo ? `🪑 ${receipt.tableNo}` : '—'}</span></div>
   <div class="meta"><span><b>Split</b></span><span>${SPLIT_METHOD_LABEL[receipt.splitMethod] || esc(receipt.splitMethod || '—')}</span></div>
@@ -656,6 +662,7 @@ export function renderDinerReceiptHtml(receipt) {
   </div>
   <div class="foot">Thank you! · Orderly OMS · VAT per item (NBR: line × rate/(100+rate))</div>
   <button class="btn" onclick="window.print()">🖨️ Print receipt</button>
+  </div>
 </div>
 </body></html>`;
 }
@@ -700,17 +707,19 @@ export function renderDinerKotHtml(kot) {
 <html lang="en"><head><meta charset="utf-8">
 <title>Kitchen ticket ${esc(kot.dinerLabel)} — ${esc(kot.restaurantName)}</title>
 <style>
-  :root{--ink:#16181d;--muted:#68707a;--line:#e6e8ec;--brand:#e11d48;--bg:#fff}
+  :root{--ink:#e8efe9;--muted:#8ba397;--line:#1e3129;--line-strong:#2b453b;--chilli:#ff6b4a;--gold:#e0b04e;--brand:#00b3a5;--stub:color-mix(in srgb,var(--brand) 74%,#04100b)}
   *{box-sizing:border-box}
-  body{font-family:system-ui,'Segoe UI',Roboto,'Noto Sans Bengali',sans-serif;color:var(--ink);margin:0;background:#f6f7f9;padding:32px}
-  .sheet{max-width:380px;margin:0 auto;background:var(--bg);border-radius:16px;padding:28px;box-shadow:0 8px 28px rgba(0,0,0,.06)}
-  .kot-badge{display:inline-block;background:var(--brand);color:#fff;font-weight:800;letter-spacing:.12em;font-size:11px;padding:4px 10px;border-radius:999px}
-  .brand{text-align:center;border-bottom:2px dashed var(--line);padding-bottom:14px;margin-bottom:14px}
-  .brand h1{font-size:18px;margin:4px 0 2px;letter-spacing:.02em}
-  .brand .sub{color:var(--muted);font-size:12px;margin:0}
+  body{font-family:system-ui,'Segoe UI',Roboto,'Noto Sans Bengali',sans-serif;color:var(--ink);margin:0;background:#0b1210;padding:32px}
+  .sheet{max-width:380px;margin:0 auto;background:radial-gradient(320px 140px at 85% -8%,rgba(224,176,78,.09),transparent 60%),radial-gradient(280px 160px at 0% 0%,rgba(24,52,43,.5),transparent 55%),#0b1210;border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:0 8px 28px rgba(0,0,0,.4)}
+  .stub{position:relative;text-align:center;background:var(--stub);color:#fff;padding:18px 16px 26px}
+  .stub::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:12px;background:var(--stub);-webkit-mask-image:radial-gradient(circle at 10px -4px,transparent 10px,#000 10.5px);mask-image:radial-gradient(circle at 10px -4px,transparent 10px,#000 10.5px);-webkit-mask-size:20px 12px;mask-size:20px 12px;-webkit-mask-repeat:repeat-x;mask-repeat:repeat-x}
+  .kot-badge{display:inline-block;border:1px dashed rgba(247,213,113,.7);background:rgba(0,0,0,.16);color:#f7e08b;font-weight:800;letter-spacing:.12em;font-size:11px;padding:4px 10px;border-radius:999px}
+  .stub h1{font-size:18px;margin:4px 0 2px;letter-spacing:.02em}
+  .stub .sub{color:rgba(255,255,255,.72);font-size:12px;margin:2px 0 0}
+  .body{padding:22px 20px 24px}
   .meta{display:flex;justify-content:space-between;font-size:12.5px;margin:6px 0}
   .meta b{font-weight:700}
-  .diner{text-align:center;background:#fdeef1;color:var(--brand);font-weight:800;border-radius:999px;padding:6px 14px;font-size:14px;margin:12px 0}
+  .diner{text-align:center;background:rgba(0,179,165,.12);color:var(--brand);font-weight:800;border-radius:999px;padding:6px 14px;font-size:14px;margin:12px 0}
   h2{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:16px 0 6px}
   table{width:100%;border-collapse:collapse;font-size:14px}
   td{padding:7px 0;border-bottom:1px dashed var(--line);vertical-align:top;font-weight:600}
@@ -718,18 +727,23 @@ export function renderDinerKotHtml(kot) {
   .foot{margin-top:16px;text-align:center;color:var(--muted);font-size:10.5px;border-top:1px dashed var(--line);padding-top:10px}
   .btn{display:block;width:100%;margin:18px 0 0;padding:11px;border:none;border-radius:999px;background:var(--brand);color:#fff;font-weight:800;font-size:14px;cursor:pointer}
   @media print{
+    :root{--ink:#111;--muted:#555;--line:#e0e0e0;--chilli:#c0392b;--stub:#eef2ef}
     body{background:#fff;padding:0}
-    .sheet{box-shadow:none;border-radius:0;padding:12px;max-width:none}
+    .sheet{box-shadow:none;border-radius:0;max-width:none;border:1px solid #ddd;background:#fff;color:#111}
+    .stub{color:#111;border-bottom:2px dashed #bbb}
+    .stub .sub{color:#444}
+    .kot-badge{color:#a9801f;border-color:#c9b98a}
     .btn{display:none}
   }
 </style></head><body>
 <div class="sheet">
-  <div class="brand">
+  <div class="stub">
     <span class="kot-badge">KITCHEN</span>
     <h1>${esc(kot.restaurantName)}</h1>
     <p class="sub">${esc(kot.kotNo)}</p>
     <p class="sub">${kot.createdAt ? new Date(kot.createdAt).toLocaleString('en-GB', { timeZone: 'Asia/Dhaka', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}</p>
   </div>
+  <div class="body">
   <div class="meta"><span><b>Order</b></span><span>${esc(kot.orderNo || kot.orderId)}</span></div>
   <div class="meta"><span><b>Table</b></span><span>${kot.tableNo ? `🪑 ${kot.tableNo}` : '—'}</span></div>
   <div class="diner">${esc(kot.dinerLabel)}</div>
@@ -739,6 +753,7 @@ export function renderDinerKotHtml(kot) {
   </table>
   <div class="foot">Fulfil on time · Orderly OMS kitchen ticket</div>
   <button class="btn" onclick="window.print()">🖨️ Print ticket</button>
+  </div>
 </div>
 </body></html>`;
 }
