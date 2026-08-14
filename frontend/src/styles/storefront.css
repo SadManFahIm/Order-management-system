@@ -4,15 +4,93 @@
    The QR-scanned menu renders like a hand-held ticket from this
    product's own world: a deep-green stub carries the table
    number (a real stub, perforated off with a scalloped tear),
-   and the menu below sits on warm rice paper. Chilli-red prices
-   and a gold accent play against Bangladeshi ink-green. The
-   tenant brand still themes the stub, chips and buttons via
-   --brand / --brand-accent (set inline on .menu by the page).
+   animated food orbs float behind it, and the menu below sits
+   on paper. Chilli-red prices and a gold accent play against
+   Bangladeshi ink-green. The tenant brand still themes the
+   stub, chips and buttons via --brand / --brand-accent (set
+   inline on .menu by the page).
 
-   Palette is fixed-light on purpose: the public menu is the
-   customer's first touch and keeps one consistent identity
-   regardless of the merchant's app theme.
+   Paper comes in two kinds: warm rice paper (light) and ink
+   paper (dark, .menu--dark — set by usePaperTheme, which
+   follows the device by default). The customer can pin either;
+   the identity stays one consistent ticket either way.
    ============================================================ */
+
+/* ---- Animated food-orb hero behind the stub ----
+   A few dishes float in the stub's glow — the same playful
+   food orbs as the landing hero, tuned down so the brand and
+   table number stay the first thing a scanner reads. */
+.stub__orbs {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.stub__orb {
+  position: absolute;
+  font-size: 30px;
+  opacity: 0.34;
+  filter: blur(0.4px) drop-shadow(0 10px 14px rgba(0, 0, 0, 0.28));
+  animation: stub-orb 8s ease-in-out infinite;
+  user-select: none;
+}
+
+.stub__orb--1 { left: 6%; top: 20%; font-size: 34px; animation-delay: 0s; }
+.stub__orb--2 { right: 8%; top: 12%; font-size: 46px; animation-delay: -2s; }
+.stub__orb--3 { left: 13%; bottom: 12%; font-size: 26px; animation-delay: -4.4s; }
+.stub__orb--4 { right: 15%; bottom: 14%; font-size: 38px; animation-delay: -3s; }
+.stub__orb--5 { right: 32%; top: 4%; font-size: 24px; animation-delay: -5.6s; }
+
+@keyframes stub-orb {
+  0%, 100% { transform: translateY(0) rotate(-6deg); }
+  50% { transform: translateY(-22px) rotate(7deg); }
+}
+
+.menu--dark .stub__orb {
+  opacity: 0.5;
+}
+
+/* ---- Ink-paper (dark) variant ----
+   (.menu.menu--dark — two classes beat the base .menu tokens so the
+   dark overrides can live above them in the file without losing.) */
+.menu.menu--dark {
+  color-scheme: dark;
+
+  --paper: #0b1210;
+  --card: #101c18;
+  --ink: #e8efe9;
+  --muted: #8ba397;
+  --line: #1e3129;
+  --line-strong: #2b453b;
+  --chilli: #ff6b4a;
+  --gold: #e0b04e;
+  --tile: #13211c;
+
+  /* Deeper brand mix so the stub stays dark enough for white text. */
+  --stub-solid: color-mix(in srgb, var(--brand, #00b3a5) 58%, #04100b);
+
+  background:
+    radial-gradient(1200px 500px at 85% -10%, rgba(224, 176, 78, 0.07), transparent 60%),
+    radial-gradient(900px 420px at 0% 0%, rgba(24, 52, 43, 0.4), transparent 55%),
+    var(--paper);
+}
+
+.menu--dark .cartbar {
+  background: linear-gradient(180deg, transparent, rgba(11, 18, 16, 0.94) 45%);
+}
+
+.menu--dark .dish:hover {
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+}
+
+.menu--dark .dish__add {
+  background: color-mix(in srgb, var(--brand) 14%, var(--card));
+}
+
+.menu--dark .dish__add:hover {
+  color: var(--ink);
+}
 
 .menu {
   /* Token overrides so legacy inline fallbacks (var(--border-strong),
@@ -560,3 +638,4 @@
     font-size: 18px;
   }
 }
+

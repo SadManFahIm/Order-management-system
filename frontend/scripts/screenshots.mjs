@@ -94,13 +94,27 @@ let page = await browser.newPage(CONTEXT);
 await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
 await shot(page, 'landing-light.png', { fullPage: true });
 
-// ---------- 2. Public storefront (no auth) — light ----------
+// ---------- 2. Public storefront (no auth) — rice paper (light) ---------
 page = await browser.newPage(CONTEXT);
+await page.addInitScript(() => {
+  localStorage.setItem('oms.storefront.paper', 'light');
+});
 await page.goto(`${BASE}/m/default-restaurant`, { waitUntil: 'networkidle' });
 await shot(page, 'public-menu-light.png');
 
+// ---------- 2a. Public storefront — ink paper (dark) + food orbs --------
+page = await browser.newPage(CONTEXT);
+await page.addInitScript(() => {
+  localStorage.setItem('oms.storefront.paper', 'dark');
+});
+await page.goto(`${BASE}/m/default-restaurant`, { waitUntil: 'networkidle' });
+await shot(page, 'public-menu-ink-paper.png');
+
 // ---------- 2b. Storefront with cart open (Phase 5 checkout journey) ----
 page = await browser.newPage(CONTEXT);
+await page.addInitScript(() => {
+  localStorage.setItem('oms.storefront.paper', 'light');
+});
 await page.goto(`${BASE}/m/kfc-dhaka`, { waitUntil: 'networkidle' });
 const addFirst = page.getByRole('button', { name: /Add|যোগ/ }).first();
 if (await addFirst.count()) {
@@ -116,17 +130,32 @@ if (await addFirst.count()) {
 }
 await shot(page, 'storefront-cart-light.png');
 
-// ---------- 2c. Checkout — guest cart pre-filled (Phase 5) ----------
+// ---------- 2c. Checkout — guest cart pre-filled, ticket design ----------
+const checkoutInit = (paper) => [
+  ([cart, p]) => {
+    localStorage.setItem('oms.cart.kfc-dhaka', JSON.stringify(cart));
+    localStorage.setItem('oms.storefront.paper', p);
+  },
+  [
+    [
+      { product_id: 1, quantity: 2, variant_id: null, addon_ids: [], name: 'Hot & Crispy Chicken (2 pc)', unit_price: 320, options: [] },
+      { product_id: 2, quantity: 1, variant_id: null, addon_ids: [], name: 'Zinger Burger', unit_price: 260, options: [] },
+    ],
+    paper,
+  ],
+];
 page = await browser.newPage(CONTEXT);
-await page.addInitScript(() => {
-  localStorage.setItem(
-    'oms.cart.kfc-dhaka',
-    JSON.stringify([{ product_id: 1, quantity: 2, variant_id: null, addon_ids: [] }])
-  );
-});
+await page.addInitScript(...checkoutInit('light'));
 await page.goto(`${BASE}/m/kfc-dhaka/checkout`, { waitUntil: 'networkidle' });
 await page.waitForTimeout(800);
 await shot(page, 'checkout-light.png', { fullPage: true });
+
+// ---------- 2d. Checkout — ink paper (dark ticket) ----------
+page = await browser.newPage(CONTEXT);
+await page.addInitScript(...checkoutInit('dark'));
+await page.goto(`${BASE}/m/kfc-dhaka/checkout`, { waitUntil: 'networkidle' });
+await page.waitForTimeout(800);
+await shot(page, 'checkout-ink-paper.png', { fullPage: true });
 
 // ---------- 3. Login — light ----------
 page = await browser.newPage(CONTEXT);
@@ -280,11 +309,12 @@ page = await browser.newPage(CONTEXT);
 await page.goto(`${BASE}/register`, { waitUntil: 'networkidle' });
 await shot(page, 'register-light.png');
 
-// ---------- 18. Public storefront — dark (design system showcase) -----
+// ---------- 18. Public storefront — dark (ink-paper showcase) ----------
 page = await browser.newPage(CONTEXT);
 await page.addInitScript(() => {
   localStorage.setItem('oms.theme', 'dark');
   document.documentElement.setAttribute('data-theme', 'dark');
+  localStorage.setItem('oms.storefront.paper', 'dark');
 });
 await page.goto(`${BASE}/m/default-restaurant`, { waitUntil: 'networkidle' });
 await shot(page, 'public-menu-dark.png');

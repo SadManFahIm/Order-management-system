@@ -3,6 +3,7 @@ import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom'
 import axios from 'axios';
 import { Skeleton } from '../components/ui';
 import { useI18n, LANGUAGES } from '../i18n';
+import { usePaperTheme } from '../hooks/usePaperTheme';
 
 /**
  * Public storefront menu (Phase 4/5) — consumes the read-only public API
@@ -118,7 +119,7 @@ function ItemModal({ item, initial, onConfirm, onClose, t }) {
                   style={{
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     border: `1.5px solid ${variantId === v.id ? 'var(--brand)' : 'var(--border-strong, #b9e0da)'}`,
-                    background: variantId === v.id ? 'color-mix(in srgb, var(--brand) 8%, #fff)' : '#fff',
+                    background: variantId === v.id ? 'color-mix(in srgb, var(--brand) 8%, var(--card))' : 'var(--card)',
                     borderRadius: 12, padding: '10px 14px', cursor: 'pointer',
                   }}
                 >
@@ -142,6 +143,7 @@ function ItemModal({ item, initial, onConfirm, onClose, t }) {
                   style={{
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     border: '1.5px solid var(--border-strong, #b9e0da)', borderRadius: 12,
+                    background: 'var(--card)',
                     padding: '10px 14px', cursor: 'pointer',
                   }}
                 >
@@ -197,6 +199,7 @@ export default function PublicMenuPage() {
   const navigate = useNavigate();
   const tableNo = searchParams.get('table');
   const { t, lang, toggleLang } = useI18n();
+  const { paperPref, effectiveDark, cyclePaper } = usePaperTheme();
   const [state, setState] = useState({ loading: true, error: null, data: null });
   const [activeCat, setActiveCat] = useState(null);
   const [total, setTotal] = useState(0);
@@ -342,21 +345,43 @@ export default function PublicMenuPage() {
   const cartTotal = cart.reduce((s, l) => s + Number(l.unit_price) * l.quantity, 0);
 
   return (
-    <div className="menu" style={{ '--brand': primary, '--brand-accent': accent }}>
+    <div
+      className={`menu${effectiveDark ? ' menu--dark' : ''}`}
+      style={{ '--brand': primary, '--brand-accent': accent }}
+      data-paper={paperPref}
+    >
       {/* Ticket-stub hero — the QR-scan first touch. The table number rides
           the stub like a real ticket; the scalloped tear is the perforation
-          that separates "this table" from "the menu". */}
+          that separates "this table" from "the menu". Animated food orbs
+          float behind it (reduced-motion aware). */}
       <header className="stub">
+        <div className="stub__orbs" aria-hidden="true">
+          <span className="stub__orb stub__orb--1">🍔</span>
+          <span className="stub__orb stub__orb--2">🍟</span>
+          <span className="stub__orb stub__orb--3">🍕</span>
+          <span className="stub__orb stub__orb--4">🍗</span>
+          <span className="stub__orb stub__orb--5">🥤</span>
+        </div>
         <div className="stub__inner">
           <div className="stub__meta">
-            <button
-              onClick={toggleLang}
-              aria-label={lang === 'en' ? 'বাংলায় দেখুন' : 'Switch to English'}
-              title={lang === 'en' ? 'বাংলা' : 'English'}
-              className="stub__lang"
-            >
-              {LANGUAGES.find((l) => l.code !== lang)?.short}
-            </button>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+              <button
+                onClick={cyclePaper}
+                aria-label={t(paperPref === 'auto' ? 'store.paperAuto' : paperPref === 'light' ? 'store.paperLight' : 'store.paperDark')}
+                title={t(paperPref === 'auto' ? 'store.paperAuto' : paperPref === 'light' ? 'store.paperLight' : 'store.paperDark')}
+                className="stub__lang"
+              >
+                {paperPref === 'light' ? '☀️' : paperPref === 'dark' ? '🌙' : '🌓'}
+              </button>
+              <button
+                onClick={toggleLang}
+                aria-label={lang === 'en' ? 'বাংলায় দেখুন' : 'Switch to English'}
+                title={lang === 'en' ? 'বাংলা' : 'English'}
+                className="stub__lang"
+              >
+                {LANGUAGES.find((l) => l.code !== lang)?.short}
+              </button>
+            </div>
             {tableNo && (
               <span className="stub__table" title={t('store.scanToOrder')}>
                 🪑 {t('store.table', tableNo)}
