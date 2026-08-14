@@ -3,6 +3,7 @@ import { useParams, Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { Skeleton } from '../components/ui';
 import { useI18n } from '../i18n';
+import { usePaperTheme } from '../hooks/usePaperTheme';
 
 /**
  * Storefront checkout (Phase 5) — the customer journey's final step.
@@ -12,6 +13,12 @@ import { useI18n } from '../i18n';
  * with an Idempotency-Key so double-clicks / retries can never create two
  * orders. Supports pickup, delivery, scheduled pickup and scheduled delivery;
  * payment via the workspace's enabled methods (cash / wallets / online).
+ *
+ * The whole page lives in "The Table Ticket" world: the brand stub + scalloped
+ * tear on top, sections as ticket cards with dashed dividers, chilli-red
+ * totals — the customer never leaves the ticket they tore off the menu. The
+ * paper theme (rice paper / ink paper) is shared with the menu via
+ * usePaperTheme.
  */
 
 const CART_KEY = (slug) => `oms.cart.${slug}`;
@@ -27,18 +34,23 @@ const TYPE_KEY = {
 
 const fmtMoney = (n) => `৳ ${Number(n).toFixed(2)}`;
 
-const inputStyle = {
-  width: '100%', boxSizing: 'border-box',
-  border: '1.5px solid var(--border-strong, #b9e0da)', borderRadius: 12,
-  padding: '11px 14px', fontSize: 14, background: '#fff',
-  outline: 'none', transition: 'border-color .15s ease',
-};
-const labelStyle = { fontSize: 12.5, fontWeight: 800, color: 'var(--text-muted, #7d9a95)', marginBottom: 6, display: 'block' };
+/** Safe hex or a sensible default — checkout never breaks on odd brand data. */
+const brandColor = (value, fallback) =>
+  /^#[0-9a-fA-F]{6}$/.test(value || '') ? value : fallback;
+
+const ORBS = [
+  { emoji: '🍔', cls: 'stub__orb--1' },
+  { emoji: '🍟', cls: 'stub__orb--2' },
+  { emoji: '🍕', cls: 'stub__orb--3' },
+  { emoji: '🍗', cls: 'stub__orb--4' },
+  { emoji: '🥤', cls: 'stub__orb--5' },
+];
 
 export default function CheckoutPage() {
   const { slug } = useParams();
   const [searchParams] = useSearchParams();
   const { t } = useI18n();
+  const { paperPref, effectiveDark, cyclePaper } = usePaperTheme();
 
   const [restaurant, setRestaurant] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -350,365 +362,364 @@ export default function CheckoutPage() {
     );
   }
 
-  // ── Confirmation view (post-place) ────────────────────────────────────
-  const primaryBtn = {
-    display: 'block', width: '100%', textAlign: 'center', background: 'var(--primary, #00b3a5)',
-    color: '#fff', border: 'none', borderRadius: 12, padding: '13px 18px',
-    fontSize: 15, fontWeight: 800, cursor: 'pointer', textDecoration: 'none', boxSizing: 'border-box',
-  };
-  const ghostBtn = {
-    display: 'block', width: '100%', textAlign: 'center', marginTop: 10,
-    border: '1.5px solid var(--border-strong, #b9e0da)', borderRadius: 12, padding: '12px 18px',
-    fontSize: 14, fontWeight: 700, color: 'var(--text, #123b36)', textDecoration: 'none', boxSizing: 'border-box',
-  };
+  const brand = restaurant?.brand || {};
+  const primary = brandColor(brand.primaryColor, '#00b3a5');
+  const accent = brandColor(brand.accentColor, '#f5d300');
+  const paperClass = effectiveDark ? ' menu--dark' : '';
+  const paperAttrs = { 'data-paper': paperPref, style: { '--brand': primary, '--brand-accent': accent } };
+  const paperBtn = (
+    <button
+      onClick={cyclePaper}
+      aria-label={t(paperPref === 'auto' ? 'store.paperAuto' : paperPref === 'light' ? 'store.paperLight' : 'store.paperDark')}
+      title={t(paperPref === 'auto' ? 'store.paperAuto' : paperPref === 'light' ? 'store.paperLight' : 'store.paperDark')}
+      className="stub__lang"
+    >
+      {paperPref === 'light' ? '☀️' : paperPref === 'dark' ? '🌙' : '🌓'}
+    </button>
+  );
 
+  // ── Confirmation view (post-place) — the ticket stub, torn off ────────
   if (placed) {
     return (
-      <div style={{ minHeight: '100vh', background: 'var(--bg, #f5fbfa)', display: 'grid', placeItems: 'center', padding: 32 }}>
-        <div style={{ maxWidth: 460, width: '100%', textAlign: 'center', background: '#fff', borderRadius: 24, padding: 40, boxShadow: '0 20px 60px rgba(15,23,42,0.10)' }}>
-          <div style={{ fontSize: 54 }}>🎉</div>
-          <h1 style={{ margin: '14px 0 6px', fontSize: 26, fontWeight: 800 }}>
-            {t('store.orderPlaced')}
-          </h1>
-          <p style={{ margin: 0, color: 'var(--text-muted, #7d9a95)', fontSize: 14.5, lineHeight: 1.55 }}>
-            {t('store.orderPlacedDesc', { name: placed.customer_name })}
-          </p>
-          <div style={{ margin: '24px 0', padding: 16, background: 'var(--surface-2, #f0faf8)', borderRadius: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-muted, #7d9a95)' }}>{t('store.yourOrderNo')}</div>
-            <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: '0.5px', marginTop: 4 }}>{placed.order_no}</div>
-            <div style={{ marginTop: 8, fontSize: 15, fontWeight: 700 }}>{fmtMoney(placed.grand_total)}</div>
+      <div className={`menu menu--checkout${paperClass}`} {...paperAttrs}>
+        <header className="stub stub--done">
+          <div className="stub__orbs" aria-hidden="true">
+            {ORBS.map((o) => (
+              <span key={o.cls} className={`stub__orb ${o.cls}`}>{o.emoji}</span>
+            ))}
+          </div>
+          <div className="stub__inner">
+            <div className="stub__meta">
+              {paperBtn}
+              <span className="stub__table">🎟️ {t('store.orderPlaced')}</span>
+            </div>
+            <div className="stub__brand">
+              {restaurant.logoUrl ? (
+                <img src={restaurant.logoUrl} alt="" className="stub__logo" />
+              ) : (
+                <div className="stub__logo">🏪</div>
+              )}
+              <div className="stub__copy">
+                <h1 className="stub__name">{restaurant.name}</h1>
+                <div className="stub__tagline">{t('store.orderPlacedDesc', { name: placed.customer_name })}</div>
+                <div className="stub__eyebrow">✓ {t('store.yourOrderNo')}</div>
+              </div>
+            </div>
+          </div>
+          <div className="stub__tear" aria-hidden="true" />
+        </header>
+        <main className="menu__body checkout__body">
+          <section className="ticket-card ticket-done__card">
+            <div className="ticket-done__label">{t('store.yourOrderNo')}</div>
+            <div className="ticket-done__no">{placed.order_no}</div>
+            <div className="ticket-done__total">{fmtMoney(placed.grand_total)}</div>
             {(placed.payments || []).length > 1 && (
-              <div
-                style={{
-                  marginTop: 14, borderTop: '1px dashed var(--border-strong, #b9e0da)',
-                  paddingTop: 12, display: 'grid', gap: 6, textAlign: 'left',
-                }}
-              >
+              <div className="ticket-done__parts">
                 {(placed.payments || []).map((p) => (
-                  <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                    <span style={{ textTransform: 'capitalize', fontWeight: 700 }}>
+                  <div key={p.id} className="ticket-done__part">
+                    <span className="ticket-done__part-name">
                       {p.method === 'cash' ? t('store.payAtCounter') : p.method}
                       {p.notes ? ` · ${p.notes}` : ''}
                     </span>
-                    <span style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(p.amount)}</span>
+                    <span className="ticket-done__part-amount">{fmtMoney(p.amount)}</span>
                   </div>
                 ))}
               </div>
             )}
-          </div>
-          {placed.paymentUrl && (
-            <a
-              href={placed.paymentUrl}
-              target="_blank"
-              rel="noreferrer"
-              style={primaryBtn}
-            >
-              {t('store.payNow')} →
-            </a>
-          )}
-          <Link to={placed.trackUrl || '/track'} style={ghostBtn}>
-            🛎️ {t('store.trackIt')}
-          </Link>
-          <Link to={`/m/${slug}`} style={ghostBtn}>
-            {t('store.continueShopping')}
-          </Link>
-        </div>
+            <div className="ticket-actions">
+              {placed.paymentUrl && (
+                <a href={placed.paymentUrl} target="_blank" rel="noreferrer" className="ticket-btn">
+                  {t('store.payNow')} →
+                </a>
+              )}
+              <Link to={placed.trackUrl || '/track'} className="ticket-btn ticket-btn--ghost">
+                🛎️ {t('store.trackIt')}
+              </Link>
+              <Link to={`/m/${slug}`} className="ticket-btn ticket-btn--ghost">
+                {t('store.continueShopping')}
+              </Link>
+            </div>
+          </section>
+        </main>
       </div>
     );
   }
 
+  // ── Empty cart — the torn-off ticket with nothing written on it ───────
   if (cart.length === 0) {
     return (
-      <div style={{ minHeight: '100vh', background: 'var(--bg, #f5fbfa)', display: 'grid', placeItems: 'center', padding: 32 }}>
-        <div style={{ maxWidth: 420, textAlign: 'center', background: '#fff', borderRadius: 24, padding: 40, boxShadow: '0 20px 60px rgba(15,23,42,0.10)' }}>
-          <div style={{ fontSize: 44 }}>🛒</div>
-          <h1 style={{ margin: '14px 0 6px', fontSize: 22, fontWeight: 800 }}>{t('store.cartEmpty')}</h1>
-          <p style={{ margin: 0, color: 'var(--text-muted, #7d9a95)', fontSize: 14 }}>{t('store.cartEmptyDesc')}</p>
-          <Link to={`/m/${slug}`} style={{ ...primaryBtn, marginTop: 22 }}>{t('store.backToMenu')}</Link>
-        </div>
+      <div className={`menu menu--checkout${paperClass}`} {...paperAttrs}>
+        <header className="stub">
+          <div className="stub__orbs" aria-hidden="true">
+            {ORBS.map((o) => (
+              <span key={o.cls} className={`stub__orb ${o.cls}`}>{o.emoji}</span>
+            ))}
+          </div>
+          <div className="stub__inner">
+            <div className="stub__meta">{paperBtn}</div>
+            <div className="stub__brand">
+              {restaurant.logoUrl ? (
+                <img src={restaurant.logoUrl} alt="" className="stub__logo" />
+              ) : (
+                <div className="stub__logo">🏪</div>
+              )}
+              <div className="stub__copy">
+                <h1 className="stub__name">{restaurant.name}</h1>
+                <div className="stub__eyebrow">🛒 {t('store.checkoutTicket')}</div>
+              </div>
+            </div>
+          </div>
+          <div className="stub__tear" aria-hidden="true" />
+        </header>
+        <main className="menu__body checkout__body">
+          <div className="ticket-empty">
+            <div className="ticket-empty__emoji">🛒</div>
+            <h1 className="ticket-empty__title">{t('store.cartEmpty')}</h1>
+            <p className="ticket-empty__desc">{t('store.cartEmptyDesc')}</p>
+            <Link to={`/m/${slug}`} className="ticket-btn">{t('store.backToMenu')}</Link>
+          </div>
+        </main>
       </div>
     );
   }
 
+  // ── Main checkout — the order form as a ticket ────────────────────────
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg, #f5fbfa)' }}>
-      <div style={{ maxWidth: 720, margin: '0 auto', padding: '28px 20px 80px' }}>
-        <Link to={`/m/${slug}`} style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text-muted, #7d9a95)', textDecoration: 'none' }}>
-          ← {t('store.backToMenu')}
-        </Link>
-        <h1 style={{ margin: '10px 0 4px', fontSize: 26, fontWeight: 800 }}>
-          {restaurant.name} — {t('store.checkout')}
-        </h1>
-        {tableNo && (
-          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted, #7d9a95)' }}>
-            🪑 {t('store.table', tableNo)}
-          </span>
-        )}
-
-        <div style={{ display: 'grid', gap: 20, marginTop: 24 }}>
-          {/* 1. Order type */}
-          <section style={card}>
-            <h2 style={sectionTitle}>{t('store.orderType')}</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
-              {ORDER_TYPES.map((type) => {
-                const isDelivery = type === 'delivery' || type === 'scheduled_delivery';
-                const disabled = isDelivery && !checkoutConfig.deliveryEnabled;
-                return (
-                  <button
-                    key={type}
-                    disabled={disabled}
-                    onClick={() => setOrderType(type)}
-                    style={{
-                      border: `1.5px solid ${orderType === type ? 'var(--primary, #00b3a5)' : 'var(--border-strong, #b9e0da)'}`,
-                      background: orderType === type ? 'color-mix(in srgb, var(--primary, #00b3a5) 8%, #fff)' : '#fff',
-                      borderRadius: 14, padding: '14px 12px', cursor: disabled ? 'not-allowed' : 'pointer',
-                      opacity: disabled ? 0.45 : 1, textAlign: 'left',
-                      display: 'flex', gap: 8, alignItems: 'center',
-                    }}
-                  >
-                    <span style={{ fontSize: 18 }}>{type === 'pickup' ? '🛍️' : type === 'delivery' ? '🛵' : type === 'scheduled_pickup' ? '📅' : '📦'}</span>
-                    <span style={{ fontSize: 13.5, fontWeight: 700 }}>
-                      {t(`store.${TYPE_KEY[type]}`)}
-                    </span>
-                  </button>
-                );
-              })}
+    <div className={`menu menu--checkout${paperClass}`} {...paperAttrs}>
+      <header className="stub">
+        <div className="stub__orbs" aria-hidden="true">
+          {ORBS.map((o) => (
+            <span key={o.cls} className={`stub__orb ${o.cls}`}>{o.emoji}</span>
+          ))}
+        </div>
+        <div className="stub__inner">
+          <div className="stub__meta">
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+              <Link to={`/m/${slug}`} className="checkout__back">← {t('store.backToMenu')}</Link>
+              {paperBtn}
             </div>
-          </section>
-
-          {/* 2. Customer info */}
-          <section style={card}>
-            <h2 style={sectionTitle}>{t('store.fullName')}</h2>
-            <div style={{ display: 'grid', gap: 14 }}>
-              <div>
-                <label style={labelStyle}>{t('store.fullName')}</label>
-                <input
-                  style={inputStyle}
-                  value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                  placeholder="Rahim Uddin"
-                />
-              </div>
-              <div>
-                <label style={labelStyle}>{t('store.phone')}</label>
-                <input
-                  style={inputStyle}
-                  value={form.phone}
-                  onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                  placeholder="017XXXXXXXX"
-                  inputMode="tel"
-                />
-                <div style={{ fontSize: 11.5, color: 'var(--text-muted, #7d9a95)', marginTop: 4 }}>{t('store.phoneHint')}</div>
-              </div>
-              {(orderType === 'delivery' || orderType === 'scheduled_delivery') && (
-                <div>
-                  <label style={labelStyle}>{t('store.address')}</label>
-                  <textarea
-                    style={{ ...inputStyle, minHeight: 76, resize: 'vertical' }}
-                    value={form.address}
-                    onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
-                    placeholder={t('store.addressHint')}
-                  />
-                </div>
-              )}
-              {(orderType === 'scheduled_pickup' || orderType === 'scheduled_delivery') && (
-                <div>
-                  <label style={labelStyle}>{t('store.schedule')}</label>
-                  <input
-                    type="datetime-local"
-                    style={inputStyle}
-                    value={form.scheduled_at}
-                    onChange={(e) => setForm((f) => ({ ...f, scheduled_at: e.target.value }))}
-                    min={new Date(Date.now() + 5 * 60 * 1000).toISOString().slice(0, 16)}
-                  />
-                  <div style={{ fontSize: 11.5, color: 'var(--text-muted, #7d9a95)', marginTop: 4 }}>{t('store.scheduleHint')}</div>
-                </div>
-              )}
-            </div>
-          </section>
-
-          {/* 3. Payment */}
-          <section style={card}>
-            <h2 style={sectionTitle}>{t('store.payWith')}</h2>
-            <div style={{ display: 'grid', gap: 10 }}>
-              {methods.map((m) => (
-                <label
-                  key={m}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 12,
-                    border: `1.5px solid ${paymentMethod === m ? 'var(--primary, #00b3a5)' : 'var(--border-strong, #b9e0da)'}`,
-                    borderRadius: 14, padding: '13px 16px', cursor: 'pointer',
-                    background: paymentMethod === m ? 'color-mix(in srgb, var(--primary, #00b3a5) 6%, #fff)' : '#fff',
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="pay"
-                    checked={paymentMethod === m}
-                    onChange={() => setPaymentMethod(m)}
-                    style={{ accentColor: 'var(--primary, #00b3a5)' }}
-                  />
-                  <span style={{ fontSize: 14, fontWeight: 700, textTransform: 'capitalize' }}>
-                    {m === 'online' ? t('store.payOnline') : m}
-                  </span>
-                  <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-muted, #7d9a95)' }}>
-                    {m === 'cash' ? t('store.payAtCounter') : m === 'online' ? t('store.onlineNote') : t('store.walletHint')}
-                  </span>
-                </label>
-              ))}
-            </div>
-
-            {!useSplit && ['bkash', 'nagad'].includes(paymentMethod) && walletNumbers[paymentMethod] && (
-              <div
-                style={{
-                  marginTop: 14, border: '1.5px solid var(--border-strong, #b9e0da)',
-                  borderRadius: 14, padding: '12px 14px', display: 'grid', gap: 8,
-                  background: 'color-mix(in srgb, var(--primary, #00b3a5) 4%, #fff)',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700 }}>
-                  <span>{t('store.sendMoneyTo')}</span>
-                  <span style={{ fontVariantNumeric: 'tabular-nums', letterSpacing: '0.4px' }}>
-                    {walletNumbers[paymentMethod]}
-                  </span>
-                  <button
-                    onClick={() => copyNumber(walletNumbers[paymentMethod])}
-                    style={{
-                      marginLeft: 'auto', background: 'none', border: '1px solid var(--border-strong, #b9e0da)',
-                      borderRadius: 999, padding: '4px 10px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer',
-                      color: 'var(--primary, #00b3a5)',
-                    }}
-                  >
-                    {copiedNum === walletNumbers[paymentMethod] ? t('store.copied') : t('store.copyNumber')}
-                  </button>
-                </div>
-                <input
-                  placeholder={t('store.trxId')}
-                  value={walletTrxId}
-                  onChange={(e) => setWalletTrxId(e.target.value)}
-                  style={{ ...inputStyle, padding: '9px 12px', fontSize: 13 }}
-                />
-                <div style={{ fontSize: 11.5, color: 'var(--text-muted, #7d9a95)' }}>{t('store.trxIdHint')}</div>
-              </div>
+            {tableNo && (
+              <span className="stub__table" title={t('store.scanToOrder')}>
+                🪑 {t('store.table', tableNo)}
+              </span>
             )}
+          </div>
+          <div className="stub__brand">
+            {restaurant.logoUrl ? (
+              <img src={restaurant.logoUrl} alt="" className="stub__logo" />
+            ) : (
+              <div className="stub__logo">🏪</div>
+            )}
+            <div className="stub__copy">
+              <h1 className="stub__name">{restaurant.name}</h1>
+              {brand.tagline && <div className="stub__tagline">{brand.tagline}</div>}
+              <div className="stub__eyebrow">🧾 {t('store.checkoutTicket')} · {t('store.checkout')}</div>
+            </div>
+          </div>
+        </div>
+        <div className="stub__tear" aria-hidden="true" />
+      </header>
 
-            {splitMethods.length >= 2 && (
-              <div style={{ marginTop: 18, borderTop: '1px dashed var(--border-strong, #b9e0da)', paddingTop: 16 }}>
+      <main className="menu__body checkout__body">
+        {/* 1. Order type */}
+        <section className="ticket-card">
+          <h2 className="ticket-card__title">{t('store.orderType')}</h2>
+          <div className="ticket-opts">
+            {ORDER_TYPES.map((type) => {
+              const isDelivery = type === 'delivery' || type === 'scheduled_delivery';
+              const disabled = isDelivery && !checkoutConfig.deliveryEnabled;
+              return (
                 <button
-                  onClick={toggleSplit}
-                  style={{
-                    width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-                    fontSize: 14, fontWeight: 800, color: 'var(--text, #123b36)',
-                  }}
+                  key={type}
+                  disabled={disabled}
+                  aria-pressed={orderType === type}
+                  onClick={() => setOrderType(type)}
+                  className={`ticket-opt${orderType === type ? ' ticket-opt--on' : ''}`}
                 >
-                  <span>⇄ {useSplit ? t('store.splitOff') : t('store.splitPay')}</span>
-                  <span
-                    style={{
-                      width: 34, height: 20, borderRadius: 999, position: 'relative', transition: 'background .15s',
-                      background: useSplit ? 'var(--primary, #00b3a5)' : 'var(--border-strong, #b9e0da)',
-                    }}
-                  >
-                    <span
-                      style={{
-                        position: 'absolute', top: 2, width: 16, height: 16, borderRadius: '50%',
-                        background: '#fff', transition: 'left .15s', left: useSplit ? 16 : 2,
-                      }}
-                    />
-                  </span>
+                  <span className="ticket-opt__emoji">{type === 'pickup' ? '🛍️' : type === 'delivery' ? '🛵' : type === 'scheduled_pickup' ? '📅' : '📦'}</span>
+                  <span className="ticket-opt__label">{t(`store.${TYPE_KEY[type]}`)}</span>
                 </button>
-                {useSplit && (
-                  <div style={{ marginTop: 14, display: 'grid', gap: 12 }}>
-                    {/* Mode switch: by amount (free-form) vs by diner (QR table) */}
-                    <div
-                      style={{
-                        display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
-                        background: 'var(--surface-2, #f0faf8)', borderRadius: 12, padding: 4,
-                      }}
-                    >
-                      {['amount', 'diner'].map((mode) => (
-                        <button
-                          key={mode}
-                          onClick={() => switchSplitMode(mode)}
-                          style={{
-                            border: 'none', borderRadius: 9, padding: '9px 8px', cursor: 'pointer',
-                            fontSize: 13, fontWeight: 800,
-                            background: splitMode === mode ? '#fff' : 'transparent',
-                            color: splitMode === mode ? 'var(--text, #123b36)' : 'var(--text-muted, #7d9a95)',
-                            boxShadow: splitMode === mode ? '0 2px 8px rgba(15,23,42,0.08)' : 'none',
-                          }}
-                        >
-                          {mode === 'amount' ? t('store.splitByAmount') : t('store.splitByDiner')}
-                        </button>
-                      ))}
-                    </div>
+              );
+            })}
+          </div>
+        </section>
 
-                    {splitMode === 'amount' ? (
-                      <>
-                        <div style={{ fontSize: 12.5, color: 'var(--text-muted, #7d9a95)' }}>{t('store.splitHint')}</div>
-                        {splitMethods.map((m) => (
-                          <div
-                            key={m}
-                            style={{
-                              display: 'grid', gap: 8,
-                              border: '1.5px solid var(--border-strong, #b9e0da)', borderRadius: 14, padding: '11px 14px',
-                            }}
-                          >
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                              <span style={{ fontSize: 13.5, fontWeight: 700, textTransform: 'capitalize', minWidth: 90 }}>
-                                {m === 'cash' ? t('store.payAtCounter') : m}
-                              </span>
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                placeholder="0"
-                                value={splitParts[m] || ''}
-                                onChange={(e) => setSplitPart(m, e.target.value)}
-                                style={{ ...inputStyle, textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}
-                              />
-                              <span style={{ fontSize: 12, color: 'var(--text-muted, #7d9a95)' }}>৳</span>
-                            </label>
-                            {['bkash', 'nagad'].includes(m) && (
-                              <input
-                                placeholder={`${t('store.trxId')} ${t('store.optional')}`}
-                                aria-label={`${t('store.trxId')} ${m}`}
-                                value={splitRefs[m] || ''}
-                                onChange={(e) => setSplitRefs((r) => ({ ...r, [m]: e.target.value }))}
-                                style={{ ...inputStyle, padding: '8px 11px', fontSize: 12.5 }}
-                              />
-                            )}
+        {/* 2. Customer info */}
+        <section className="ticket-card">
+          <h2 className="ticket-card__title">{t('store.fullName')}</h2>
+          <div className="ticket-field">
+            <label className="ticket-label" htmlFor="ticket-name">{t('store.fullName')}</label>
+            <input
+              id="ticket-name"
+              className="ticket-input"
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="Rahim Uddin"
+            />
+          </div>
+          <div className="ticket-field">
+            <label className="ticket-label" htmlFor="ticket-phone">{t('store.phone')}</label>
+            <input
+              id="ticket-phone"
+              className="ticket-input"
+              value={form.phone}
+              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+              placeholder="017XXXXXXXX"
+              inputMode="tel"
+            />
+            <div className="ticket-hint">{t('store.phoneHint')}</div>
+          </div>
+          {(orderType === 'delivery' || orderType === 'scheduled_delivery') && (
+            <div className="ticket-field">
+              <label className="ticket-label" htmlFor="ticket-address">{t('store.address')}</label>
+              <textarea
+                id="ticket-address"
+                className="ticket-input"
+                style={{ minHeight: 76, resize: 'vertical' }}
+                value={form.address}
+                onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+                placeholder={t('store.addressHint')}
+              />
+            </div>
+          )}
+          {(orderType === 'scheduled_pickup' || orderType === 'scheduled_delivery') && (
+            <div className="ticket-field">
+              <label className="ticket-label" htmlFor="ticket-schedule">{t('store.schedule')}</label>
+              <input
+                id="ticket-schedule"
+                type="datetime-local"
+                className="ticket-input"
+                value={form.scheduled_at}
+                onChange={(e) => setForm((f) => ({ ...f, scheduled_at: e.target.value }))}
+                min={new Date(Date.now() + 5 * 60 * 1000).toISOString().slice(0, 16)}
+              />
+              <div className="ticket-hint">{t('store.scheduleHint')}</div>
+            </div>
+          )}
+        </section>
+
+        {/* 3. Payment */}
+        <section className="ticket-card">
+          <h2 className="ticket-card__title">{t('store.payWith')}</h2>
+          <div className="ticket-pays">
+            {methods.map((m) => (
+              <label
+                key={m}
+                className={`ticket-pay${paymentMethod === m ? ' ticket-pay--on' : ''}`}
+              >
+                <input
+                  type="radio"
+                  name="pay"
+                  checked={paymentMethod === m}
+                  onChange={() => setPaymentMethod(m)}
+                />
+                <span className="ticket-pay__name">
+                  {m === 'online' ? t('store.payOnline') : m}
+                </span>
+                <span className="ticket-pay__note">
+                  {m === 'cash' ? t('store.payAtCounter') : m === 'online' ? t('store.onlineNote') : t('store.walletHint')}
+                </span>
+              </label>
+            ))}
+          </div>
+
+          {!useSplit && ['bkash', 'nagad'].includes(paymentMethod) && walletNumbers[paymentMethod] && (
+            <div className="ticket-wallet">
+              <div className="ticket-wallet__row">
+                <span>{t('store.sendMoneyTo')}</span>
+                <span className="ticket-wallet__num">{walletNumbers[paymentMethod]}</span>
+                <button
+                  onClick={() => copyNumber(walletNumbers[paymentMethod])}
+                  className="ticket-copy"
+                >
+                  {copiedNum === walletNumbers[paymentMethod] ? t('store.copied') : t('store.copyNumber')}
+                </button>
+              </div>
+              <input
+                placeholder={t('store.trxId')}
+                value={walletTrxId}
+                onChange={(e) => setWalletTrxId(e.target.value)}
+                className="ticket-input"
+                style={{ padding: '9px 12px', fontSize: 13 }}
+              />
+              <div className="ticket-hint">{t('store.trxIdHint')}</div>
+            </div>
+          )}
+
+          {splitMethods.length >= 2 && (
+            <div style={{ marginTop: 18, borderTop: '1px dashed var(--line-strong)', paddingTop: 16 }}>
+              <button onClick={toggleSplit} className="ticket-split-toggle">
+                <span>⇄ {useSplit ? t('store.splitOff') : t('store.splitPay')}</span>
+                <span className={`ticket-switch${useSplit ? ' ticket-switch--on' : ''}`}>
+                  <span className="ticket-switch__knob" />
+                </span>
+              </button>
+              {useSplit && (
+                <div className="ticket-splitbox" style={{ marginTop: 14 }}>
+                  {/* Mode switch: by amount (free-form) vs by diner (QR table) */}
+                  <div className="ticket-seg">
+                    {['amount', 'diner'].map((mode) => (
+                      <button
+                        key={mode}
+                        onClick={() => switchSplitMode(mode)}
+                        className={`ticket-seg__btn${splitMode === mode ? ' ticket-seg__btn--on' : ''}`}
+                      >
+                        {mode === 'amount' ? t('store.splitByAmount') : t('store.splitByDiner')}
+                      </button>
+                    ))}
+                  </div>
+
+                  {splitMode === 'amount' ? (
+                    <>
+                      <div className="ticket-hint">{t('store.splitHint')}</div>
+                      {splitMethods.map((m) => (
+                        <div key={m} className="ticket-part">
+                          <div className="ticket-part__row">
+                            <span className="ticket-part__name">
+                              {m === 'cash' ? t('store.payAtCounter') : m}
+                            </span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              placeholder="0"
+                              value={splitParts[m] || ''}
+                              onChange={(e) => setSplitPart(m, e.target.value)}
+                              className="ticket-input ticket-part__amount"
+                            />
+                            <span className="ticket-part__currency">৳</span>
                           </div>
-                        ))}
-                        <div
-                          style={{
-                            display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 700,
-                            color: splitValid ? 'var(--primary, #00b3a5)' : '#d64541',
-                          }}
-                        >
-                          <span>{t('store.splitRemaining')}</span>
-                          <span>৳ {splitRemaining.toFixed(2)}</span>
+                          {['bkash', 'nagad'].includes(m) && (
+                            <input
+                              placeholder={`${t('store.trxId')} ${t('store.optional')}`}
+                              aria-label={`${t('store.trxId')} ${m}`}
+                              value={splitRefs[m] || ''}
+                              onChange={(e) => setSplitRefs((r) => ({ ...r, [m]: e.target.value }))}
+                              className="ticket-input"
+                              style={{ padding: '8px 11px', fontSize: 12.5 }}
+                            />
+                          )}
                         </div>
-                      </>
-                    ) : (
-                      <>
-                        <div style={{ fontSize: 12.5, color: 'var(--text-muted, #7d9a95)' }}>{t('store.dinerSplitHint')}</div>
-                        {diners.map((d, di) => (
-                          <div
-                            key={di}
-                            style={{
-                              display: 'grid', gap: 8,
-                              border: '1.5px solid var(--border-strong, #b9e0da)', borderRadius: 14, padding: '10px 12px',
-                            }}
-                          >
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 96px auto', gap: 8, alignItems: 'center' }}>
+                      ))}
+                      <div className={`ticket-reconcile${splitValid ? '' : ' ticket-reconcile--bad'}`}>
+                        <span>{t('store.splitRemaining')}</span>
+                        <span>৳ {splitRemaining.toFixed(2)}</span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="ticket-hint">{t('store.dinerSplitHint')}</div>
+                      {diners.map((d, di) => (
+                        <div key={di} className="ticket-part">
+                          <div className="ticket-part__row">
                             <input
                               placeholder={`${t('store.diner')} ${di + 1}`}
                               value={d.name}
                               onChange={(e) =>
                                 setDiners((ds) => ds.map((x, i) => (i === di ? { ...x, name: e.target.value } : x)))
                               }
-                              style={{ ...inputStyle, padding: '9px 11px' }}
+                              className="ticket-input"
+                              style={{ padding: '9px 11px' }}
                             />
                             <select
                               value={d.method}
@@ -716,7 +727,7 @@ export default function CheckoutPage() {
                               onChange={(e) =>
                                 setDiners((ds) => ds.map((x, i) => (i === di ? { ...x, method: e.target.value } : x)))
                               }
-                              style={{ ...inputStyle, padding: '9px 8px', fontSize: 13 }}
+                              className="ticket-input ticket-diner-pick"
                             >
                               {splitMethods.map((m) => (
                                 <option key={m} value={m}>
@@ -726,147 +737,111 @@ export default function CheckoutPage() {
                             </select>
                             <span
                               aria-label={`${t('store.diner')} ${di + 1} share`}
-                              style={{ fontWeight: 800, fontSize: 13.5, fontVariantNumeric: 'tabular-nums', minWidth: 74, textAlign: 'right' }}
+                              className="ticket-part__amount"
+                              style={{ minWidth: 74 }}
                             >
                               {fmtMoney(dinerShares[di])}
                             </span>
-                              {diners.length > 2 && (
-                                <button
-                                  onClick={() => removeDiner(di)}
-                                  aria-label={`${t('store.removeDiner')} ${di + 1}`}
-                                  style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#d64541', fontSize: 14, fontWeight: 800 }}
-                                >
-                                  ✕
-                                </button>
-                              )}
-                            </div>
-                            {['bkash', 'nagad'].includes(d.method) && (
-                              <input
-                                placeholder={`${t('store.trxId')} ${t('store.optional')}`}
-                                aria-label={`${t('store.trxId')} ${t('store.diner')} ${di + 1}`}
-                                value={d.ref || ''}
-                                onChange={(e) =>
-                                  setDiners((ds) => ds.map((x, i) => (i === di ? { ...x, ref: e.target.value } : x)))
-                                }
-                                style={{ ...inputStyle, padding: '8px 11px', fontSize: 12.5 }}
-                              />
+                            {diners.length > 2 && (
+                              <button
+                                onClick={() => removeDiner(di)}
+                                aria-label={`${t('store.removeDiner')} ${di + 1}`}
+                                className="ticket-remove"
+                              >
+                                ✕
+                              </button>
                             )}
                           </div>
-                        ))}
-                        <button
-                          onClick={addDiner}
-                          style={{
-                            border: '1.5px dashed var(--border-strong, #b9e0da)', background: 'none',
-                            borderRadius: 12, padding: '10px', cursor: 'pointer', fontSize: 13, fontWeight: 700,
-                            color: 'var(--text-muted, #7d9a95)',
-                          }}
-                        >
-                          + {t('store.addDiner')}
-                        </button>
-                        <div
-                          style={{
-                            display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 700,
-                            color: dinerSplitValid ? 'var(--primary, #00b3a5)' : '#d64541',
-                          }}
-                        >
-                          <span>{t('store.splitRemaining')}</span>
-                          <span>৳ 0.00</span>
+                          {['bkash', 'nagad'].includes(d.method) && (
+                            <input
+                              placeholder={`${t('store.trxId')} ${t('store.optional')}`}
+                              aria-label={`${t('store.trxId')} ${t('store.diner')} ${di + 1}`}
+                              value={d.ref || ''}
+                              onChange={(e) =>
+                                setDiners((ds) => ds.map((x, i) => (i === di ? { ...x, ref: e.target.value } : x)))
+                              }
+                              className="ticket-input"
+                              style={{ padding: '8px 11px', fontSize: 12.5 }}
+                            />
+                          )}
                         </div>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
-
-          {/* 4. Summary + submit */}
-          <section style={card}>
-            <h2 style={sectionTitle}>{t('store.cart')}</h2>
-            <div style={{ display: 'grid', gap: 10 }}>
-              {cart.map((line, idx) => (
-                <div key={`${line.product_id}-${line.variant_id}-${line.addon_ids?.join(',')}`}
-                  style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 13.5 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700 }}>{line.name}</div>
-                    {line.options?.length > 0 && (
-                      <div style={{ fontSize: 12, color: 'var(--text-muted, #7d9a95)' }}>{line.options.join(' + ')}</div>
-                    )}
-                    <div style={{ fontSize: 12, color: 'var(--text-muted, #7d9a95)' }}>{fmtMoney(line.unit_price)} each</div>
-                  </div>
-                  <button onClick={() => updateQty(idx, -1)} style={miniBtn}>−</button>
-                  <span style={{ fontWeight: 800, minWidth: 26, textAlign: 'center' }}>{line.quantity}</span>
-                  <button onClick={() => updateQty(idx, 1)} style={miniBtn}>+</button>
-                  <span style={{ fontWeight: 800, minWidth: 70, textAlign: 'right' }}>{fmtMoney(line.unit_price * line.quantity)}</span>
-                  {useSplit && splitMode === 'diner' && (
-                    <select
-                      value={dinerAssign[idx] ?? 0}
-                      onChange={(e) => setDinerAssign((a) => ({ ...a, [idx]: Number(e.target.value) }))}
-                      aria-label={`${t('store.dinerFor')} ${line.name}`}
-                      style={{
-                        border: '1.5px solid var(--border-strong, #b9e0da)', borderRadius: 10,
-                        padding: '6px 6px', fontSize: 12, fontWeight: 700, background: '#fff', cursor: 'pointer',
-                      }}
-                    >
-                      {diners.map((d, di) => (
-                        <option key={di} value={di}>
-                          {t('store.diner')} {di + 1}
-                        </option>
                       ))}
-                    </select>
+                      <button onClick={addDiner} className="ticket-add">
+                        + {t('store.addDiner')}
+                      </button>
+                      <div className={`ticket-reconcile${dinerSplitValid ? '' : ' ticket-reconcile--bad'}`}>
+                        <span>{t('store.splitRemaining')}</span>
+                        <span>৳ 0.00</span>
+                      </div>
+                    </>
                   )}
-                  <button onClick={() => removeLine(idx)} style={{ ...miniBtn, color: '#d64541' }}>✕</button>
-                </div>
-              ))}
-            </div>
-            <div style={{ borderTop: '1px solid var(--border, #d8eeea)', marginTop: 16, paddingTop: 14, display: 'grid', gap: 8, fontSize: 14 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted, #7d9a95)' }}>{t('store.subtotal')}</span>
-                <span>{fmtMoney(subtotal)}</span>
-              </div>
-              {deliveryFee > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-muted, #7d9a95)' }}>{t('store.deliveryFee')}</span>
-                  <span>{fmtMoney(deliveryFee)}</span>
                 </div>
               )}
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: 16, marginTop: 4 }}>
-                <span>{t('store.total')}</span>
-                <span>{fmtMoney(total)}</span>
-              </div>
             </div>
-            {error && (
-              <div style={{ marginTop: 14, background: '#fdecec', color: '#c0392b', borderRadius: 12, padding: '12px 14px', fontSize: 13.5, fontWeight: 600 }}>
-                {error}
+          )}
+        </section>
+
+        {/* 4. Summary + submit */}
+        <section className="ticket-card">
+          <h2 className="ticket-card__title">{t('store.cart')}</h2>
+          {cart.map((line, idx) => (
+            <div key={`${line.product_id}-${line.variant_id}-${line.addon_ids?.join(',')}`} className="ticket-line">
+              <div className="ticket-line__main">
+                <div className="ticket-line__name">{line.name}</div>
+                {line.options?.length > 0 && (
+                  <div className="ticket-line__sub">{line.options.join(' + ')}</div>
+                )}
+                <div className="ticket-line__sub">{fmtMoney(line.unit_price)} each</div>
+              </div>
+              <div className="ticket-qty">
+                <button onClick={() => updateQty(idx, -1)} className="ticket-qty__btn">−</button>
+                <span className="ticket-qty__n">{line.quantity}</span>
+                <button onClick={() => updateQty(idx, 1)} className="ticket-qty__btn">+</button>
+              </div>
+              <span className="ticket-line__amount">{fmtMoney(line.unit_price * line.quantity)}</span>
+              {useSplit && splitMode === 'diner' && (
+                <select
+                  value={dinerAssign[idx] ?? 0}
+                  onChange={(e) => setDinerAssign((a) => ({ ...a, [idx]: Number(e.target.value) }))}
+                  aria-label={`${t('store.dinerFor')} ${line.name}`}
+                  className="ticket-diner-pick"
+                >
+                  {diners.map((d, di) => (
+                    <option key={di} value={di}>
+                      {t('store.diner')} {di + 1}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <button onClick={() => removeLine(idx)} className="ticket-remove">✕</button>
+            </div>
+          ))}
+          <div className="ticket-summary">
+            <div className="ticket-row">
+              <span className="ticket-row__label">{t('store.subtotal')}</span>
+              <span>{fmtMoney(subtotal)}</span>
+            </div>
+            {deliveryFee > 0 && (
+              <div className="ticket-row">
+                <span className="ticket-row__label">{t('store.deliveryFee')}</span>
+                <span>{fmtMoney(deliveryFee)}</span>
               </div>
             )}
-            <button
-              onClick={submit}
-              disabled={submitting}
-              style={{
-                width: '100%', marginTop: 18,
-                background: submitting ? 'var(--text-muted, #7d9a95)' : 'var(--primary, #00b3a5)',
-                color: '#fff', border: 'none', borderRadius: 14, padding: '15px 20px',
-                fontSize: 15.5, fontWeight: 800, cursor: submitting ? 'wait' : 'pointer',
-                boxShadow: submitting ? 'none' : '0 8px 22px color-mix(in srgb, var(--primary, #00b3a5) 35%, transparent)',
-              }}
-            >
-              {submitting ? t('store.placingOrder') : `${t('store.placeOrder')} · ${fmtMoney(total)}`}
-            </button>
-          </section>
-        </div>
-      </div>
+            <div className="ticket-row ticket-row--total">
+              <span className="ticket-row__label">{t('store.total')}</span>
+              <span>{fmtMoney(total)}</span>
+            </div>
+          </div>
+          {error && <div className="ticket-error">{error}</div>}
+          <button
+            onClick={submit}
+            disabled={submitting}
+            className="ticket-cta"
+          >
+            {submitting ? t('store.placingOrder') : `${t('store.placeOrder')} · ${fmtMoney(total)}`}
+          </button>
+        </section>
+      </main>
     </div>
   );
 }
-
-const card = {
-  background: '#fff', border: '1px solid var(--border, #d8eeea)',
-  borderRadius: 20, padding: '20px 20px 22px',
-  boxShadow: '0 2px 10px rgba(15,23,42,0.04)',
-};
-const sectionTitle = { margin: '0 0 14px', fontSize: 16, fontWeight: 800 };
-const miniBtn = {
-  background: 'var(--surface-3, #e2f5f2)', border: 'none', width: 28, height: 28,
-  borderRadius: '50%', cursor: 'pointer', fontWeight: 800, fontSize: 15, flexShrink: 0,
-};

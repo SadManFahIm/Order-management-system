@@ -10,6 +10,7 @@ import './components/ui/ui.css';
 import './styles/app.css';
 import './styles/landing.css';
 import './styles/storefront.css';
+import './styles/storefront-checkout.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

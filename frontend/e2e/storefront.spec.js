@@ -43,7 +43,8 @@ async function checkoutWithCart(page, lines) {
     [CART_KEY, lines]
   );
   await page.goto(`/m/${SLUG}/checkout`);
-  await expect(page.getByRole('heading', { name: /Checkout/ })).toBeVisible();
+  // The ticket stub announces the page (Order ticket · Checkout).
+  await expect(page.getByText(/Order ticket/)).toBeVisible();
 }
 
 /**
@@ -85,7 +86,7 @@ test('guest places a pickup order end-to-end and tracks it', async ({ page }) =>
 
   // 2. Checkout — cart carries the item.
   await page.getByRole('button', { name: /Checkout/ }).click();
-  await expect(page.getByRole('heading', { name: /Checkout/ })).toBeVisible();
+  await expect(page.getByText(/Order ticket/)).toBeVisible();
   await expect(page.getByText('Beef Kebab 250gm')).toBeVisible();
 
   // 3. Fill customer info and place the order.
@@ -364,7 +365,7 @@ test('guest splits a QR table order by diner (items + per-diner methods)', async
     { product_id: zinger.id, quantity: 1, variant_id: null, addon_ids: [], name: 'Zinger Burger', unit_price: zinger.price, options: [] },
   ]);
   await page.goto(`/m/${SLUG}/checkout?table=3`);
-  await expect(page.getByRole('heading', { name: /Checkout/ })).toBeVisible();
+  await expect(page.getByText(/Order ticket/)).toBeVisible();
   await expect(page.getByText(/Table 3/)).toBeVisible();
 
   // Split on → switch to the by-diner mode.
