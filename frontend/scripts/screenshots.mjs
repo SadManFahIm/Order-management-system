@@ -34,6 +34,7 @@ const CONTEXT = { viewport, deviceScaleFactor: 2 };
 // the dashboard/orders/invoice shots are always populated (the API proxy at
 // /api forwards to the backend on :4000).
 let tenantId = null;
+let adminToken = null;
 {
   const loginRes = await fetch(`${BASE}/api/auth/login`, {
     method: 'POST',
@@ -41,6 +42,7 @@ let tenantId = null;
     body: JSON.stringify(ADMIN),
   });
   const auth = await loginRes.json();
+  adminToken = auth.accessToken || null;
   if (auth.accessToken) {
     const tenantRes = await fetch(`${BASE}/api/auth/tenants`, {
       headers: { Authorization: `Bearer ${auth.accessToken}` },
@@ -190,6 +192,90 @@ page = await login(browser, 'light');
 await page.goto(`${BASE}/tables`, { waitUntil: 'networkidle' });
 await page.waitForTimeout(900);
 await shot(page, 'qr-menu-light.png');
+
+// ---------- 7b. Ink-paper diner receipt (Phase 6 split billing) ----------
+// Place a guest order on a storefront with a menu, split it by item through
+// the merchant API, then capture the diner's ink-paper receipt + kitchen
+// ticket. Deterministic across reseeds (nothing is hard-coded).
+{
+  let splitTarget = null;
+  if (adminToken) {
+    const tenantsRes = await fetch(`${BASE}/api/auth/tenants`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    const tenants = await tenantsRes.json();
+    for (const t of tenants) {
+      try {
+        const menuRes = await fetch(`${BASE}/api/public/restaurants/${t.slug}/menu`);
+        const menu = await menuRes.json();
+        const item = menu.categories?.flatMap((c) => c.items)?.[0];
+        if (item) {
+          splitTarget = { tenant: t, item };
+          break;
+        }
+      } catch {
+        /* tenant without a public menu — skip */
+      }
+    }
+  }
+  if (splitTarget) {
+    const { tenant: t, item } = splitTarget;
+    const placed = await fetch(`${BASE}/api/public/restaurants/${t.slug}/checkout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `shot-split-${Date.now()}` },
+      body: JSON.stringify({
+        customer_name: 'Screenshot Guest',
+        customer_phone: '01712345680',
+        order_type: 'pickup',
+        payment_method: 'cash',
+        items: [{ product_id: item.id, quantity: 2 }],
+      }),
+    });
+    const order = await placed.json();
+    const orderItem = order.items?.[0];
+    if (order.id && orderItem && adminToken) {
+      const split = await fetch(`${BASE}/api/orders/${order.id}/split`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+          'X-Tenant': String(t.id),
+        },
+        body: JSON.stringify({
+          mode: 'item',
+          diners: [
+            { label: 'Rahim', method: 'cash' },
+            { label: 'Karim', method: 'bkash', trxID: 'TRX-SHOT-001' },
+          ],
+          allocations: [
+            { orderItemId: orderItem.id, quantity: 1, dinerIndex: 0 },
+            { orderItemId: orderItem.id, quantity: 1, dinerIndex: 1 },
+          ],
+        }),
+      });
+      const splitBody = await split.json();
+      const rahimPart = splitBody.parts?.find((p) => p.dinerLabel === 'Rahim');
+      if (rahimPart) {
+        page = await login(browser, 'light');
+        await page.goto(`${BASE}/orders/${order.id}/split/receipts/${rahimPart.paymentId}`, {
+          waitUntil: 'networkidle',
+        });
+        await page.getByRole('heading', { name: /Diner receipt|রসিদ/ }).waitFor().catch(() => {});
+        await page.waitForTimeout(900);
+        await shot(page, 'diner-receipt-ink-paper.png', { fullPage: true });
+        // Kitchen ticket view — same ink-paper sheet, quantities only.
+        const kotBtn = page.getByRole('button', { name: /Kitchen ticket|কিচেন টিকেট/ });
+        if (await kotBtn.count()) {
+          await kotBtn.click();
+          await page.waitForTimeout(700);
+          await shot(page, 'diner-kot-ink-paper.png', { fullPage: true });
+        }
+      }
+    }
+  } else {
+    console.log('skipped diner-receipt shot — no tenant with a public menu found');
+  }
+}
 
 // ---------- 8. Customer tracking (no auth) — the ticket lookup, light ---
 page = await browser.newPage(CONTEXT);

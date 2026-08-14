@@ -17,6 +17,7 @@ import { createOnlinePayment } from '../services/paymentGateway.js';
 import { RECONCILIATION_TTL_MS } from '../services/paymentReconciliation.js';
 import { withIdempotency } from '../services/idempotency.js';
 import { sendOrderAlert } from '../services/whatsappService.js';
+import { sendOrderConfirmationEmail } from '../services/notifications/orderConfirmation.js';
 import { publishOrderEvent } from '../services/realtime.js';
 
 /**
@@ -108,6 +109,7 @@ async function placeCheckoutOrder(tenant, payload) {
       )}`,
       customer_name: payload.customer_name,
       customer_phone: payload.customer_phone,
+      customer_email: payload.customer_email || null,
       customer_address: payload.customer_address || null,
       type: payload.order_type,
       scheduled_at: scheduledAt,
@@ -163,6 +165,19 @@ async function placeCheckoutOrder(tenant, payload) {
 
   // WhatsApp order alert (fire-and-forget — never blocks order creation).
   if (tenant) void sendOrderAlert(tenant, fullOrder, fullOrder.items || []);
+
+  // Ticket-styled confirmation email (fire-and-forget) — only when the
+  // customer left an email at checkout; the stub mailer logs it in dev.
+  if (fullOrder.customer_email && tenant) {
+    void sendOrderConfirmationEmail({
+      tenant,
+      order: fullOrder,
+      items: fullOrder.items || [],
+      trackUrl: `/track?orderNo=${encodeURIComponent(
+        order.order_no
+      )}&phone=${encodeURIComponent(payload.customer_phone)}`,
+    });
+  }
 
   const body = fullOrder.toJSON();
   if (paymentUrl) {

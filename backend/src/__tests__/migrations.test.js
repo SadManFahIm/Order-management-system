@@ -72,6 +72,7 @@ describe('migration runner', () => {
       '011_daily_stats.js',
       '012_delivery_realtime_idempotency.js',
       '013_split_billing.js',
+      '014_customer_email.js',
     ]);
   });
 
@@ -103,7 +104,7 @@ describe('migration runner', () => {
   it('reports every migration as applied', async () => {
     const status = await migrationStatus(sequelize);
     expect(status.every((row) => row.state === 'applied')).toBe(true);
-    expect(status).toHaveLength(13);
+    expect(status).toHaveLength(14);
   });
 
   it('adds menu_items.vat_rate via migration 009', async () => {
@@ -117,6 +118,10 @@ describe('migration runner', () => {
 
   it('rolls back only the most recent migration, then re-applies', async () => {
     const qi = sequelize.getQueryInterface();
+
+    // Down 014: removes the optional customer_email column.
+    expect(await migrateDown(sequelize)).toBe(1);
+    expect((await qi.describeTable('orders')).customer_email).toBeUndefined();
 
     // Down 013: drops the split-billing table + payments.split columns.
     expect(await migrateDown(sequelize)).toBe(1);
@@ -152,8 +157,8 @@ describe('migration runner', () => {
     expect(await migrateDown(sequelize)).toBe(1);
     expect((await qi.describeTable('orders')).table_no).toBeUndefined();
 
-    // Re-applying restores all seven.
-    expect(await migrateUp(sequelize)).toBe(7);
+    // Re-applying restores all eight rolled-back.
+    expect(await migrateUp(sequelize)).toBe(8);
     expect(await qi.tableExists('order_split_items')).toBe(true);
     expect((await qi.describeTable('payments')).split_method).toBeDefined();
     expect((await qi.describeTable('menu_items')).vat_rate).toBeDefined();
@@ -164,6 +169,7 @@ describe('migration runner', () => {
     expect((await qi.describeTable('orders')).payment_method).toBeDefined();
     expect((await qi.describeTable('orders')).table_no).toBeDefined();
     expect((await qi.describeTable('orders')).rejected_reason).toBeDefined();
+    expect((await qi.describeTable('orders')).customer_email).toBeDefined();
   });
 
   it('refuses to roll back a migration that is not the most recent', async () => {

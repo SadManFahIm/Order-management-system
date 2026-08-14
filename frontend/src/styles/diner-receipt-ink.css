@@ -1,0 +1,144 @@
+/* ============================================================
+   Ink-paper diner receipt + kitchen ticket
+   ------------------------------------------------------------
+   The per-diner receipt (and its kitchen ticket) is the same
+   hand-held ticket in ink-paper form, exactly like the merchant
+   invoice: a gold-foil brand stub torn off the top, a deep
+   ink-green sheet with sage ink, dashed ticket dividers and a
+   chilli-red payable. Printing flips the sheet to clean white
+   ink-on-paper so thermal/A4 prints stay practical.
+   ============================================================ */
+
+.ink-sheet {
+  --brand: #00b3a5;
+  --chilli: #ff6b4a;
+  --gold: #e0b04e;
+  --ink: #e8efe9;
+  --muted: #8ba397;
+  --line: #1e3129;
+  --line-strong: #2b453b;
+  --tile: #13211c;
+  --stub-solid: color-mix(in srgb, var(--brand) 74%, #04100b);
+
+  /* Alias the admin tokens the sheet's inline styles reference. */
+  --border: var(--line);
+  --text: var(--ink);
+  --text-muted: var(--muted);
+  --surface-2: var(--tile);
+  --primary: var(--brand);
+  --primary-soft: rgba(0, 179, 165, 0.12);
+
+  background:
+    radial-gradient(320px 140px at 85% -8%, rgba(224, 176, 78, 0.09), transparent 60%),
+    radial-gradient(280px 160px at 0% 0%, rgba(24, 52, 43, 0.5), transparent 55%),
+    var(--paper, #0b1210);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+/* ---- Gold-foil stub (scalloped tear is the ::after mask) ---- */
+.ink-sheet__stub {
+  position: relative;
+  text-align: center;
+  background: var(--stub-solid);
+  color: #fff;
+  padding: 18px 16px 26px;
+}
+
+.ink-sheet__stub::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 12px;
+  background: var(--stub-solid);
+  -webkit-mask-image: radial-gradient(circle at 10px -4px, transparent 10px, #000 10.5px);
+  mask-image: radial-gradient(circle at 10px -4px, transparent 10px, #000 10.5px);
+  -webkit-mask-size: 20px 12px;
+  mask-size: 20px 12px;
+  -webkit-mask-repeat: repeat-x;
+  mask-repeat: repeat-x;
+}
+
+.ink-sheet__stub-name {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.ink-sheet__stub-sub {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 11.5px;
+  margin-top: 2px;
+}
+
+.ink-sheet__kot-badge {
+  display: inline-block;
+  border: 1px dashed rgba(247, 213, 113, 0.7);
+  background: rgba(0, 0, 0, 0.16);
+  color: #f7e08b;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+/* ---- Ink-paper body ---- */
+.ink-sheet__body {
+  padding: 22px 20px 24px;
+}
+
+.ink-sheet__payable {
+  color: var(--chilli);
+}
+
+.ink-sheet__foot {
+  color: var(--muted);
+}
+
+/* ---- Printing — flip to clean white ink-on-paper ---- */
+@media print {
+  .ink-sheet {
+    --brand: #00b3a5;
+    --chilli: #c0392b;
+    --ink: #111;
+    --muted: #555;
+    --line: #e0e0e0;
+    --tile: #f6f6f6;
+    --stub-solid: #eef2ef;
+    --border: var(--line);
+    --text: var(--ink);
+    --text-muted: var(--muted);
+    --surface-2: var(--tile);
+    --primary-soft: rgba(0, 179, 165, 0.1);
+    background: #fff;
+    color: #111;
+    border: 1px solid #ddd;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .ink-sheet__stub {
+    color: #111;
+    border-bottom: 2px dashed #bbb;
+  }
+
+  .ink-sheet__stub-sub {
+    color: #444;
+  }
+
+  .ink-sheet__kot-badge {
+    color: #a9801f;
+    border-color: #c9b98a;
+  }
+}
+
+@media (max-width: 480px) {
+  .ink-sheet {
+    border-radius: 12px;
+  }
+}

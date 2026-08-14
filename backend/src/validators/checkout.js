@@ -25,6 +25,9 @@ export const checkoutSchema = z.object({
     .trim()
     .min(10, 'A valid phone number is required for order tracking')
     .max(30),
+  // Optional email — when present, the customer receives the ticket-styled
+  // order confirmation email after checkout.
+  customer_email: z.string().trim().email('A valid email is required').max(255).optional().or(z.literal('')),
   // Required for delivery orders (validated in the route, needs the order type).
   customer_address: z.string().trim().max(500).optional().or(z.literal('')),
   // Required for scheduled_* orders — ISO datetime, validated in the route.

@@ -443,4 +443,29 @@ describe('POST /api/public/restaurants/:slug/checkout', () => {
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('INVALID_PAYMENT_METHOD');
   });
+
+  it('stores an optional customer_email for the confirmation email', async () => {
+    const before = await Order.count();
+    const res = await request(app)
+      .post('/api/public/restaurants/checkout-diner/checkout')
+      .set('Idempotency-Key', 'with-email')
+      .send(base({ customer_email: 'rahim@example.com' }));
+    expect(res.status).toBe(201);
+    expect(res.body.customer_email).toBe('rahim@example.com');
+    expect(await Order.count()).toBe(before + 1);
+    const order = await Order.findOne({ where: { customer_email: 'rahim@example.com' } });
+    expect(order).toBeTruthy();
+    expect(order.order_no).toBe(res.body.order_no);
+  });
+
+  it('rejects an invalid customer_email (VALIDATION_ERROR)', async () => {
+    const before = await Order.count();
+    const res = await request(app)
+      .post('/api/public/restaurants/checkout-diner/checkout')
+      .set('Idempotency-Key', 'bad-email')
+      .send(base({ customer_email: 'not-an-email' }));
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    expect(await Order.count()).toBe(before);
+  });
 });
