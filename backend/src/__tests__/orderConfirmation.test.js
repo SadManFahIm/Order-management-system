@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
   renderOrderConfirmationHtml,
+  renderOrderStatusEmailHtml,
   sendOrderConfirmationEmail,
+  sendOrderStatusEmail,
+  STATUS_EMAIL_KEYS,
 } from '../services/notifications/orderConfirmation.js';
 
 /**
@@ -64,6 +67,39 @@ describe('renderOrderConfirmationHtml', () => {
   });
 });
 
+describe('renderOrderStatusEmailHtml', () => {
+  it('stamps the new status on the ticket stub', () => {
+    const html = renderOrderStatusEmailHtml({ ...sample(), status: 'ready' });
+    expect(html).toContain('🛍️ Ready — please collect');
+    expect(html).toContain('Status update');
+    expect(html).toContain('Track your order');
+    expect(html).toContain('৳ 300');
+  });
+
+  it('covers every emailable status', () => {
+    expect(STATUS_EMAIL_KEYS.sort()).toEqual([
+      'delivered',
+      'out_for_delivery',
+      'preparing',
+      'ready',
+    ]);
+    for (const status of STATUS_EMAIL_KEYS) {
+      const html = renderOrderStatusEmailHtml({ ...sample(), status });
+      expect(html).toContain('Order ticket');
+    }
+  });
+
+  it('escapes the status stamp and order number', () => {
+    const html = renderOrderStatusEmailHtml({
+      ...sample(),
+      orderNo: '<img src=x onerror=alert(1)>',
+      status: 'ready',
+    });
+    expect(html).not.toContain('<img src=x');
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+  });
+});
+
 describe('sendOrderConfirmationEmail', () => {
   it('sends nothing when the order has no email', async () => {
     const result = await sendOrderConfirmationEmail({
@@ -92,5 +128,43 @@ describe('sendOrderConfirmationEmail', () => {
     expect(result).not.toBeNull();
     expect(result.messageId).toMatch(/^stub-/);
     expect(result.attachments).toBe(0);
+  });
+});
+
+describe('sendOrderStatusEmail', () => {
+  it('sends nothing for non-emailable statuses or missing email', async () => {
+    expect(
+      await sendOrderStatusEmail({
+        tenant: { name: 'Split Diner' },
+        order: { id: 1, customer_email: null, status: 'ready' },
+        status: 'ready',
+      })
+    ).toBeNull();
+    expect(
+      await sendOrderStatusEmail({
+        tenant: { name: 'Split Diner' },
+        order: { id: 1, customer_email: 'a@b.co' },
+        status: 'placed',
+      })
+    ).toBeNull();
+  });
+
+  it('sends a status-update ticket through the stub mailer', async () => {
+    const result = await sendOrderStatusEmail({
+      tenant: { name: 'Split Diner' },
+      order: {
+        id: 1,
+        order_no: 'ORD-1-ABC123-42',
+        customer_name: 'Rahim',
+        customer_email: 'rahim@example.com',
+        customer_phone: '01712345678',
+        table_no: 3,
+        grand_total: 300,
+        items: [{ item_name: 'Burger', quantity: 1, line_total: 200 }],
+      },
+      status: 'ready',
+    });
+    expect(result).not.toBeNull();
+    expect(result.messageId).toMatch(/^stub-/);
   });
 });

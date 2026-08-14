@@ -1,0 +1,108 @@
+/* ============================================================
+   Ink-paper split billing panel — the cashier's ticket
+   ------------------------------------------------------------
+   The cashier's split-parts panel renders as the same hand-held
+   ticket in ink-paper form: a deep ink-green sheet with sage ink,
+   ticket-toggle mode tabs, diners as paper slips with dashed
+   dividers, and chilli-red alerts. Form fields stay light so they
+   read clearly on the dark sheet; the modal chrome stays admin.
+   ============================================================ */
+
+.split-panel {
+  --brand: #00b3a5;
+  --chilli: #ff6b4a;
+  --gold: #e0b04e;
+  --ink: #e8efe9;
+  --muted: #8ba397;
+  --line: #1e3129;
+  --line-strong: #2b453b;
+  --tile: #13211c;
+
+  /* Alias the admin tokens the inline styles reference. */
+  --primary: var(--brand);
+  --surface-2: var(--tile);
+  --border: var(--line);
+  --text: var(--ink);
+  --text-muted: var(--muted);
+  --warning-soft: rgba(224, 176, 78, 0.12);
+  --warning: #e0b04e;
+  --danger-soft: rgba(255, 107, 74, 0.12);
+  --danger: #ff6b4a;
+  --success: #34d399;
+
+  background:
+    radial-gradient(600px 260px at 90% -10%, rgba(224, 176, 78, 0.07), transparent 60%),
+    radial-gradient(500px 240px at 0% 0%, rgba(24, 52, 43, 0.45), transparent 55%),
+    #0b1210;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 18px;
+}
+
+/* Mode tabs — ticket toggles */
+.split-mode {
+  border: 1.5px solid var(--line-strong);
+  background: var(--tile);
+  color: var(--muted);
+  padding: 8px 15px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 800;
+  font-size: 13px;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s, box-shadow 0.15s;
+}
+
+.split-mode:hover {
+  border-color: color-mix(in srgb, var(--brand) 45%, var(--line-strong));
+}
+
+.split-mode--on {
+  border-color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 18%, var(--tile));
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(0, 179, 165, 0.25);
+}
+
+/* Diner cards — paper slips */
+.split-diner {
+  border: 1.5px solid var(--line-strong);
+  background: var(--tile);
+}
+
+.split-alloc {
+  border-top: 1px dashed var(--line-strong);
+  padding-top: 8px;
+  margin-top: 2px;
+}
+
+.split-line + .split-line {
+  margin-top: 4px;
+}
+
+.split-hint {
+  color: var(--muted);
+}
+
+/* Alerts — chilli / gold on dark */
+.split-alert {
+  border: 1px solid transparent;
+}
+
+.split-alert--lock {
+  background: rgba(224, 176, 78, 0.12);
+  color: #e0b04e;
+  border-color: rgba(224, 176, 78, 0.35);
+}
+
+.split-alert--error {
+  background: rgba(255, 107, 74, 0.12);
+  color: #ff6b4a;
+  border-color: rgba(255, 107, 74, 0.35);
+}
+
+/* Form fields stay light so they read clearly on the dark sheet */
+.split-panel input,
+.split-panel select {
+  border-color: var(--line-strong) !important;
+}

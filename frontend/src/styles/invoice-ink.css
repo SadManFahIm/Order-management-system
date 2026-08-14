@@ -35,6 +35,24 @@
   font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
 }
 
+/* ---- Rice-paper (light) preview — the same ticket on warm paper ---- */
+.invoice-sheet--rice {
+  --paper: #f6f1e5;
+  --ink: #18342b;
+  --muted: #7d786a;
+  --line: #e6dcc4;
+  --line-strong: #d6c9a6;
+  --chilli: #d2452f;
+  --gold: #c9962e;
+  --tile: #efe7d2;
+  --stub-solid: color-mix(in srgb, #00b3a5 82%, #0c2f23);
+  color-scheme: light;
+  background:
+    radial-gradient(700px 260px at 85% -10%, rgba(201, 150, 46, 0.08), transparent 60%),
+    radial-gradient(600px 300px at 0% 0%, rgba(24, 52, 43, 0.05), transparent 55%),
+    var(--paper);
+}
+
 /* ---- Gold-foil stub (tear is .stub__tear from storefront.css) ---- */
 .invoice-sheet__stub {
   position: relative;

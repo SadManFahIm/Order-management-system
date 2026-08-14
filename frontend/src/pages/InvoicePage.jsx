@@ -19,6 +19,9 @@ const fmt = (n) => `৳ ${Number(n || 0).toLocaleString('en-IN', { maximumFracti
 export default function InvoicePage() {
   const { id } = useParams();
   const [invoice, setInvoice] = useState(null);
+  // The invoice sheet has two papers — ink (default, the merchant's copy)
+  // and rice (light) — so staff can preview it either way before printing.
+  const [paper, setPaper] = useState('ink'); // 'ink' | 'rice'
   const toast = useToast();
 
   useEffect(() => {
@@ -47,9 +50,18 @@ export default function InvoicePage() {
         desc={invoice ? `${invoice.restaurantName} · ${invoice.orderNo}` : 'Loading…'}
         actions={
           invoice && (
-            <Button variant="primary" className="invoice-print-btn" onClick={() => window.print()}>
-              🖨️ Print / PDF
-            </Button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <Button
+                variant="outline"
+                onClick={() => setPaper((p) => (p === 'ink' ? 'rice' : 'ink'))}
+                title={paper === 'ink' ? 'Preview on rice paper' : 'Preview on ink paper'}
+              >
+                {paper === 'ink' ? '🌙 Ink paper' : '☀️ Rice paper'}
+              </Button>
+              <Button variant="primary" className="invoice-print-btn" onClick={() => window.print()}>
+                🖨️ Print / PDF
+              </Button>
+            </div>
           )
         }
       />
@@ -64,7 +76,7 @@ export default function InvoicePage() {
         </Card>
       ) : (
         <Card bodyPadding={false}>
-          <div className="invoice-sheet">
+          <div className={`invoice-sheet${paper === 'rice' ? ' invoice-sheet--rice' : ''}`}>
             {/* Gold-foil stub — the merchant's copy of the ticket */}
             <div className="invoice-sheet__stub">
               <div className="invoice-sheet__stub-inner">

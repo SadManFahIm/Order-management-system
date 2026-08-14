@@ -14,6 +14,7 @@ import './styles/storefront-checkout.css';
 import './styles/invoice-ink.css';
 import './styles/diner-receipt-ink.css';
 import './styles/table-qr-ticket.css';
+import './styles/split-panel-ink.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

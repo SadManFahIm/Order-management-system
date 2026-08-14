@@ -20,6 +20,7 @@ import { applyPromotionsToCart } from '../utils/promotionEngine.js';
 import { parsePagination } from '../utils/pagination.js';
 import { createOrderSchema } from '../validators/order.js';
 import { sendOrderAlert, sendStatusNotification } from '../services/whatsappService.js';
+import { sendOrderStatusEmail } from '../services/notifications/orderConfirmation.js';
 import { withIdempotency } from '../services/idempotency.js';
 import { publishOrderEvent } from '../services/realtime.js';
 import { DELIVERY_TYPES, validateSchedule, deliveryConfig } from '../services/checkoutService.js';
@@ -393,7 +394,11 @@ router.patch(
     // the status change — the service swallows every failure internally.
     if (req.tenant?.id) {
       const tenant = await Tenant.findByPk(req.tenant.id);
-      if (tenant) void sendStatusNotification(tenant, order, status);
+      if (tenant) {
+        void sendStatusNotification(tenant, order, status);
+        // Ticket-styled status-update email (Phase 5) — same contract.
+        void sendOrderStatusEmail({ tenant, order, status });
+      }
     }
 
     // Real-time kitchen/delivery queue (Phase 5): broadcast the move.

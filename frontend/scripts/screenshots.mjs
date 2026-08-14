@@ -371,18 +371,21 @@ if ((await addButtons.count()) >= 2) {
 }
 await shot(page, 'neworder-split-light.png');
 
-// ---------- 13b. Split-billing panel + diner receipt (dine-in split) --
-// The seeded workspace has a Split Bill Demo order (per-diner item split)
-// — open the panel on that order, capture it, then capture the receipt.
+// ---------- 13b. Split-billing panel (dine-in split) — ink paper --------
+// Open the panel on the seeded Split Bill Demo order when present, else the
+// first order row with a Split bill button; capture the ink-paper panel.
 page = await login(browser, 'light');
 await page.goto(`${BASE}/orders`, { waitUntil: 'networkidle' });
 await page.getByRole('heading', { name: /Orders|অর্ডার/ }).waitFor();
-const splitRow = page.locator('tr', { hasText: 'Split Bill Demo' });
+let splitRow = page.locator('tr', { hasText: 'Split Bill Demo' });
+if (!(await splitRow.count())) {
+  splitRow = page.locator('tr').filter({ has: page.getByRole('button', { name: /Split bill/ }) }).first();
+}
 if (await splitRow.count()) {
   await splitRow.getByRole('button', { name: /Split bill/ }).first().click();
   await page.getByRole('dialog').waitFor();
   await page.waitForTimeout(800);
-  await shot(page, 'split-billing-panel-light.png');
+  await shot(page, 'split-billing-panel-ink-paper.png');
   await page.getByRole('dialog').getByRole('button', { name: /Close|বন্ধ/ }).click().catch(() => {});
   // Diner receipt — first receipt link on the demo order row.
   const receiptHref = await splitRow

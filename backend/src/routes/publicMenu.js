@@ -1,5 +1,7 @@
 import express from 'express';
+import QRCode from 'qrcode';
 import { createHash } from 'node:crypto';
+import { env } from '../config/env.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
 import Tenant from '../models/Tenant.js';
@@ -264,6 +266,38 @@ router.get(
         quantity: Number(i.quantity || 0),
         lineTotal: Math.round(Number(i.line_total || 0) * 100) / 100,
       })),
+    });
+  })
+);
+
+/** GET /api/public/restaurants/:slug/qr?table=N — storefront QR (print coupon).
+ *
+ * Public, like the menu itself: returns the storefront URL (optionally with
+ * the table pre-set) plus an SVG data URI. The storefront's print view tears
+ * this off as a scannable "order again" coupon under the ticket.
+ */
+router.get(
+  '/restaurants/:slug/qr',
+  asyncHandler(async (req, res) => {
+    const tenant = await Tenant.findOne({ where: { slug: req.params.slug } });
+    if (!tenant || !['active', 'trial'].includes(tenant.status)) {
+      throw new AppError(404, 'NOT_FOUND', 'Restaurant not found');
+    }
+    const tableNo = Number(req.query.table);
+    const validTable = Number.isInteger(tableNo) && tableNo > 0 ? tableNo : null;
+    const base = (env.APP_BASE_URL || '').replace(/\/$/, '');
+    const url = `${base}/m/${tenant.slug}${validTable ? `?table=${validTable}` : ''}`;
+    const svg = await QRCode.toString(url, {
+      type: 'svg',
+      margin: 1,
+      width: 240,
+      errorCorrectionLevel: 'M',
+      color: { dark: '#0f172a', light: '#ffffff' },
+    });
+    res.json({
+      url,
+      table: validTable,
+      svg: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
     });
   })
 );
