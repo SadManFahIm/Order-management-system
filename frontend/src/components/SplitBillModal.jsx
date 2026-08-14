@@ -306,17 +306,16 @@ export default function SplitBillModal({ open, order, onClose, onSaved, presetDi
       {!data ? (
         <div style={{ padding: 24, color: 'var(--text-muted)' }}>{t('split.loading')}</div>
       ) : (
-        <div style={{ display: 'grid', gap: 16 }}>
+        <div className="split-panel" style={{ display: 'grid', gap: 16 }}>
           {/* Re-split guard — real money (gateway intent, refund, collected
               wallet part) already moved, so the panel is read-only here. */}
           {data.locked && (
             <div
               role="alert"
               aria-label="Split locked"
+              className="split-alert split-alert--lock"
               style={{
-                background: 'var(--warning-soft, #fff7e6)',
-                color: 'var(--warning, #b45309)',
-                borderRadius: 10,
+                borderRadius: 12,
                 padding: '10px 12px',
                 fontSize: 13,
                 fontWeight: 600,
@@ -336,10 +335,10 @@ export default function SplitBillModal({ open, order, onClose, onSaved, presetDi
           )}
           {error && (
             <div
+              role="alert"
+              className="split-alert split-alert--error"
               style={{
-                background: 'var(--danger-soft, #fdeef1)',
-                color: 'var(--danger, #e11d48)',
-                borderRadius: 10,
+                borderRadius: 12,
                 padding: '10px 12px',
                 fontSize: 13,
                 fontWeight: 600,
@@ -349,22 +348,14 @@ export default function SplitBillModal({ open, order, onClose, onSaved, presetDi
             </div>
           )}
 
-          {/* Mode tabs */}
-          <div style={{ display: 'flex', gap: 8 }}>
+          {/* Mode tabs — ticket toggles */}
+          <div className="split-modes" style={{ display: 'flex', gap: 8 }}>
             {MODES.map((m) => (
               <button
                 key={m}
                 onClick={() => setMode(m)}
-                style={{
-                  padding: '7px 14px',
-                  borderRadius: 999,
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontWeight: 700,
-                  fontSize: 13,
-                  background: mode === m ? 'var(--primary)' : 'var(--surface-2)',
-                  color: mode === m ? '#fff' : 'var(--text-muted)',
-                }}
+                aria-pressed={mode === m}
+                className={`split-mode${mode === m ? ' split-mode--on' : ''}`}
               >
                 {t(`split.mode${m.charAt(0).toUpperCase()}${m.slice(1)}`)}
               </button>
@@ -387,13 +378,13 @@ export default function SplitBillModal({ open, order, onClose, onSaved, presetDi
             </div>
           )}
 
-          {/* Diner cards */}
-          <div style={{ display: 'grid', gap: 12 }}>
+          {/* Diner cards — paper slips */}
+          <div className="split-diners" style={{ display: 'grid', gap: 12 }}>
             {diners.map((d, i) => (
               <div
                 key={i}
+                className="split-diner"
                 style={{
-                  border: '1px solid var(--border)',
                   borderRadius: 14,
                   padding: '12px 14px',
                   display: 'grid',
@@ -450,6 +441,7 @@ export default function SplitBillModal({ open, order, onClose, onSaved, presetDi
                 </div>
                 {mode === 'item' && (
                   <div
+                    className="split-alloc"
                     style={{
                       display: 'grid',
                       gap: 6,
@@ -463,6 +455,7 @@ export default function SplitBillModal({ open, order, onClose, onSaved, presetDi
                       return (
                         <div
                           key={line.orderItemId}
+                          className="split-line"
                           style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -527,7 +520,7 @@ export default function SplitBillModal({ open, order, onClose, onSaved, presetDi
           )}
 
           {/* Payment status hint */}
-          <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
+          <div className="split-hint" style={{ fontSize: 12.5 }}>
             {t('split.paymentHint')}
           </div>
         </div>

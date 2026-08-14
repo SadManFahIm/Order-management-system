@@ -717,3 +717,58 @@
     border-radius: 14px;
   }
 }
+
+/* ---- Tear-off print coupon — hidden on screen, printed under the ticket ---- */
+.stub__coupon {
+  display: none;
+}
+
+@media print {
+  .stub__coupon {
+    display: block;
+    margin-top: 18px;
+    border-top: 2px dashed #bbb;
+    padding-top: 14px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .stub__coupon-body {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .stub__coupon-title {
+    font-weight: 800;
+    font-size: 14px;
+    color: #111;
+  }
+
+  .stub__coupon-sub {
+    color: #555;
+    font-size: 13px;
+    margin-top: 2px;
+  }
+
+  .stub__coupon-table {
+    color: #a9801f;
+    font-weight: 700;
+    font-size: 12.5px;
+    margin-top: 4px;
+  }
+
+  .stub__coupon-url {
+    color: #888;
+    font-size: 10.5px;
+    margin-top: 6px;
+    word-break: break-all;
+  }
+
+  .stub__coupon-qr {
+    width: 96px;
+    height: 96px;
+    flex-shrink: 0;
+  }
+}

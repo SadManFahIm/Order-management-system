@@ -356,3 +356,30 @@ describe('GET /api/public/restaurants/:slug/tables (QR menu)', () => {
     expect(res.headers['cache-control']).toMatch(/public, max-age=\d+/);
   });
 });
+
+describe('GET /api/public/restaurants/:slug/qr (print coupon)', () => {
+  it('returns the storefront URL + a scannable SVG data URI', async () => {
+    const res = await request(app).get('/api/public/restaurants/public-a/qr');
+    expect(res.status).toBe(200);
+    expect(res.body.url).toContain('/m/public-a');
+    expect(res.body.svg).toMatch(/^data:image\/svg\+xml;charset=utf-8,/);
+    expect(res.body.svg).toContain('data:image');
+  });
+
+  it('embeds the table number when asked', async () => {
+    const res = await request(app).get('/api/public/restaurants/public-a/qr?table=3');
+    expect(res.status).toBe(200);
+    expect(res.body.url).toContain('?table=3');
+    expect(res.body.table).toBe(3);
+  });
+
+  it('ignores invalid tables and 404s hidden workspaces', async () => {
+    const bad = await request(app).get('/api/public/restaurants/public-a/qr?table=abc');
+    expect(bad.status).toBe(200);
+    expect(bad.body.url).not.toContain('?table=');
+    expect(bad.body.table).toBeNull();
+
+    const hidden = await request(app).get('/api/public/restaurants/hidden-cafe/qr');
+    expect(hidden.status).toBe(404);
+  });
+});

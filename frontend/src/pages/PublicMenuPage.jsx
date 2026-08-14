@@ -207,6 +207,9 @@ export default function PublicMenuPage() {
   const [cart, setCart] = useState(() => loadCart(slug));
   const [modalItem, setModalItem] = useState(null);
   const [modalInitial, setModalInitial] = useState(null);
+  // Print-coupon QR (Phase 5): fetched lazily, only used by @media print —
+  // the tear-off "scan to order again" strip under the printed ticket.
+  const [couponQr, setCouponQr] = useState(null);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -238,7 +241,6 @@ export default function PublicMenuPage() {
     mounted.current = true;
     setCart(loadCart(slug));
     setState({ loading: true, error: null, data: null });
-    setTotal(0);
     loadPage(0, false).catch((err) => {
       if (!mounted.current) return;
       setState({
@@ -247,6 +249,15 @@ export default function PublicMenuPage() {
         data: null,
       });
     });
+    // Print-coupon QR — best-effort, never blocks the menu.
+    axios
+      .get(`/api/public/restaurants/${slug}/qr${tableNo ? `?table=${tableNo}` : ''}`)
+      .then((res) => {
+        if (mounted.current) setCouponQr(res.data);
+      })
+      .catch(() => {
+        /* no coupon in print — the ticket still prints */
+      });
     return () => {
       mounted.current = false;
     };
@@ -480,6 +491,22 @@ export default function PublicMenuPage() {
             <Link to="/login" style={{ color: 'inherit' }}>{t('store.merchantSignIn')}</Link> · {t('store.poweredBy')}
           </div>
         </footer>
+
+        {/* Tear-off print coupon — hidden on screen, printed under the
+            ticket so customers can scan and order again next visit. */}
+        {couponQr && (
+          <div className="stub__coupon" aria-hidden="true">
+            <div className="stub__coupon-body">
+              <div className="stub__coupon-copy">
+                <div className="stub__coupon-title">{t('store.couponTitle')}</div>
+                <div className="stub__coupon-sub">{restaurant.name}</div>
+                {tableNo && <div className="stub__coupon-table">🪑 {t('store.table', tableNo)}</div>}
+                <div className="stub__coupon-url">{couponQr.url}</div>
+              </div>
+              <img className="stub__coupon-qr" src={couponQr.svg} alt="" />
+            </div>
+          </div>
+        )}
       </main>
 
       {/* Item options modal */}
