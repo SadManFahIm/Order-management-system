@@ -659,6 +659,36 @@
   filter: none;
 }
 
+/* Track page — the same ticket, stamped with an order number */
+.track__home {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 800;
+  color: #fff;
+  text-decoration: none;
+  padding: 4px 2px;
+  opacity: 0.92;
+  transition: opacity 0.15s ease;
+}
+
+.track__home:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.track-canceled {
+  border: 1.5px dashed color-mix(in srgb, var(--chilli) 45%, var(--line-strong));
+  background: color-mix(in srgb, var(--chilli) 10%, var(--card));
+  color: var(--chilli);
+  border-radius: 14px;
+  padding: 14px 16px;
+  text-align: center;
+  font-weight: 800;
+  font-size: 14.5px;
+}
+
 /* Empty cart */
 .ticket-empty {
   text-align: center;
@@ -702,7 +732,8 @@
 .ticket-remove:focus-visible,
 .ticket-cta:focus-visible,
 .ticket-btn:focus-visible,
-.checkout__back:focus-visible {
+.checkout__back:focus-visible,
+.track__home:focus-visible {
   outline: 2px solid var(--gold);
   outline-offset: 2px;
 }

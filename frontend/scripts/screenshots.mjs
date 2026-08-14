@@ -191,10 +191,47 @@ await page.goto(`${BASE}/tables`, { waitUntil: 'networkidle' });
 await page.waitForTimeout(900);
 await shot(page, 'qr-menu-light.png');
 
-// ---------- 8. Customer tracking (no auth) — light ----------
+// ---------- 8. Customer tracking (no auth) — the ticket lookup, light ---
 page = await browser.newPage(CONTEXT);
+await page.addInitScript(() => {
+  localStorage.setItem('oms.storefront.paper', 'light');
+});
 await page.goto(`${BASE}/track`, { waitUntil: 'networkidle' });
 await shot(page, 'track-light.png');
+
+// ---------- 8a. Track a real order — the live ticket (light + ink) ------
+// Place a guest order via the public API and open its confirmation track
+// link, so the status ticket is never empty no matter how the DB is seeded.
+{
+  const menuRes = await fetch(`${BASE}/api/public/restaurants/kfc-dhaka/menu`);
+  const { categories } = await menuRes.json();
+  const item = categories.flatMap((c) => c.items)[0];
+  const placed = await fetch(`${BASE}/api/public/restaurants/kfc-dhaka/checkout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `shot-track-${Date.now()}` },
+    body: JSON.stringify({
+      customer_name: 'Screenshot Guest',
+      customer_phone: '01712345680',
+      order_type: 'pickup',
+      payment_method: 'cash',
+      items: [{ product_id: item.id, quantity: 1 }],
+    }),
+  });
+  const order = await placed.json();
+  if (order.trackUrl) {
+    for (const [name, paper] of [['track-ticket-light.png', 'light'], ['track-ticket-ink-paper.png', 'dark']]) {
+      page = await browser.newPage(CONTEXT);
+      await page.addInitScript((p) => {
+        localStorage.setItem('oms.storefront.paper', p);
+      }, paper);
+      await page.goto(`${BASE}${order.trackUrl}`, { waitUntil: 'networkidle' });
+      await page.waitForTimeout(1200);
+      await shot(page, name);
+    }
+  } else {
+    console.log('skipped track-ticket shots — checkout did not return a trackUrl');
+  }
+}
 
 // ---------- 9. Products (authenticated) — light ----------
 page = await login(browser, 'light');
@@ -229,6 +266,8 @@ if (invoiceHref) {
   await page.goto(`${BASE}${invoiceHref}`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1000);
   await shot(page, 'invoice-phase6-light.png', { fullPage: true });
+  // The invoice sheet is ink-paper by design — capture it on its own.
+  await shot(page, 'invoice-ink-paper.png', { fullPage: true });
 } else {
   console.log('skipped invoice — no invoice link found');
 }
