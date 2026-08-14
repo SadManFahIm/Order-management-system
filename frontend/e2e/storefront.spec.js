@@ -101,7 +101,7 @@ test('guest places a pickup order end-to-end and tracks it', async ({ page }) =>
 
   // 5. Tracking link pre-fills the form and shows live status.
   await page.getByRole('link', { name: /Track your order/ }).click();
-  await expect(page.getByText(orderNo)).toBeVisible();
+  await expect(page.getByText(orderNo).first()).toBeVisible();
   await expect(page.getByText(/Placed/).first()).toBeVisible();
 });
 
@@ -349,7 +349,7 @@ test('guest splits a pickup order in the UI (bKash + cash) and sees partial stat
   await expect(page.getByText('Order placed! 🎉')).toBeVisible();
   const orderNo = (await page.getByText(/^ORD-/).first().textContent()).trim();
   await page.getByRole('link', { name: /Track your order/ }).click();
-  await expect(page.getByText(orderNo)).toBeVisible();
+  await expect(page.getByText(orderNo).first()).toBeVisible();
   await expect(page.getByText(/Partial/)).toBeVisible();
 });
 

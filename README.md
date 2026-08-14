@@ -68,6 +68,8 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 - **HTTP caching** — `Cache-Control: public, max-age=60` + `ETag` with `304 Not Modified` round-trips (10× faster storefront reads); **pagination** via `?limit&offset` + `X-Total-Count` (storefront "Show more" loads in pages); live demo page at `/m/:slug`
 - **"The Table Ticket" storefront design** — the QR-scanned menu renders like a hand-held ticket from this product's own world: a brand-themed **stub hero** carries the 🪑 table number as a real gold-foil stub (perforated edge, dashed border) above a **scalloped CSS tear** that separates "this table" from "the menu"; the menu itself sits on **paper** with quiet dish slips — **Bricolage Grotesque** display type, **chilli-red prices**, gold accents, dashed ticket-divider section heads (── BURGERS · 6 ──), a live OPEN dot, a staggered dish reveal + popping cart bar (reduced-motion aware), **animated food orbs floating behind the stub** (🍔🍟🍕🍗🥤, reduced-motion aware) — and **paper comes in two kinds**: warm **rice paper** (light) or deep **ink paper** (dark), chosen with a 🌓 paper toggle in the stub (auto-follows the device, light and dark pins; `oms.storefront.paper` in localStorage) so the ticket keeps one identity in both app themes while the tenant brand still themes the stub, chips, buttons and cart
 - **Ticket checkout + confirmation** — the customer never leaves the ticket they tore off the menu: the checkout page (`/m/:slug/checkout`) opens with the same brand stub + food orbs + scalloped tear, and the order form renders as **ticket cards** with dashed ticket-divider section heads, ticket-toggle order types, paper payment rows, a **wallet "send money" panel** (copyable number + trxID), the ⇄ split-payment / per-diner editors restyled to the paper, a chilli-red total row, and a **confirmation stub** that lands with a little bounce and stamps the order number as a **gold-foil ticket stub** (`ticket-done__no`) with the total and each split part — all sharing the paper theme + EN/বাংলা
+- **Track-order ticket** — the customer tracking page (`/track`) is the same hand-held ticket: an Orderly brand stub with floating food orbs, scalloped tear and the **order number stamped as a gold-foil stub pill** when the live status loads, then the lookup form and the 4-step progress / items / total as ticket cards on paper (the paper toggle rides along via `usePaperTheme`, so a customer's 🌓 choice follows menu → checkout → confirmation → tracking)
+- **Ink-paper merchant invoice** — the order invoice (`/orders/:id/invoice`) renders as the **merchant's copy of the ticket** in its ink-paper form: a gold-foil brand stub torn off the top (scalloped tear), a deep ink-green sheet with sage ink, dashed ticket rows for items and payments, and a chilli-red grand-total tile — while `@media print` flips the sheet to a clean white ink-on-paper invoice for printing/PDF
 
 **Inventory (Phase 4 completion)**
 - `inventory_items` snapshots per menu item (stock qty, low-stock threshold, unit) — set via product create/edit or `PATCH /api/products/:id/inventory`; low-stock items get a warning badge in the Products table
@@ -235,8 +237,10 @@ Deeper analytics (retention cohorts, funnel, delivery perf) · SaaS admin portal
 | ![Storefront cart](docs/screenshots/storefront-cart-light.png) | ![Checkout](docs/screenshots/checkout-light.png) |
 | **Checkout — ink paper (dark ticket)** | |
 | ![Checkout ink paper](docs/screenshots/checkout-ink-paper.png) | |
-| **QR table menu** — printable table codes + per-table PNG | **Customer tracking** — order no + phone |
+| **QR table menu** — printable table codes + per-table PNG | **Customer tracking** — the lookup ticket |
 | ![QR menu](docs/screenshots/qr-menu-light.png) | ![Tracking](docs/screenshots/track-light.png) |
+| **Track a live order** — status ticket (light) | **Track a live order — ink paper (dark)** |
+| ![Track ticket light](docs/screenshots/track-ticket-light.png) | ![Track ticket ink paper](docs/screenshots/track-ticket-ink-paper.png) |
 | **Settings** — storefront branding editor, payment methods & WhatsApp | |
 | ![Settings](docs/screenshots/settings-light.png) | |
 
@@ -246,8 +250,8 @@ Deeper analytics (retention cohorts, funnel, delivery perf) · SaaS admin portal
 |---|---|---|
 | **Orders** — Split/Partial badges, ↩ Refund, 🧾 Invoice actions | **Reports** — daily closeout + VAT compliance (NBR-ready) | **Order invoice** — per-item VAT split + linked payments |
 | ![Orders — Phase 6](docs/screenshots/orders-phase6-light.png) | ![Reports](docs/screenshots/reports-light.png) | ![Invoice — Phase 6](docs/screenshots/invoice-phase6-light.png) |
-| **New Order** — split-payment editor (bKash ৳ + Cash ৳ per part) | | |
-| ![Split editor — Phase 6](docs/screenshots/neworder-split-light.png) | | |
+| **Invoice — ink-paper sheet** (merchant's copy of the ticket; prints as clean white ink-on-paper) | **New Order** — split-payment editor (bKash ৳ + Cash ৳ per part) | |
+| ![Invoice ink paper](docs/screenshots/invoice-ink-paper.png) | ![Split editor — Phase 6](docs/screenshots/neworder-split-light.png) | |
 
 ### Dine-in split billing — cashier panel, per-diner receipts & analytics
 

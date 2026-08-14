@@ -11,6 +11,7 @@ import './styles/app.css';
 import './styles/landing.css';
 import './styles/storefront.css';
 import './styles/storefront-checkout.css';
+import './styles/invoice-ink.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

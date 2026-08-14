@@ -1,0 +1,263 @@
+/* ============================================================
+   Ink-paper invoice — the merchant's copy of the ticket
+   ------------------------------------------------------------
+   The order invoice renders as the same hand-held ticket, in
+   its ink-paper form: a deep ink-green sheet with sage ink, a
+   gold-foil brand stub torn off the top (the scalloped tear is
+   reused from storefront.css), dashed ticket dividers and
+   chilli-red totals. Printing flips the sheet to plain white
+   ink-on-paper so it reads like a classic invoice.
+   ============================================================ */
+
+.invoice-sheet {
+  --paper: #0b1210;
+  --card: #101c18;
+  --ink: #e8efe9;
+  --muted: #8ba397;
+  --line: #1e3129;
+  --line-strong: #2b453b;
+  --chilli: #ff6b4a;
+  --gold: #e0b04e;
+  --tile: #13211c;
+  --brand: #00b3a5;
+  --stub-solid: color-mix(in srgb, #00b3a5 74%, #04100b);
+
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  color-scheme: dark;
+  background:
+    radial-gradient(700px 260px at 85% -10%, rgba(224, 176, 78, 0.08), transparent 60%),
+    radial-gradient(600px 300px at 0% 0%, rgba(24, 52, 43, 0.5), transparent 55%),
+    var(--paper);
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+/* ---- Gold-foil stub (tear is .stub__tear from storefront.css) ---- */
+.invoice-sheet__stub {
+  position: relative;
+  background: var(--stub-solid);
+  color: #fff;
+  padding: 22px 24px 36px;
+}
+
+.invoice-sheet__stub-inner {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.invoice-sheet__brand {
+  font-family: 'Bricolage Grotesque', 'Plus Jakarta Sans', sans-serif;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.invoice-sheet__meta {
+  margin-top: 5px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12.5px;
+}
+
+.invoice-sheet__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px dashed rgba(255, 255, 255, 0.38);
+  border-radius: 999px;
+  padding: 6px 13px;
+  font-size: 12px;
+  font-weight: 800;
+  background: rgba(0, 0, 0, 0.14);
+}
+
+.invoice-sheet__badge--ok {
+  color: #9ff0c0;
+  border-color: rgba(126, 226, 168, 0.45);
+}
+
+/* ---- Ink-paper body ---- */
+.invoice-sheet__body {
+  padding: 24px;
+}
+
+.invoice-sheet__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 24px;
+  background: var(--tile);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 16px;
+  font-size: 13.5px;
+  margin-bottom: 22px;
+}
+
+.invoice-sheet__field-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 3px;
+}
+
+.invoice-sheet__field-value {
+  color: var(--ink);
+}
+
+/* Item table — dashed ticket rows */
+.invoice-sheet__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.invoice-sheet__table th {
+  text-align: right;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0 10px 10px;
+  border-bottom: 1px dashed var(--line-strong);
+}
+
+.invoice-sheet__table td {
+  padding: 9px 10px;
+  border-bottom: 1px dashed var(--line);
+  color: var(--ink);
+}
+
+.invoice-sheet__table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Totals — three quiet tiles + one chilli-red grand total */
+.invoice-sheet__totals {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.invoice-sheet__total {
+  background: var(--tile);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+
+.invoice-sheet__total-label {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.invoice-sheet__total-value {
+  font-size: 18px;
+  font-weight: 800;
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+.invoice-sheet__total--grand {
+  background: color-mix(in srgb, var(--chilli) 14%, var(--card));
+  border: 1.5px dashed color-mix(in srgb, var(--chilli) 55%, var(--line-strong));
+}
+
+.invoice-sheet__total--grand .invoice-sheet__total-label {
+  color: var(--chilli);
+}
+
+.invoice-sheet__total--grand .invoice-sheet__total-value {
+  color: var(--chilli);
+}
+
+/* Payments — dashed ticket rows */
+.invoice-sheet__section-label {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 8px;
+}
+
+.invoice-sheet__pay-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px dashed var(--line);
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.invoice-sheet__pay-row:last-child {
+  border-bottom: none;
+}
+
+/* ---- Printing — flip to clean white ink-on-paper ---- */
+@media print {
+  .invoice-sheet {
+    --paper: #fff;
+    --card: #fff;
+    --ink: #111;
+    --muted: #555;
+    --line: #e0e0e0;
+    --line-strong: #c9c9c9;
+    --chilli: #c0392b;
+    --tile: #f6f6f6;
+    --stub-solid: #eef2ef;
+    background: #fff;
+    color: #111;
+    border: 1px solid #ddd;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .invoice-sheet__stub {
+    color: #111;
+    border-bottom: 2px dashed #bbb;
+  }
+
+  .invoice-sheet__meta {
+    color: #444;
+  }
+
+  .invoice-sheet__badge {
+    border-color: #bbb;
+    background: #eee;
+    color: #111;
+  }
+
+  .invoice-sheet__badge--ok {
+    color: #1a7f46;
+  }
+
+  .invoice-print-btn {
+    display: none !important;
+  }
+}
+
+@media (max-width: 560px) {
+  .invoice-sheet__grid {
+    grid-template-columns: 1fr;
+    gap: 12px 24px;
+  }
+
+  .invoice-sheet__totals {
+    grid-template-columns: 1fr 1fr;
+  }
+}

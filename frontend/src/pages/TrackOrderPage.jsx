@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useI18n, LANGUAGES } from '../i18n';
+import { usePaperTheme } from '../hooks/usePaperTheme';
 
 /**
  * Public order tracking (Phase 5) — /track/:orderNo? and /track.
@@ -9,8 +10,22 @@ import { useI18n, LANGUAGES } from '../i18n';
  * The customer enters the order number + the phone they ordered with; the
  * public API verifies the phone and returns live status. Fully bilingual
  * (EN/বাংলা) with the same toggle the storefront uses.
+ *
+ * The page lives in "The Table Ticket" world like the menu and checkout:
+ * an Orderly stub with scalloped tear and floating food orbs on top, then
+ * the lookup form and live status as ticket cards on paper. The paper
+ * theme (rice / ink) is shared with the storefront via usePaperTheme, so
+ * a customer's choice follows them menu → checkout → tracking.
  */
 const STEPS = ['placed', 'preparing', 'ready', 'delivered'];
+const ORBS = [
+  { emoji: '🍔', cls: 'stub__orb--1' },
+  { emoji: '🍟', cls: 'stub__orb--2' },
+  { emoji: '🍕', cls: 'stub__orb--3' },
+  { emoji: '🍗', cls: 'stub__orb--4' },
+  { emoji: '🥤', cls: 'stub__orb--5' },
+];
+const BRAND = '#00b3a5'; // Orderly teal — the track stub has no tenant theme.
 const fmtTime = (iso) => {
   const d = new Date(iso);
   return d.toLocaleString('en-GB', {
@@ -23,6 +38,7 @@ export default function TrackOrderPage() {
   const { orderNo: orderNoParam } = useParams();
   const [searchParams] = useSearchParams();
   const { t, lang, toggleLang } = useI18n();
+  const { paperPref, effectiveDark, cyclePaper } = usePaperTheme();
   // The storefront confirmation links to /track?orderNo=…&phone=… — prefer
   // those query params (real checkout flow) over the route param, so the
   // customer lands on the live status instead of an empty form.
@@ -59,142 +75,148 @@ export default function TrackOrderPage() {
   const currentIndex = state.data ? STEPS.indexOf(state.data.status) : -1;
   const canceled = state.data?.status === 'canceled';
 
-  return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg, #f5fbfa)', fontFamily: 'inherit' }}>
-      {/* Slim top bar — brand + language toggle */}
-      <div
-        style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          padding: '14px 20px', maxWidth: 720, margin: '0 auto',
-        }}
+  const paperClass = effectiveDark ? ' menu--dark' : '';
+  const paperAttrs = { 'data-paper': paperPref, style: { '--brand': BRAND, '--brand-accent': '#f5d300' } };
+
+  // Stub meta buttons — paper toggle + language toggle, shared language.
+  const metaBtns = (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+      <button
+        onClick={cyclePaper}
+        aria-label={t(paperPref === 'auto' ? 'store.paperAuto' : paperPref === 'light' ? 'store.paperLight' : 'store.paperDark')}
+        title={t(paperPref === 'auto' ? 'store.paperAuto' : paperPref === 'light' ? 'store.paperLight' : 'store.paperDark')}
+        className="stub__lang"
       >
-        <Link to="/" style={{ fontWeight: 800, fontSize: 16, color: 'var(--primary, #00b3a5)', textDecoration: 'none' }}>
-          ⭘ Orderly
-        </Link>
-        <button
-          onClick={toggleLang}
-          title={lang === 'en' ? 'বাংলা' : 'English'}
-          style={{
-            background: 'var(--surface-2, #f0faf8)', border: '1px solid var(--border-strong, #b9e0da)',
-            color: 'var(--text, #123b36)', borderRadius: 999, padding: '6px 12px',
-            fontSize: 12, fontWeight: 800, cursor: 'pointer',
-          }}
-        >
-          {LANGUAGES.find((l) => l.code !== lang)?.short}
-        </button>
-      </div>
+        {paperPref === 'light' ? '☀️' : paperPref === 'dark' ? '🌙' : '🌓'}
+      </button>
+      <button
+        onClick={toggleLang}
+        aria-label={lang === 'en' ? 'বাংলায় দেখুন' : 'Switch to English'}
+        title={lang === 'en' ? 'বাংলা' : 'English'}
+        className="stub__lang"
+      >
+        {LANGUAGES.find((l) => l.code !== lang)?.short}
+      </button>
+    </div>
+  );
 
-      <div style={{ maxWidth: 720, margin: '0 auto', padding: '8px 20px 60px' }}>
-        {/* Lookup form */}
-        <div
-          style={{
-            background: '#fff', border: '1px solid var(--border, #d8eeea)', borderRadius: 20,
-            padding: 28, boxShadow: '0 10px 30px rgba(15,23,42,0.05)',
-          }}
-        >
-          <h1 style={{ margin: '0 0 4px', fontSize: 24, fontWeight: 800 }}>{t('track.page')}</h1>
-          <p style={{ margin: '0 0 20px', color: 'var(--text-muted, #7d9a95)', fontSize: 14 }}>{t('track.pageDesc')}</p>
-
-          <form onSubmit={lookup} style={{ display: 'grid', gap: 14 }}>
-            <label style={{ display: 'grid', gap: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted, #7d9a95)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                {t('track.orderNo')}
+  return (
+    <div className={`menu menu--track${paperClass}`} {...paperAttrs}>
+      {/* Ticket-stub hero — the same hand-held ticket the customer tore off
+          the menu, now stamped with their order number. */}
+      <header className="stub">
+        <div className="stub__orbs" aria-hidden="true">
+          {ORBS.map((o) => (
+            <span key={o.cls} className={`stub__orb ${o.cls}`}>{o.emoji}</span>
+          ))}
+        </div>
+        <div className="stub__inner">
+          <div className="stub__meta">
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+              <Link to="/" className="track__home">⭘ Orderly</Link>
+              {metaBtns}
+            </div>
+            {state.data && (
+              <span className="stub__table" title={t('track.page')}>
+                🎟️ {state.data.orderNo}
               </span>
+            )}
+          </div>
+          <div className="stub__brand">
+            <div className="stub__logo">🎟️</div>
+            <div className="stub__copy">
+              <h1 className="stub__name">
+                {state.data ? state.data.restaurant?.name || t('track.page') : t('track.page')}
+              </h1>
+              <div className="stub__tagline">
+                {state.data ? t('track.live') : t('track.pageDesc')}
+              </div>
+              <div className="stub__eyebrow">🧾 {t('track.ticket')}</div>
+            </div>
+          </div>
+        </div>
+        <div className="stub__tear" aria-hidden="true" />
+      </header>
+
+      <main className="menu__body checkout__body">
+        {/* Lookup form — the ticket to fill in before it can be read.
+            Stays visible above the live status so the customer can look
+            up another order without scrolling back. */}
+        <section className="ticket-card">
+          <h2 className="ticket-card__title">{t('track.page')}</h2>
+          <form onSubmit={lookup} style={{ display: 'grid', gap: 14 }}>
+            <div className="ticket-field">
+              <label className="ticket-label" htmlFor="track-order-no">{t('track.orderNo')}</label>
               <input
+                id="track-order-no"
+                className="ticket-input"
                 value={orderNo}
                 onChange={(e) => setOrderNo(e.target.value)}
                 placeholder={t('track.orderNoHint')}
-                style={{
-                  border: '1px solid var(--border-strong, #b9e0da)', borderRadius: 12, padding: '11px 14px',
-                  fontSize: 14, outline: 'none', background: 'var(--surface-1, #fff)',
-                }}
               />
-            </label>
-            <label style={{ display: 'grid', gap: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted, #7d9a95)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                {t('track.phone')}
-              </span>
+            </div>
+            <div className="ticket-field">
+              <label className="ticket-label" htmlFor="track-phone">{t('track.phone')}</label>
               <input
+                id="track-phone"
+                className="ticket-input"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="01XXXXXXXXX"
                 inputMode="tel"
-                style={{
-                  border: '1px solid var(--border-strong, #b9e0da)', borderRadius: 12, padding: '11px 14px',
-                  fontSize: 14, outline: 'none', background: 'var(--surface-1, #fff)',
-                }}
               />
-            </label>
+            </div>
             <button
               type="submit"
+              className="ticket-cta"
               disabled={state.loading || !orderNo.trim() || !phone.trim()}
-              style={{
-                background: 'var(--primary, #00b3a5)', color: '#fff', border: 'none', borderRadius: 12,
-                padding: '12px 18px', fontSize: 14, fontWeight: 700, cursor: state.loading ? 'wait' : 'pointer',
-                marginTop: 4,
-              }}
             >
-              {state.loading ? t('track.tracking') : t('track.track')}
+              {state.loading ? t('track.tracking') : `🎟️ ${t('track.track')}`}
             </button>
           </form>
-        </div>
+        </section>
 
         {/* Error / empty states */}
         {state.error && (
-          <div style={{ textAlign: 'center', marginTop: 28, display: 'grid', gap: 8 }}>
-            <div style={{ fontSize: 38 }}>{state.error === 'notFound' ? '🔍' : '⚠️'}</div>
-            <h2 style={{ margin: 0, fontSize: 18 }}>
+          <section className="ticket-empty" style={{ marginTop: 18 }}>
+            <div className="ticket-empty__emoji">{state.error === 'notFound' ? '🔍' : '⚠️'}</div>
+            <h2 className="ticket-empty__title">
               {state.error === 'notFound' ? t('track.notFound') : t('track.error')}
             </h2>
             {state.error === 'notFound' && (
-              <p style={{ margin: 0, color: 'var(--text-muted, #7d9a95)', fontSize: 14 }}>{t('track.notFoundDesc')}</p>
+              <p className="ticket-empty__desc">{t('track.notFoundDesc')}</p>
             )}
-          </div>
+          </section>
         )}
 
-        {/* Live status */}
+        {/* Live status — the read ticket */}
         {state.data && !state.error && (
-          <div
-            style={{
-              marginTop: 20, background: '#fff', border: '1px solid var(--border, #d8eeea)',
-              borderRadius: 20, padding: 26, display: 'grid', gap: 22,
-              boxShadow: '0 10px 30px rgba(15,23,42,0.05)',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8 }}>
-              <div>
-                <div style={{ fontSize: 13, color: 'var(--text-muted, #7d9a95)', fontWeight: 600 }}>
-                  {state.data.restaurant?.name || t('track.restaurant')}
-                </div>
-                <div style={{ fontWeight: 800, fontSize: 18 }}>{state.data.orderNo}</div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
+          <section className="ticket-card">
+            <h2 className="ticket-card__title">🎟️ {state.data.orderNo}</h2>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8, marginBottom: 18 }}>
+              <div style={{ fontSize: 14 }}>
+                <span style={{ color: 'var(--muted)' }}>{t('track.restaurant')}: </span>
+                <b>{state.data.restaurant?.name || '—'}</b>
                 {state.data.tableNo && (
-                  <div style={{ fontSize: 13, fontWeight: 700 }}>🪑 {t('track.table', state.data.tableNo)}</div>
+                  <span style={{ marginLeft: 10 }}>🪑 {t('track.table', state.data.tableNo)}</span>
                 )}
-                <Badge
-                  status={state.data.paymentStatus}
-                  label={
-                    state.data.paymentStatus === 'paid'
-                      ? t('track.paid')
-                      : state.data.paymentStatus === 'partial'
-                        ? t('track.partial')
-                        : t('track.unpaid')
-                  }
-                />
               </div>
+              <Badge
+                status={state.data.paymentStatus}
+                label={
+                  state.data.paymentStatus === 'paid'
+                    ? t('track.paid')
+                    : state.data.paymentStatus === 'partial'
+                      ? t('track.partial')
+                      : t('track.unpaid')
+                }
+              />
             </div>
 
             {/* 4-step progress */}
             {canceled ? (
-              <div
-                style={{
-                  borderRadius: 14, padding: 16, textAlign: 'center', fontWeight: 800,
-                  background: 'rgba(239,68,68,0.08)', color: '#dc2626', fontSize: 15,
-                }}
-              >
-                ✕ {t('orders.canceled')}
-              </div>
+              <div className="track-canceled">✕ {t('orders.canceled')}</div>
             ) : (
               <div style={{ display: 'flex', alignItems: 'center' }}>
                 {STEPS.map((step, i) => {
@@ -207,10 +229,10 @@ export default function TrackOrderPage() {
                           style={{
                             width: 34, height: 34, borderRadius: '50%', display: 'grid', placeItems: 'center',
                             fontSize: 14, fontWeight: 800,
-                            background: done ? 'var(--primary, #00b3a5)' : 'var(--surface-2, #f0faf8)',
-                            color: done ? '#fff' : 'var(--text-muted, #7d9a95)',
-                            border: active && !done ? '2px solid var(--primary, #00b3a5)' : 'none',
-                            boxShadow: active ? '0 0 0 5px color-mix(in srgb, var(--primary, #00b3a5) 18%, transparent)' : 'none',
+                            background: done ? 'var(--brand)' : 'var(--tile)',
+                            color: done ? '#fff' : 'var(--muted)',
+                            border: active && !done ? '2px solid var(--brand)' : 'none',
+                            boxShadow: active ? '0 0 0 5px color-mix(in srgb, var(--brand) 18%, transparent)' : 'none',
                           }}
                         >
                           {done ? '✓' : i + 1}
@@ -218,7 +240,7 @@ export default function TrackOrderPage() {
                         <span
                           style={{
                             fontSize: 11.5, fontWeight: done ? 700 : 500, textAlign: 'center',
-                            color: done ? 'var(--text, #123b36)' : 'var(--text-muted, #7d9a95)',
+                            color: done ? 'var(--ink)' : 'var(--muted)',
                             whiteSpace: 'nowrap',
                           }}
                         >
@@ -229,7 +251,7 @@ export default function TrackOrderPage() {
                         <div
                           style={{
                             height: 3, flex: 1, borderRadius: 999, marginBottom: 20,
-                            background: i < currentIndex ? 'var(--primary, #00b3a5)' : 'var(--surface-2, #f0faf8)',
+                            background: i < currentIndex ? 'var(--brand)' : 'var(--tile)',
                           }}
                         />
                       )}
@@ -240,67 +262,58 @@ export default function TrackOrderPage() {
             )}
 
             {/* Items */}
-            <div style={{ display: 'grid', gap: 10 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted, #7d9a95)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                {t('track.items')}
-              </div>
+            <div style={{ display: 'grid', gap: 10, marginTop: 20 }}>
+              <div className="ticket-label">{t('track.items')}</div>
               {(state.data.items || []).map((item, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 14 }}>
-                  <span>{item.name} <span style={{ color: 'var(--text-muted, #7d9a95)' }}>×{item.quantity}</span></span>
+                  <span>{item.name} <span style={{ color: 'var(--muted)' }}>×{item.quantity}</span></span>
                   <span style={{ fontWeight: 650, fontVariantNumeric: 'tabular-nums' }}>{fmtTaka(item.lineTotal)}</span>
                 </div>
               ))}
-              <div
-                style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-                  borderTop: '1px dashed var(--border-strong, #b9e0da)', paddingTop: 12, marginTop: 2,
-                }}
-              >
-                <span style={{ fontWeight: 800 }}>{t('track.total')}</span>
-                <span style={{ fontWeight: 800, fontSize: 17 }}>{fmtTaka(state.data.total)}</span>
+              <div className="ticket-row ticket-row--total" style={{ borderTop: '1px dashed var(--line-strong)' }}>
+                <span className="ticket-row__label">{t('track.total')}</span>
+                <span>{fmtTaka(state.data.total)}</span>
               </div>
             </div>
 
-            <div style={{ fontSize: 12.5, color: 'var(--text-muted, #7d9a95)', display: 'grid', gap: 3 }}>
+            <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'grid', gap: 3, marginTop: 14 }}>
               <span>{t('track.placedAt')}: {fmtTime(state.data.createdAt)}</span>
               <span>{t('track.updatedAt')}: {fmtTime(state.data.updatedAt)}</span>
             </div>
 
-            <button
-              onClick={() => {
-                setState({ loading: false, error: null, data: null });
-                setOrderNo('');
-                setPhone('');
-              }}
-              style={{
-                alignSelf: 'flex-start', background: 'none', border: '1px solid var(--border-strong, #b9e0da)',
-                borderRadius: 999, padding: '8px 16px', fontSize: 13, fontWeight: 700,
-                color: 'var(--text, #123b36)', cursor: 'pointer',
-              }}
-            >
-              ← {t('track.trackAnother')}
-            </button>
-          </div>
+            <div className="ticket-actions">
+              <button
+                onClick={() => {
+                  setState({ loading: false, error: null, data: null });
+                  setOrderNo('');
+                  setPhone('');
+                }}
+                className="ticket-btn ticket-btn--ghost"
+              >
+                ← {t('track.trackAnother')}
+              </button>
+            </div>
+          </section>
         )}
 
-        <div style={{ marginTop: 40, textAlign: 'center', fontSize: 13, color: 'var(--text-muted, #7d9a95)' }}>
+        <div style={{ marginTop: 36, textAlign: 'center', fontSize: 13, color: 'var(--muted)' }}>
           <Link to="/login" style={{ color: 'inherit' }}>{t('store.merchantSignIn')}</Link> · {t('store.poweredBy')}
         </div>
-      </div>
+      </main>
     </div>
   );
 }
 
 function Badge({ status, label }) {
   // paid → green ✓ · partial → amber ⏳ (part collected, part pending) ·
-  // everything else → amber ⏳.
+  // everything else → amber ⏳. Light enough to read on both papers.
   const done = status === 'paid';
   return (
     <span
       style={{
         display: 'inline-block', borderRadius: 999, padding: '4px 12px', fontSize: 12, fontWeight: 800,
-        background: done ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)',
-        color: done ? '#059669' : '#d97706',
+        background: done ? 'rgba(52,211,153,0.14)' : 'rgba(251,191,36,0.14)',
+        color: done ? '#34d399' : '#fbbf24',
       }}
     >
       {done ? '✓' : '⏳'} {label}

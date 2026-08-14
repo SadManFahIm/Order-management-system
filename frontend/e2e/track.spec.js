@@ -46,7 +46,7 @@ test('confirmation track link pre-fills the form and auto-loads live status', as
 
   // 4. …and the lookup happens automatically (no form submit click).
   //    Live status renders the order number + the 4-step Placed stepper.
-  await expect(page.getByText(body.order_no)).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText(body.order_no).first()).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText(/Placed/).first()).toBeVisible();
   await expect(page.getByText('৳').first()).toBeVisible(); // total row rendered
   await expect(page.getByText(/Paid/).first()).toBeVisible(); // cash → paid badge
