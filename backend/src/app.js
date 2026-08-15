@@ -51,6 +51,7 @@ import { storageDriver, localStatic } from './config/storage.js';
 
 import { apiLimiter } from './middleware/rateLimiter.js';
 import { requestId } from './middleware/requestId.js';
+import { httpLogger } from './middleware/httpLogger.js';
 import { notFound, errorHandler } from './middleware/errorHandler.js';
 import { sameOriginGuard } from './middleware/csrf.js';
 
@@ -60,6 +61,9 @@ const app = express();
 if (env.TRUST_PROXY) app.set('trust proxy', 1);
 
 app.use(requestId);
+// One structured log line per request (carries the same requestId the
+// error handler and error responses echo).
+app.use(httpLogger);
 
 // Security headers (CSP, X-Frame-Options, HSTS, etc.)
 app.use(helmet());
@@ -99,12 +103,24 @@ app.get('/', (req, res) => {
   res.json({ status: 'API running', version: '1.0.0' });
 });
 
-app.get('/health', async (req, res) => {
+// Liveness — the process is up (no dependency checks). Load-balancer / K8s
+// probes hit /api/health; /health is kept for backward compat.
+app.get(['/health', '/api/health'], (req, res) => {
+  res.json({
+    status: 'ok',
+    uptime: Math.round(process.uptime()),
+    timestamp: new Date().toISOString(),
+    requestId: req.id,
+  });
+});
+
+// Readiness — dependencies healthy (the DB authenticates a real connection).
+app.get(['/health/ready', '/api/health/ready'], async (req, res) => {
   try {
     await sequelize.authenticate();
-    res.json({ status: 'ok', database: 'ok' });
+    res.json({ status: 'ok', database: 'ok', requestId: req.id });
   } catch {
-    res.status(503).json({ status: 'error', database: 'error' });
+    res.status(503).json({ status: 'error', database: 'error', requestId: req.id });
   }
 });
 

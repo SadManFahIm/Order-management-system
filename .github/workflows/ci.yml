@@ -45,8 +45,27 @@ jobs:
         run: npm run lint
       - name: Run tests
         run: npm test
+      - name: Coverage gate
+        # Hard floor on lines/functions/branches/statements (vitest.config.js)
+        # — fails the build when a change drags coverage below the floor.
+        run: npm run test:coverage
       - name: Dependency audit
         run: npm audit --audit-level=high
+
+  security:
+    # Secret scan — gitleaks flags accidental credentials/API keys across the
+    # whole git history (not just the diff), so a leaked secret is caught the
+    # moment it lands, before it reaches production.
+    name: Security — gitleaks secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   backend-postgres:
     # PostgreSQL integration tier — proves the migration runner and the full
