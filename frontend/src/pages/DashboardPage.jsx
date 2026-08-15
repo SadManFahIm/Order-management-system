@@ -1,13 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
 import api from '../api';
 import { useI18n } from '../i18n';
-import { PageHeader, Card, Skeleton, Badge } from '../components/ui';
+import { usePaper } from '../theme/PaperThemeContext';
+import { useAuth } from '../context/AuthContext';
+import { PageHeader, Card, Skeleton, Badge, Button } from '../components/ui';
 import { TrendAreaChart, OrdersBarChart, StatusDonut, CloseoutTrendChart, PeakHoursHeatmap, CategoryMixDonut, SplitMethodDonut } from '../components/charts';
 
 const fmtTaka = (n) => `৳ ${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
 export default function DashboardPage() {
   const { t } = useI18n();
+  // The dashboard is the merchant ledger — it rides the global paper theme
+  // (ink paper / rice paper), sharing the one toggle with the invoice and
+  // the storefront ticket.
+  const { effectiveDark, cyclePaper } = usePaper();
+  const { tenants, activeTenantId } = useAuth();
+  const workspaceName = tenants.find(
+    (tn) => Number(tn.id) === Number(activeTenantId)
+  )?.name;
   const [data, setData] = useState(null);
   const [error, setError] = useState(false);
   const [days, setDays] = useState(7);
@@ -91,8 +101,41 @@ export default function DashboardPage() {
       : `${fmtTaka(Math.abs(dod.delta))}`;
 
   return (
-    <div className="oms-page">
-      <PageHeader title={t('pages.dashboard')} desc={t('pages.dashboardDesc')} />
+    <div className={`oms-page${effectiveDark ? ' dashboard-ink' : ''}`}>
+      <PageHeader
+        title={t('pages.dashboard')}
+        desc={t('pages.dashboardDesc')}
+        actions={
+          <Button
+            variant="outline"
+            onClick={cyclePaper}
+            title={effectiveDark ? 'Preview the ledger on rice paper' : 'Preview the ledger on ink paper'}
+          >
+            {effectiveDark ? '☀️ Rice paper' : '🌙 Ink paper'}
+          </Button>
+        }
+      />
+
+      {/* Gold-foil ledger stub — the merchant's copy of the ticket (ink only) */}
+      {effectiveDark && (
+        <div className="dashboard-ink__stub" aria-hidden="true">
+          <div className="dashboard-ink__stub-inner">
+            <div>
+              <span className="dashboard-ink__eyebrow">🧾 Daily ledger</span>
+              <div className="dashboard-ink__brand">{workspaceName || t('pages.dashboard')}</div>
+            </div>
+            <div className="dashboard-ink__date">
+              {new Date().toLocaleDateString(undefined, {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric',
+              })}
+            </div>
+          </div>
+          <div className="stub__tear" />
+        </div>
+      )}
 
       {/* Dashboard alerts (Phase 7) — low stock / cancellations / idle */}
       {(data.alerts || []).length > 0 && (

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import api from '../api';
+import { usePaper } from '../theme/PaperThemeContext';
 import { PageHeader, Card, Button, Skeleton, useToast } from '../components/ui';
 
 /**
@@ -19,9 +20,10 @@ const fmt = (n) => `৳ ${Number(n || 0).toLocaleString('en-IN', { maximumFracti
 export default function InvoicePage() {
   const { id } = useParams();
   const [invoice, setInvoice] = useState(null);
-  // The invoice sheet has two papers — ink (default, the merchant's copy)
-  // and rice (light) — so staff can preview it either way before printing.
-  const [paper, setPaper] = useState('ink'); // 'ink' | 'rice'
+  // The invoice sheet rides the global paper theme — ink paper when the app
+  // is on dark paper, rice paper when light — so staff can preview the
+  // merchant's copy either way and one toggle drives every surface.
+  const { effectiveDark, cyclePaper } = usePaper();
   const toast = useToast();
 
   useEffect(() => {
@@ -53,10 +55,10 @@ export default function InvoicePage() {
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <Button
                 variant="outline"
-                onClick={() => setPaper((p) => (p === 'ink' ? 'rice' : 'ink'))}
-                title={paper === 'ink' ? 'Preview on rice paper' : 'Preview on ink paper'}
+                onClick={cyclePaper}
+                title={effectiveDark ? 'Preview on rice paper' : 'Preview on ink paper'}
               >
-                {paper === 'ink' ? '🌙 Ink paper' : '☀️ Rice paper'}
+                {effectiveDark ? '☀️ Rice paper' : '🌙 Ink paper'}
               </Button>
               <Button variant="primary" className="invoice-print-btn" onClick={() => window.print()}>
                 🖨️ Print / PDF
@@ -76,7 +78,7 @@ export default function InvoicePage() {
         </Card>
       ) : (
         <Card bodyPadding={false}>
-          <div className={`invoice-sheet${paper === 'rice' ? ' invoice-sheet--rice' : ''}`}>
+          <div className={`invoice-sheet${effectiveDark ? '' : ' invoice-sheet--rice'}`}>
             {/* Gold-foil stub — the merchant's copy of the ticket */}
             <div className="invoice-sheet__stub">
               <div className="invoice-sheet__stub-inner">

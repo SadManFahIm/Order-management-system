@@ -1,0 +1,130 @@
+/* ============================================================
+   Ink-paper dashboard (Phase 8) — the merchant ledger
+   The dashboard rides the global paper theme: on dark paper the
+   whole page becomes the ink ledger — a deep green canvas, sage
+   ink, dashed ticket dividers and chilli-red money. Token
+   overrides (scoped to .dashboard-ink) keep every Card and chart
+   — all of which read var(--...) tokens — legible without
+   touching their markup.
+   ============================================================ */
+
+.dashboard-ink {
+  --surface: #0f1b16;
+  --surface-1: #10201a;
+  --surface-2: #12241c;
+  --surface-3: #173027;
+  --border: #22382e;
+  --border-strong: #2e4a3c;
+  --text: #e6efe9;
+  --text-strong: #f0f7f2;
+  --text-secondary: #c2d2c8;
+  --text-muted: #8ba397;
+  --primary: #2fd8c0;
+  --primary-hover: #45e2cb;
+  --primary-active: #22bda8;
+  --primary-soft: rgba(47, 216, 192, 0.14);
+  --accent: #e0b04e;
+  --accent-soft: rgba(224, 176, 78, 0.14);
+  --success: #57d98a;
+  --success-soft: rgba(87, 217, 138, 0.14);
+  --warning: #f5c453;
+  --warning-soft: rgba(245, 196, 83, 0.14);
+  --danger: #ff6b4a;
+  --danger-soft: rgba(255, 107, 74, 0.14);
+  --overlay: rgba(3, 10, 7, 0.6);
+
+  position: relative;
+  background:
+    radial-gradient(1100px 520px at 50% -180px, rgba(47, 216, 192, 0.07), transparent 70%),
+    linear-gradient(180deg, #0b1410, #0d1713 60%, #0b1410);
+  border: 1px solid #1c2f26;
+  border-radius: 24px;
+  padding: 24px 28px 40px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 18px 40px rgba(4, 12, 9, 0.35);
+}
+
+/* Gold-foil ledger stub — the merchant's copy of the ticket */
+.dashboard-ink__stub {
+  position: relative;
+  background: linear-gradient(135deg, #00b3a5 0%, #0c6b5e 100%);
+  border-radius: 16px;
+  margin-bottom: 18px;
+  color: #fff;
+  overflow: hidden;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.3);
+}
+.dashboard-ink__stub-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 22px 26px;
+  flex-wrap: wrap;
+}
+.dashboard-ink__eyebrow {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.72);
+  border: 1px dashed rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  padding: 4px 11px;
+  background: rgba(0, 0, 0, 0.12);
+}
+.dashboard-ink__brand {
+  margin-top: 8px;
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.dashboard-ink__date {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(0, 0, 0, 0.14);
+  border: 1px dashed rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  padding: 7px 14px;
+}
+
+/* Cards → ink sheets with dashed dividers */
+.dashboard-ink .oms-card {
+  background: linear-gradient(180deg, #101d18, #0e1915);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: 0 8px 22px rgba(3, 10, 7, 0.35);
+}
+.dashboard-ink .oms-card__header {
+  border-bottom: 1px dashed var(--border);
+}
+.dashboard-ink .oms-card__footer {
+  background: var(--surface-2);
+  border-top: 1px dashed var(--border);
+}
+
+/* Mini stat slips */
+.dashboard-ink .oms-mini-stat {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+/* Skeleton shimmer stays subtle on ink */
+.dashboard-ink .oms-skeleton {
+  background: var(--surface-3);
+}
+
+/* Page header on the ink canvas */
+.dashboard-ink .oms-page__title {
+  color: var(--text);
+}
+.dashboard-ink .oms-page__desc {
+  color: var(--text-muted);
+}
+
+/* Inline rows that read var(--surface-2) keep the ink look */
+.dashboard-ink .oms-card .oms-card__body > div {
+  color: var(--text-secondary);
+}

@@ -4,6 +4,7 @@ import {
   renderOrderStatusEmailHtml,
   sendOrderConfirmationEmail,
   sendOrderStatusEmail,
+  ticketPdfAttachment,
   STATUS_EMAIL_KEYS,
 } from '../services/notifications/orderConfirmation.js';
 
@@ -127,7 +128,32 @@ describe('sendOrderConfirmationEmail', () => {
     });
     expect(result).not.toBeNull();
     expect(result.messageId).toMatch(/^stub-/);
-    expect(result.attachments).toBe(0);
+    // Phase 8: the ticket rides along as a printable PDF attachment (the
+    // stub mailer reports the attachment count).
+    expect(result.attachments).toBe(1);
+  });
+});
+
+describe('ticketPdfAttachment', () => {
+  it('builds the printable ticket PDF with a safe filename', async () => {
+    const [att] = await ticketPdfAttachment(
+      { ...sample(), orderNo: 'ORD-1-ABC123-42' },
+      'ORDER TICKET · CONFIRMED'
+    );
+    expect(att.filename).toBe('order-ORD-1-ABC123-42.pdf');
+    expect(att.contentType).toBe('application/pdf');
+    expect(att.content.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(att.content.length).toBeGreaterThan(1500);
+  });
+
+  it('sanitizes hostile order numbers out of the filename', async () => {
+    const [att] = await ticketPdfAttachment(
+      { ...sample(), orderNo: '../<script>x</script>' },
+      'STAMP'
+    );
+    expect(att.filename).not.toContain('/');
+    expect(att.filename).not.toContain('<');
+    expect(att.filename.endsWith('.pdf')).toBe(true);
   });
 });
 
