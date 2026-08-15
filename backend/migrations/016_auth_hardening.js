@@ -1,3 +1,5 @@
+import { DataTypes } from 'sequelize';
+
 /**
  * 016 — Auth hardening (Phase 2): login lockout, forced password change,
  * and per-user permission flags.
@@ -24,8 +26,12 @@ export const up = async (qi, transaction) => {
     defaultValue: 0,
     ...t,
   });
+  // DataTypes.DATE (not the raw 'DATE' string) — on PostgreSQL 'DATE' is
+  // date-only and truncates the time to midnight, which would make a 15-min
+  // lock expire instantly. DataTypes.DATE maps to TIMESTAMP WITH TIME ZONE
+  // on PG and DATETIME on SQLite, matching the model.
   await qi.addColumn('users', 'locked_until', {
-    type: 'DATE',
+    type: DataTypes.DATE,
     allowNull: true,
     ...t,
   });
