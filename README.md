@@ -21,13 +21,17 @@ The Order Management System is evolving from a single-tenant order CRUD app into
 | **Phase 5** — Ordering & fulfillment | **Customer storefront checkout** (`POST /api/public/restaurants/:slug/checkout` — guest order, server-side pricing, `Idempotency-Key` retry safety, empty-cart/price/availability protection, WhatsApp alert + realtime broadcast), **order types** (pickup / delivery / scheduled pickup / scheduled delivery — address + schedule validation, delivery fee), **delivery assignment** (manager assign/reassign to delivery members, delivery-only filtered views, `out_for_delivery` lifecycle), **kitchen accept/reject** (reason-required reject, invalid-transition 409), **real-time kitchen queue** (JWT-authenticated WebSocket `/ws`, tenant-room isolation that follows the active workspace, reconnect backoff + resync, 30s polling fallback), order status workflow, fully translated EN/BN i18n, QR table menus, table-aware orders, order filters, WhatsApp alerts, customer tracking, Deliveroo design system | Checkout, delivery, idempotency, realtime + fulfillment suites green — **385 tests passing** |
 | **Phase 6** — Payments | **bKash/Nagad/cash payment records** (`payments` table + per-tenant methods + cashier confirm/refund with trxID), **SSLCommerz + Stripe + bKash gateway integration** (one provider registry, hosted checkout, signed webhooks + callback-execute, **local sandbox harness + 3-gateway E2E in CI**), **split payments** (multi-method per order, partial → paid recompute, New Order editor), **full/partial refunds** (audit trail: amount/at/reason/by + `audit_logs`), **payment reconciliation** (stale online intents auto-expire), **VAT-aware order invoices** (per-item NBR VAT split + linked payments + print/PDF), **daily closeout** (JSON + CSV + print/PDF + nightly email via real SMTP), **closeout trend dashboard** (7/30-day curve + method mix + day-over-day + 3-day forecast + month-over-month), **VAT compliance report** (migration 009), **nightly merchant digest** (email + signed WhatsApp push), `seed:payment-demo` | Gateway, split, refund, reconciliation, invoice & closeout suites green (3-gateway sandbox E2E in CI) |
 | **Phase 7** — Analytics | **Peak-hours heatmap** (7×24 Dhaka grid + busiest-slot insight), **category-mix donut**, **customer retention** (repeat rate, avg order value, masked top customers), **fulfillment-time stats** (placed → delivered per type), **live order queue** (30s auto-refresh) + **dashboard alerts** (low stock / high cancellation / idle), **platform-admin cross-tenant analytics** (SaaS revenue, top restaurants, method mix), **nightly rollup layer** (migration 011 `daily_stats` + `?source=rollup`) + **6-month perf acceptance** (<2s p95 — measured 279ms), `seed:analytics` demo data | **334 tests** passing (SQLite) + PG · live UI verified · perf p95 279ms |
-| **Phase 8** — The Table Ticket everywhere | **Global paper theme context** (`PaperThemeProvider` — one auto/light/dark toggle now drives the storefront ticket, the merchant ledger and the invoice), **ink-paper merchant ledger dashboard** (gold “Daily ledger” stub, ink sheets, sage ink, chilli money — charts adapt via token overrides), **ticket-styled closeout email/PDF** (gold stub + date stamp + dashed ticket stat/order rows + top-sellers/low-stock digest), **PDF ticket attachments** on the confirmation + status emails (pdfkit — `order-<no>.pdf`, Latin-sanitized, fallback-safe) | Email, PDF, reports, digest & e2e suites green — **435 backend tests** + **27 e2e** |
+| **Phase 8** — The Table Ticket everywhere | **Global paper theme context** (`PaperThemeProvider` — one auto/light/dark toggle now drives the storefront ticket, the merchant ledger and the invoice), **ink-paper merchant ledger dashboard** (gold “Daily ledger” stub, ink sheets, sage ink, chilli money — charts adapt via token overrides), **ticket-styled closeout email/PDF** (gold stub + date stamp + dashed ticket stat/order rows + top-sellers/low-stock digest), **PDF ticket attachments** on the confirmation + status emails (pdfkit — `order-<no>.pdf`, Latin-sanitized, fallback-safe), **ticket-styled auth pages** (sign-in/register/reset/verify as one ticket — gold-foil ORDERLY stub, scalloped tear, food orbs, paper theme + 🌙 toggle) | Email, PDF, reports, digest & e2e suites green — **458 backend tests** + **27 e2e** |
 
 ---
 
 ## ✨ Features
 
 ### Currently working
+
+**The Table Ticket — auth pages (frontend design pass)**
+- Sign-in, register, forgot/reset password and email-verify all render as **one ticket**: a deep-green brand stub with a gold-foil ORDERLY wordmark and a ticket number (No. 0041), perforated off with the scalloped tear, and the form sitting on paper below
+- Food orbs float behind the stub (the landing's playful motif), and the paper follows the **global paper theme** — warm rice paper in light, ink paper in dark — with a 🌙/☀️ toggle right on the stub; the submit button reads as a gold-foil counterfoil and form fields sit on the paper
 
 **Foundation hardening (Phase 1 completion)**
 - **Liveness / readiness probes** — `GET /api/health` answers without touching dependencies (uptime + request id) and `GET /api/health/ready` authenticates the database (200 ok / 503 error), so load balancers and Kubernetes probes have stable endpoints (`/health` stays as a legacy alias)
@@ -308,6 +312,13 @@ Deeper analytics (retention cohorts, funnel, delivery perf) · SaaS admin portal
 |---|---|
 | **Settings — Security, Active sessions, Login activity & Team & access** (lockout, per-device sign-out, audit trail, per-user permission flags) | **Change password** — self-service & admin-forced reset flow |
 | ![Auth hardening — Settings](docs/screenshots/auth-hardening-settings.png) | ![Change password](docs/screenshots/auth-change-password.png) |
+
+### The Table Ticket — auth pages (frontend design pass)
+
+| | |
+|---|---|
+| **Sign-in ticket — rice paper** (gold-foil ORDERLY stub, ticket number, scalloped tear, food orbs, gold counterfoil button) | **Sign-in ticket — ink paper** (the same ticket in the global dark paper theme; 🌙 toggle on the stub) |
+| ![Auth ticket — light](docs/screenshots/auth-ticket-light.png) | ![Auth ticket — ink](docs/screenshots/auth-ticket-ink.png) |
 
 ---
 

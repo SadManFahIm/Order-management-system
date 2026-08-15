@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import api from '../api';
-import { Logo, Field, Input, Button } from '../components/ui';
+import { Field, Input, Button } from '../components/ui';
+import AuthTicket from '../components/AuthTicket';
 
 export default function ResetPasswordPage() {
   const [params] = useSearchParams();
@@ -38,84 +39,76 @@ export default function ResetPasswordPage() {
   };
 
   return (
-    <div className="oms-auth">
-      <div className="oms-auth__card">
-        <div className="oms-auth__logo">
-          <Logo />
+    <AuthTicket title="Set a new password" desc="Choose a strong password for your account.">
+      {state === 'success' ? (
+        <div style={{ marginTop: 20, textAlign: 'center' }}>
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '10px 16px',
+              borderRadius: 8,
+              background: 'var(--success-soft)',
+              color: 'var(--success)',
+              fontSize: 13,
+              fontWeight: 550,
+            }}
+          >
+            ✓ Password updated
+          </div>
+          <div style={{ marginTop: 20 }}>
+            <Button to="/login" variant="primary">
+              Sign in
+            </Button>
+          </div>
         </div>
-        <h1 className="oms-auth__title">Set a new password</h1>
-        <p className="oms-auth__desc">Choose a strong password for your account.</p>
+      ) : (
+        <form onSubmit={onSubmit} style={{ marginTop: 20 }}>
+          <Field label="New password">
+            <Input
+              type="password"
+              id="rp-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              required
+              minLength={8}
+              autoComplete="new-password"
+            />
+          </Field>
+          <Field label="Confirm password">
+            <Input
+              type="password"
+              id="rp-confirm"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              placeholder="••••••••"
+              required
+              autoComplete="new-password"
+            />
+          </Field>
 
-        {state === 'success' ? (
-          <div style={{ marginTop: 24, textAlign: 'center' }}>
+          {message && (
             <div
+              role="alert"
               style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '10px 16px',
+                padding: '10px 12px',
                 borderRadius: 8,
-                background: 'var(--success-soft)',
-                color: 'var(--success)',
+                background: state === 'error' ? 'var(--danger-soft)' : 'var(--surface-2)',
+                color: state === 'error' ? 'var(--danger)' : 'var(--text-secondary)',
                 fontSize: 13,
-                fontWeight: 550,
               }}
             >
-              ✓ Password updated
+              {message}
             </div>
-            <div style={{ marginTop: 20 }}>
-              <Button to="/login" variant="primary">
-                Sign in
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <form onSubmit={onSubmit} style={{ marginTop: 24 }}>
-            <Field label="New password">
-              <Input
-                type="password"
-                id="rp-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-                minLength={8}
-                autoComplete="new-password"
-              />
-            </Field>
-            <Field label="Confirm password">
-              <Input
-                type="password"
-                id="rp-confirm"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                placeholder="••••••••"
-                required
-                autoComplete="new-password"
-              />
-            </Field>
+          )}
 
-            {message && (
-              <div
-                role="alert"
-                style={{
-                  padding: '10px 12px',
-                  borderRadius: 8,
-                  background: state === 'error' ? 'var(--danger-soft)' : 'var(--surface-2)',
-                  color: state === 'error' ? 'var(--danger)' : 'var(--text-secondary)',
-                  fontSize: 13,
-                }}
-              >
-                {message}
-              </div>
-            )}
-
-            <Button type="submit" variant="primary" size="lg" loading={submitting} style={{ width: '100%', marginTop: 16 }}>
-              {submitting ? 'Saving…' : 'Reset password'}
-            </Button>
-          </form>
-        )}
-      </div>
-    </div>
+          <Button type="submit" variant="primary" size="lg" loading={submitting} style={{ width: '100%', marginTop: 16 }}>
+            {submitting ? 'Saving…' : 'Reset password'}
+          </Button>
+        </form>
+      )}
+    </AuthTicket>
   );
 }

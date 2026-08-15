@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api';
-import { Logo, Field, Input, Button, Card } from '../components/ui';
+import { Field, Input, Button, Card } from '../components/ui';
+import AuthTicket from '../components/AuthTicket';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
@@ -26,59 +27,51 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <div className="oms-auth">
-      <div className="oms-auth__card">
-        <div className="oms-auth__logo">
-          <Logo />
-        </div>
-        <h1 className="oms-auth__title">Reset your password</h1>
-        <p className="oms-auth__desc">We'll email you a secure reset link.</p>
-
-        {sent ? (
-          <Card bodyPadding={false} style={{ marginTop: 24 }}>
-            <div style={{ padding: '20px 22px' }}>
-              <p style={{ color: 'var(--text)', fontWeight: 550 }}>Check your inbox</p>
-              <p style={{ marginTop: 6, fontSize: 13, color: 'var(--text-secondary)' }}>
-                If that email exists, a reset link has been sent.
+    <AuthTicket
+      title="Reset your password"
+      desc="We'll email you a secure reset link."
+      footer={<Link to="/login">Back to login</Link>}
+    >
+      {sent ? (
+        <Card bodyPadding={false} style={{ marginTop: 20 }}>
+          <div style={{ padding: '20px 22px' }}>
+            <p style={{ color: 'var(--text)', fontWeight: 550 }}>Check your inbox</p>
+            <p style={{ marginTop: 6, fontSize: 13, color: 'var(--text-secondary)' }}>
+              If that email exists, a reset link has been sent.
+            </p>
+            {devLink && (
+              <p style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)' }}>
+                Development mode: <Link to={devLink}>open the reset link</Link>
               </p>
-              {devLink && (
-                <p style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)' }}>
-                  Development mode: <Link to={devLink}>open the reset link</Link>
-                </p>
-              )}
-            </div>
-          </Card>
-        ) : (
-          <form onSubmit={onSubmit} style={{ marginTop: 24 }}>
-            <Field label="Email">
-              <Input type="email" id="fp-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@restaurant.com" required autoComplete="email" />
-            </Field>
-
-            {error && (
-              <div
-                role="alert"
-                style={{
-                  padding: '10px 12px',
-                  borderRadius: 8,
-                  background: 'var(--danger-soft)',
-                  color: 'var(--danger)',
-                  fontSize: 13,
-                }}
-              >
-                {error}
-              </div>
             )}
+          </div>
+        </Card>
+      ) : (
+        <form onSubmit={onSubmit} style={{ marginTop: 20 }}>
+          <Field label="Email">
+            <Input type="email" id="fp-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@restaurant.com" required autoComplete="email" />
+          </Field>
 
-            <Button type="submit" variant="primary" size="lg" loading={submitting} style={{ width: '100%', marginTop: 16 }}>
-              {submitting ? 'Sending…' : 'Send reset link'}
-            </Button>
-          </form>
-        )}
+          {error && (
+            <div
+              role="alert"
+              style={{
+                padding: '10px 12px',
+                borderRadius: 8,
+                background: 'var(--danger-soft)',
+                color: 'var(--danger)',
+                fontSize: 13,
+              }}
+            >
+              {error}
+            </div>
+          )}
 
-        <div className="oms-auth__footer">
-          <Link to="/login">Back to login</Link>
-        </div>
-      </div>
-    </div>
+          <Button type="submit" variant="primary" size="lg" loading={submitting} style={{ width: '100%', marginTop: 16 }}>
+            {submitting ? 'Sending…' : 'Send reset link'}
+          </Button>
+        </form>
+      )}
+    </AuthTicket>
   );
 }
