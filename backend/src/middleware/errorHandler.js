@@ -1,4 +1,5 @@
 import { ZodError } from 'zod';
+import { logger } from '../utils/logger.js';
 
 /**
  * Operational error with an HTTP status and a stable machine-readable code.
@@ -44,7 +45,12 @@ export function errorHandler(err, req, res, next) {
   const isInternal = status >= 500;
 
   if (isInternal) {
-    console.error(`[${req.id}] ${err.stack || err.message}`);
+    logger.error('request failed', {
+      requestId: req.id,
+      method: req.method,
+      path: req.originalUrl,
+      error: err.stack || err.message,
+    });
   }
 
   res.status(status).json({
