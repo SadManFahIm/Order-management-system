@@ -19,6 +19,8 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
   provisionStaffSchema,
+  changePasswordSchema,
+  memberPermissionsSchema,
 } from '../validators/auth.js';
 
 const router = express.Router();
@@ -59,6 +61,9 @@ router.post(
       accessToken: session.accessToken,
       user: session.user,
       requiresTwoFactor: false,
+      // Admin-forced reset: the client must take the user through the
+      // change-password flow before showing the app.
+      mustChangePassword: Boolean(session.mustChangePassword),
     });
   })
 );
@@ -233,6 +238,66 @@ router.delete(
   asyncHandler(async (req, res) => {
     const result = await authService.revokeSession(req.user.id, Number(req.params.id));
     res.json(result);
+  })
+);
+
+/** POST /api/auth/sessions/revoke-others — sign out every other device. */
+router.post(
+  '/sessions/revoke-others',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    res.json(await authService.revokeOtherSessions(req));
+  })
+);
+
+/** GET /api/auth/audit — recent security events for the current user. */
+router.get(
+  '/audit',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    const limit = Number(req.query.limit) || 25;
+    res.json({ events: await authService.listAuthAudit(req.user.id, limit) });
+  })
+);
+
+/** POST /api/auth/change-password — verify current, enforce policy, rotate. */
+router.post(
+  '/change-password',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    const result = await authService.changePassword(changePasswordSchema.parse(req.body), req);
+    res.json(result);
+  })
+);
+
+/** POST /api/auth/users/:id/unlock — manager+ clears a lockout. */
+router.post(
+  '/users/:id/unlock',
+  authMiddleware,
+  requirePermission('manage:users'),
+  asyncHandler(async (req, res) => {
+    res.json(await authService.unlockAccount(req.user, Number(req.params.id), req));
+  })
+);
+
+/** POST /api/auth/users/:id/force-password-reset — manager+ forces a change. */
+router.post(
+  '/users/:id/force-password-reset',
+  authMiddleware,
+  requirePermission('manage:users'),
+  asyncHandler(async (req, res) => {
+    res.json(await authService.forcePasswordReset(req.user, Number(req.params.id), req));
+  })
+);
+
+/** PATCH /api/auth/users/:id/permissions — per-user RBAC flags (manager+). */
+router.patch(
+  '/users/:id/permissions',
+  authMiddleware,
+  requirePermission('manage:users'),
+  asyncHandler(async (req, res) => {
+    const { tenantId, permissions } = memberPermissionsSchema.parse(req.body);
+    res.json(await authService.setMemberPermissions(req.user, tenantId, Number(req.params.id), permissions, req));
   })
 );
 

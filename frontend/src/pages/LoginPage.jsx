@@ -23,11 +23,21 @@ export default function LoginPage() {
       const result = await login(email, password);
       if (result.requiresTwoFactor) {
         setStep('2fa');
+      } else if (result.mustChangePassword) {
+        // Admin forced a password reset — the app unlocks only after a change.
+        nav('/change-password');
       } else {
         nav('/products');
       }
-    } catch {
-      setError('Invalid email or password');
+    } catch (err) {
+      const code = err?.response?.data?.error?.code;
+      if (code === 'ACCOUNT_LOCKED') {
+        const retry = err?.response?.data?.error?.details?.retryAfterSeconds;
+        const minutes = retry ? Math.max(1, Math.ceil(retry / 60)) : 15;
+        setError(`Too many failed attempts. Your account is locked — try again in about ${minutes} min.`);
+      } else {
+        setError('Invalid email or password');
+      }
     } finally {
       setSubmitting(false);
     }

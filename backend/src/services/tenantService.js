@@ -212,16 +212,39 @@ export async function listMembers(user, tenantId) {
   const { tenant } = await assertTenantAccess(user, tenantId, 'manage:members');
   const memberships = await UserTenant.findAll({
     where: { tenant_id: tenant.id },
-    include: [{ model: User, attributes: ['id', 'name', 'email'] }],
+    include: [
+      {
+        model: User,
+        attributes: [
+          'id',
+          'name',
+          'email',
+          'platform_role',
+          'failed_login_attempts',
+          'locked_until',
+          'must_change_password',
+        ],
+      },
+    ],
     order: [['id', 'ASC']],
   });
-  return memberships.map((m) => ({
-    id: m.id,
-    userId: m.user_id,
-    name: m.User?.name,
-    email: m.User?.email,
-    role: m.role,
-  }));
+  return memberships.map((m) => {
+    const locked = m.User?.locked_until && new Date(m.User.locked_until).getTime() > Date.now();
+    return {
+      id: m.id,
+      userId: m.user_id,
+      name: m.User?.name,
+      email: m.User?.email,
+      role: m.role,
+      // Per-user RBAC flags (migration 016) — [] when none set.
+      permissions: Array.isArray(m.permissions) ? m.permissions : [],
+      // Account-state flags for the Team & access panel.
+      locked: Boolean(locked),
+      lockedUntil: locked ? m.User.locked_until : null,
+      mustChangePassword: Boolean(m.User?.must_change_password),
+      platformRole: m.User?.platform_role || 'member',
+    };
+  });
 }
 
 /** Invite a member by email (creates the user if needed) or update their role. */

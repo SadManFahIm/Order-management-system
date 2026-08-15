@@ -5,10 +5,13 @@ import { logger } from '../utils/logger.js';
  * Operational error with an HTTP status and a stable machine-readable code.
  */
 export class AppError extends Error {
-  constructor(status, code, message) {
+  constructor(status, code, message, details = null) {
     super(message);
     this.status = status;
     this.code = code;
+    // Optional structured details (e.g. retryAfterSeconds for lockouts)
+    // surfaced to clients under error.details.
+    this.details = details;
   }
 }
 
@@ -58,6 +61,8 @@ export function errorHandler(err, req, res, next) {
       code: err.code || (isInternal ? 'INTERNAL_ERROR' : 'REQUEST_FAILED'),
       message: isInternal ? 'Internal server error' : err.message,
       requestId: req.id,
+      // Structured details (lockout retry-after, etc.) ride along when set.
+      ...(err.details ? { details: err.details } : {}),
     },
   });
 }

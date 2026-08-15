@@ -18,7 +18,7 @@ async function createUser(overrides = {}) {
   return User.create({
     name: 'Someone',
     email: `${Math.random().toString(36).slice(2)}@example.com`,
-    password: await bcrypt.hash('password123', 10),
+    password: await bcrypt.hash('Password123', 10),
     platform_role: 'customer',
     ...overrides,
   });
@@ -29,7 +29,7 @@ describe('registration & email verification', () => {
     const res = await request(app).post('/api/auth/register').send({
       name: 'New Customer',
       email: 'customer1@example.com',
-      password: 'password123',
+      password: 'Password123',
     });
 
     expect(res.status).toBe(201);
@@ -42,7 +42,7 @@ describe('registration & email verification', () => {
     const res = await request(app).post('/api/auth/register').send({
       name: 'Duplicate',
       email: 'customer1@example.com',
-      password: 'password123',
+      password: 'Password123',
     });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('EMAIL_IN_USE');
@@ -61,7 +61,7 @@ describe('registration & email verification', () => {
     const register = await request(app).post('/api/auth/register').send({
       name: 'Verify Me',
       email: 'verify@example.com',
-      password: 'password123',
+      password: 'Password123',
     });
 
     const res = await request(app)
@@ -79,7 +79,7 @@ describe('registration & email verification', () => {
     const register = await request(app).post('/api/auth/register').send({
       name: 'Reuse Me',
       email: 'reuse@example.com',
-      password: 'password123',
+      password: 'Password123',
     });
     const token = register.body.devToken;
     await request(app).post('/api/auth/verify-email').send({ token });
@@ -93,7 +93,7 @@ describe('login', () => {
   it('returns an access token and user for valid credentials', async () => {
     const res = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'customer1@example.com', password: 'password123' });
+      .send({ email: 'customer1@example.com', password: 'Password123' });
 
     expect(res.status).toBe(200);
     expect(res.body.accessToken).toBeTruthy();
@@ -114,7 +114,7 @@ describe('RBAC guards', () => {
   it('blocks a customer from merchant endpoints with 403', async () => {
     const login = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'customer1@example.com', password: 'password123' });
+      .send({ email: 'customer1@example.com', password: 'Password123' });
 
     const res = await request(app)
       .get('/api/products')
@@ -134,7 +134,7 @@ describe('RBAC guards', () => {
 
     const login = await request(app)
       .post('/api/auth/login')
-      .send({ email: member.email, password: 'password123' });
+      .send({ email: member.email, password: 'Password123' });
 
     const res = await request(app)
       .get('/api/products')
@@ -148,7 +148,7 @@ describe('RBAC guards', () => {
     const admin = await createUser({ platform_role: 'platform_admin' });
     const login = await request(app)
       .post('/api/auth/login')
-      .send({ email: admin.email, password: 'password123' });
+      .send({ email: admin.email, password: 'Password123' });
 
     const res = await request(app)
       .post('/api/products')
@@ -174,12 +174,12 @@ describe('RBAC guards', () => {
     const admin = await createUser({ platform_role: 'platform_admin' });
     const login = await request(app)
       .post('/api/auth/login')
-      .send({ email: admin.email, password: 'password123' });
+      .send({ email: admin.email, password: 'Password123' });
 
     const res = await request(app)
       .post('/api/auth/staff')
       .set('Authorization', `Bearer ${login.body.accessToken}`)
-      .send({ name: 'Cashier One', email: 'cashier1@example.com', password: 'password123', tenantId: tenant.id, role: 'cashier' });
+      .send({ name: 'Cashier One', email: 'cashier1@example.com', password: 'Password123', tenantId: tenant.id, role: 'cashier' });
 
     expect(res.status).toBe(201);
     const membership = await UserTenant.findOne({ where: { user_id: res.body.user.id, tenant_id: tenant.id } });
@@ -189,7 +189,7 @@ describe('RBAC guards', () => {
   it('cashier can place orders but cannot manage the menu', async () => {
     const cashierLogin = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'cashier1@example.com', password: 'password123' });
+      .send({ email: 'cashier1@example.com', password: 'Password123' });
     const auth = { Authorization: `Bearer ${cashierLogin.body.accessToken}` };
 
     const menuRes = await request(app).post('/api/products').set(auth).send({ name: 'Hack', price: 1, weight_gm: 1 });
@@ -220,7 +220,7 @@ describe('RBAC guards', () => {
     const reg = await request(app).post('/api/auth/register').send({
       name: 'Invited Cashier',
       email: 'invited-cashier@example.com',
-      password: 'password123',
+      password: 'Password123',
     });
     expect(reg.status).toBe(201);
     const userId = reg.body.user.id;
@@ -230,7 +230,7 @@ describe('RBAC guards', () => {
 
     const login = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'invited-cashier@example.com', password: 'password123' });
+      .send({ email: 'invited-cashier@example.com', password: 'Password123' });
     const auth = { Authorization: `Bearer ${login.body.accessToken}`, 'X-Tenant': String(cafe.id) };
 
     // view:menu — can list products (was 403 before the effectiveRole fix).

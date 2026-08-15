@@ -74,6 +74,7 @@ describe('migration runner', () => {
       '013_split_billing.js',
       '014_customer_email.js',
       '015_hot_query_indexes.js',
+      '016_auth_hardening.js',
     ]);
   });
 
@@ -105,7 +106,7 @@ describe('migration runner', () => {
   it('reports every migration as applied', async () => {
     const status = await migrationStatus(sequelize);
     expect(status.every((row) => row.state === 'applied')).toBe(true);
-    expect(status).toHaveLength(15);
+    expect(status).toHaveLength(16);
   });
 
   it('adds menu_items.vat_rate via migration 009', async () => {
@@ -119,6 +120,14 @@ describe('migration runner', () => {
 
   it('rolls back only the most recent migration, then re-applies', async () => {
     const qi = sequelize.getQueryInterface();
+
+    // Down 016: removes the auth-hardening columns (lockout / force-change /
+    // per-user permission flags).
+    expect(await migrateDown(sequelize)).toBe(1);
+    expect((await qi.describeTable('users')).failed_login_attempts).toBeUndefined();
+    expect((await qi.describeTable('users')).locked_until).toBeUndefined();
+    expect((await qi.describeTable('users')).must_change_password).toBeUndefined();
+    expect((await qi.describeTable('user_tenants')).permissions).toBeUndefined();
 
     // Down 015: removes the hot-query indexes (orders/payments by tenant + day).
     expect(await migrateDown(sequelize)).toBe(1);
@@ -165,14 +174,19 @@ describe('migration runner', () => {
     expect(await migrateDown(sequelize)).toBe(1);
     expect((await qi.describeTable('orders')).table_no).toBeUndefined();
 
-    // Re-applying restores all nine rolled-back.
-    expect(await migrateUp(sequelize)).toBe(9);
+    // Re-applying restores all ten rolled-back.
+    expect(await migrateUp(sequelize)).toBe(10);
     expect(await qi.tableExists('order_split_items')).toBe(true);
     expect((await qi.describeTable('payments')).split_method).toBeDefined();
     expect((await qi.describeTable('menu_items')).vat_rate).toBeDefined();
     expect(await qi.tableExists('payments')).toBe(true);
     expect(await qi.tableExists('daily_stats')).toBe(true);
     expect(await qi.tableExists('idempotency_keys')).toBe(true);
+    // 016 restored: auth-hardening columns back.
+    expect((await qi.describeTable('users')).failed_login_attempts).toBeDefined();
+    expect((await qi.describeTable('users')).locked_until).toBeDefined();
+    expect((await qi.describeTable('users')).must_change_password).toBeDefined();
+    expect((await qi.describeTable('user_tenants')).permissions).toBeDefined();
     expect((await qi.describeTable('payments')).refunded_amount).toBeDefined();
     expect((await qi.describeTable('orders')).payment_method).toBeDefined();
     expect((await qi.describeTable('orders')).table_no).toBeDefined();

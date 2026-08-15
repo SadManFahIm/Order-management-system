@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import app from '../app.js';
 import sequelize from '../config/db.js';
 import { resetTestDb } from '../test/resetDb.js';
-import { User, Tenant, UserTenant, Product, Order } from '../models/index.js';
+import { User, Tenant, UserTenant, Product, Order, Payment } from '../models/index.js';
 
 /**
  * Payment records (Phase 5) — bKash/Nagad/cash lifecycle.
@@ -289,9 +289,10 @@ describe('PATCH /api/payments/:id — confirm / refund', () => {
       .set('Authorization', `Bearer ${cashierToken}`)
       .send({ status: 'paid', reference: 'TRX-REF-1' });
 
+    // Collect it first — refunds only make sense on collected money.
     const res = await request(app)
       .patch(`/api/payments/${payment.id}`)
-      .set('Authorization', `Bearer ${cashierToken}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
       .send({ status: 'refunded', reason: 'Customer complained' });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
@@ -306,11 +307,33 @@ describe('PATCH /api/payments/:id — confirm / refund', () => {
     expect(order.payment_status).toBe('refunded');
   });
 
+  it('denies refunds to cashiers (refund:orders is manager+)', async () => {
+    const placed = await placeOrder(ownerToken, { payment_method: 'nagad' });
+    const payment = placed.body.payments[0];
+    await request(app)
+      .patch(`/api/payments/${payment.id}`)
+      .set('Authorization', `Bearer ${cashierToken}`)
+      .send({ status: 'paid', reference: 'TRX-REF-DENY' });
+
+    // Cashier can collect… but refunding is forbidden.
+    const res = await request(app)
+      .patch(`/api/payments/${payment.id}`)
+      .set('Authorization', `Bearer ${cashierToken}`)
+      .send({ status: 'refunded', reason: 'Attempted' });
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('FORBIDDEN');
+
+    // The payment is untouched.
+    const paymentAfter = await Payment.findByPk(payment.id);
+    expect(paymentAfter.status).toBe('paid');
+    expect(paymentAfter.refunded_amount).toBeNull();
+  });
+
   it('rejects refunding a payment that was never collected', async () => {
     const placed = await placeOrder(ownerToken, { payment_method: 'bkash' });
     const res = await request(app)
       .patch(`/api/payments/${placed.body.payments[0].id}`)
-      .set('Authorization', `Bearer ${cashierToken}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
       .send({ status: 'refunded' });
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('REFUND_NOT_ALLOWED');
@@ -326,7 +349,7 @@ describe('PATCH /api/payments/:id — confirm / refund', () => {
 
     const res = await request(app)
       .patch(`/api/payments/${payment.id}`)
-      .set('Authorization', `Bearer ${cashierToken}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
       .send({ status: 'refunded', amount: 100, reason: 'One item missing' });
     expect(res.status).toBe(200);
     expect(res.body.refunded_amount).toBe(100);
@@ -344,7 +367,7 @@ describe('PATCH /api/payments/:id — confirm / refund', () => {
       .send({ status: 'paid' });
     const res = await request(app)
       .patch(`/api/payments/${payment.id}`)
-      .set('Authorization', `Bearer ${cashierToken}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
       .send({ status: 'refunded', amount: 99999 });
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('VALIDATION_ERROR');

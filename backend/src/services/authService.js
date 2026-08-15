@@ -1,10 +1,12 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { Op } from 'sequelize';
 import { generateSecret, verify, generateURI } from 'otplib';
 import QRCode from 'qrcode';
 
 import { env } from '../config/env.js';
+import { isPermissionFlag } from '../config/roles.js';
 import { AppError } from '../middleware/errorHandler.js';
 import {
   User,
@@ -13,6 +15,7 @@ import {
   UserTenant,
   Tenant,
 } from '../models/index.js';
+import AuditLog from '../models/AuditLog.js';
 import { audit } from './auditService.js';
 import { sendEmail } from './notifications/email.js';
 
@@ -22,6 +25,12 @@ const DUMMY_PASSWORD_HASH = '$2a$10$RRKPx6ammuFaDceeFdeChu2aqLAiNhVERRXpzAMM48lw
 
 export const ACCESS_TOKEN_TTL = '15m';
 export const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+// Brute-force lockout policy (Phase 2): after MAX_LOGIN_ATTEMPTS failed
+// password tries the account locks for LOCKOUT_MS; the counter resets on a
+// successful login or an admin unlock.
+export const MAX_LOGIN_ATTEMPTS = 5;
+export const LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
 
 export const refreshCookieOptions = {
   httpOnly: true,
@@ -103,7 +112,11 @@ export function clearRefreshCookie(res) {
 
 // ── Registration & verification ────────────────────────────────────────────
 
-/** Password policy: 8–128 chars with at least one letter and one digit. */
+/**
+ * Password policy (Phase 2 hardening): 8–128 chars, and at least one
+ * uppercase letter, one lowercase letter and one digit. A moderate bar —
+ * enough to reject the obvious weak passwords without punishing real users.
+ */
 export function validatePassword(password) {
   if (typeof password !== 'string' || password.length < 8 || password.length > 128) {
     throw new AppError(
@@ -112,11 +125,17 @@ export function validatePassword(password) {
       'Password must be between 8 and 128 characters'
     );
   }
-  if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+  const checks = [
+    [/[A-Z]/, 'an uppercase letter'],
+    [/[a-z]/, 'a lowercase letter'],
+    [/\d/, 'a number'],
+  ];
+  const missing = checks.filter(([re]) => !re.test(password)).map(([, label]) => label);
+  if (missing.length) {
     throw new AppError(
       400,
       'WEAK_PASSWORD',
-      'Password must contain at least one letter and one number'
+      `Password must contain ${missing.join(', ')}`
     );
   }
 }
@@ -184,17 +203,62 @@ export async function verifyEmail(raw, req) {
 
 // ── Login ──────────────────────────────────────────────────────────────────
 
+/**
+ * Records a failed password attempt. Locks the account once the threshold
+ * is hit. Only existing accounts can lock (nothing to lock for unknown
+ * emails). Never throws — auditing must not break the login response.
+ */
+async function recordFailedLogin(user, req) {
+  if (!user) return;
+  const attempts = Number(user.failed_login_attempts || 0) + 1;
+  const willLock = attempts >= MAX_LOGIN_ATTEMPTS;
+  await user.update({
+    failed_login_attempts: attempts,
+    locked_until: willLock ? new Date(Date.now() + LOCKOUT_MS) : user.locked_until,
+  });
+  await audit({
+    action: willLock ? 'auth.account_locked' : 'auth.login_failed',
+    actorId: user.id,
+    entityType: 'User',
+    entityId: user.id,
+    metadata: { email: user.email, attempts },
+    req,
+  });
+}
+
+/** Returns seconds remaining in a lock, or null when not locked. */
+export function lockoutRemainingSeconds(user) {
+  if (!user?.locked_until) return null;
+  const remaining = new Date(user.locked_until).getTime() - Date.now();
+  return remaining > 0 ? Math.ceil(remaining / 1000) : null;
+}
+
 export async function login({ email, password }, req) {
   const normalizedEmail = String(email).trim().toLowerCase();
   const user = await User.findOne({ where: { email: normalizedEmail } });
 
+  // Locked accounts are refused before any password work (timing-safe).
+  const lockedSeconds = lockoutRemainingSeconds(user);
+  if (lockedSeconds !== null) {
+    throw new AppError(
+      423,
+      'ACCOUNT_LOCKED',
+      'Too many failed attempts. Try again later.',
+      { retryAfterSeconds: lockedSeconds }
+    );
+  }
+
   // Always compare (dummy hash for missing accounts) to prevent timing leaks.
   const ok = await bcrypt.compare(password, user ? user.password : DUMMY_PASSWORD_HASH);
   if (!user || !ok) {
-    await audit({ action: 'auth.login_failed', actorId: user?.id || null, entityType: 'User', entityId: user?.id, metadata: { email: normalizedEmail }, req });
+    await recordFailedLogin(user, req);
     throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid credentials');
   }
 
+  // Success clears the failure counter.
+  if (user.failed_login_attempts || user.locked_until) {
+    await user.update({ failed_login_attempts: 0, locked_until: null });
+  }
   await audit({ action: 'auth.login', actorId: user.id, entityType: 'User', entityId: user.id, req });
 
   if (user.two_factor_enabled) {
@@ -205,7 +269,11 @@ export async function login({ email, password }, req) {
   }
 
   const session = await issueSession(user, req);
-  return { requiresTwoFactor: false, ...session };
+  return {
+    requiresTwoFactor: false,
+    mustChangePassword: Boolean(user.must_change_password),
+    ...session,
+  };
 }
 
 export async function verifyLoginTwoFactor({ twoFactorToken, code }, req) {
@@ -230,9 +298,13 @@ export async function verifyLoginTwoFactor({ twoFactorToken, code }, req) {
     throw new AppError(401, 'TWO_FACTOR_INVALID', 'Invalid two-factor code');
   }
 
+  // Success clears the failure counter.
+  if (user.failed_login_attempts || user.locked_until) {
+    await user.update({ failed_login_attempts: 0, locked_until: null });
+  }
   await audit({ action: 'auth.2fa_verified', actorId: user.id, entityType: 'User', entityId: user.id, req });
   const session = await issueSession(user, req);
-  return session;
+  return { ...session, mustChangePassword: Boolean(user.must_change_password) };
 }
 
 // ── Refresh rotation & logout ──────────────────────────────────────────────
@@ -335,7 +407,46 @@ export async function revokeSession(userId, sessionId) {
   });
   if (!record) throw new AppError(404, 'SESSION_NOT_FOUND', 'Session not found');
   await record.update({ revoked_at: new Date() });
+  await audit({
+    action: 'auth.session_revoked',
+    actorId: userId,
+    entityType: 'RefreshToken',
+    entityId: record.id,
+    req: null,
+  });
   return { message: 'Session revoked' };
+}
+
+/**
+ * Signs out every device except the caller's current one (the refresh-token
+ * family in the cookie). Used by the "Sign out other devices" button.
+ */
+export async function revokeOtherSessions(req) {
+  const rawToken = req.cookies?.[REFRESH_COOKIE_NAME];
+  if (!rawToken) throw new AppError(401, 'NO_REFRESH_TOKEN', 'Missing refresh token');
+  const current = await RefreshToken.findOne({ where: { token_hash: sha256(rawToken) } });
+  if (!current) throw new AppError(401, 'INVALID_REFRESH_TOKEN', 'Refresh token is invalid');
+
+  // Model.update resolves to [affectedCount, rows] — take the count.
+  const [affected] = await RefreshToken.update(
+    { revoked_at: new Date() },
+    {
+      where: {
+        user_id: req.user.id,
+        revoked_at: null,
+        family_id: { [Op.ne]: current.family_id },
+      },
+    }
+  );
+  await audit({
+    action: 'auth.sessions_revoked_others',
+    actorId: req.user.id,
+    entityType: 'User',
+    entityId: req.user.id,
+    metadata: { count: affected },
+    req,
+  });
+  return { message: 'Other sessions signed out', count: affected };
 }
 
 // ── Password reset ─────────────────────────────────────────────────────────
@@ -371,6 +482,148 @@ export async function resetPassword({ token, password }, req) {
 
   await audit({ action: 'auth.password_reset', actorId: userId, entityType: 'User', entityId: userId, req });
   return { message: 'Password has been reset. Please sign in.' };
+}
+
+/**
+ * Authenticated password change (Settings → Security). Verifies the current
+ * password, enforces the policy, then revokes every session except the
+ * current device's family (the one that just changed it).
+ */
+export async function changePassword({ currentPassword, newPassword }, req) {
+  const user = await User.findByPk(req.user.id);
+  if (!user) throw new AppError(401, 'USER_NOT_FOUND', 'User no longer exists');
+
+  const ok = await bcrypt.compare(currentPassword, user.password);
+  if (!ok) throw new AppError(401, 'INVALID_CREDENTIALS', 'Current password is incorrect');
+
+  validatePassword(newPassword);
+
+  const hashed = await bcrypt.hash(newPassword, 10);
+  await user.update({ password: hashed, must_change_password: false });
+
+  // Revoke all sessions except the current family.
+  const where = { user_id: user.id, revoked_at: null };
+  const rawToken = req.cookies?.[REFRESH_COOKIE_NAME];
+  if (rawToken) {
+    const current = await RefreshToken.findOne({ where: { token_hash: sha256(rawToken) } });
+    if (current) where.family_id = { [Op.ne]: current.family_id };
+  }
+  await RefreshToken.update({ revoked_at: new Date() }, { where });
+
+  await audit({
+    action: 'auth.password_changed',
+    actorId: user.id,
+    entityType: 'User',
+    entityId: user.id,
+    metadata: { sessionCount: 1 },
+    req,
+  });
+  return { message: 'Password updated' };
+}
+
+/**
+ * Admin force password reset: flags the target account so its next sign-in
+ * is forced through the change-password flow, and kills all of its sessions.
+ */
+export async function forcePasswordReset(actorUser, targetUserId, req) {
+  const user = await User.findByPk(targetUserId);
+  if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
+  if (user.platform_role === 'platform_admin' && actorUser.id !== user.id) {
+    throw new AppError(403, 'FORBIDDEN', 'Platform admins cannot be reset by other users');
+  }
+  await user.update({ must_change_password: true });
+  await RefreshToken.update(
+    { revoked_at: new Date() },
+    { where: { user_id: user.id, revoked_at: null } }
+  );
+  await audit({
+    action: 'user.password_force_reset',
+    actorId: actorUser.id,
+    entityType: 'User',
+    entityId: user.id,
+    req,
+  });
+  return { message: 'Password reset requested. The member must set a new password on next sign-in.' };
+}
+
+/** Admin unlock: clears the failed-attempt counter and lock window. */
+export async function unlockAccount(actorUser, targetUserId, req) {
+  const user = await User.findByPk(targetUserId);
+  if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
+  await user.update({ failed_login_attempts: 0, locked_until: null });
+  await audit({
+    action: 'auth.account_unlocked',
+    actorId: actorUser.id,
+    entityType: 'User',
+    entityId: user.id,
+    req,
+  });
+  return { message: 'Account unlocked' };
+}
+
+/**
+ * Sets per-user permission flags for a workspace membership — the RBAC
+ * "flagging" layer on top of the role matrix (e.g. ['refund:orders'] or
+ * ['-manage:menu']). Validates every flag against the catalogue.
+ */
+export async function setMemberPermissions(actorUser, tenantId, targetUserId, permissions, req) {
+  const target = await User.findByPk(targetUserId);
+  if (target?.platform_role === 'platform_admin') {
+    throw new AppError(400, 'INVALID_PERMISSIONS', 'Platform admins already have full access');
+  }
+
+  const membership = await UserTenant.findOne({
+    where: { user_id: targetUserId, tenant_id: tenantId },
+  });
+  if (!membership) {
+    throw new AppError(404, 'MEMBERSHIP_NOT_FOUND', 'User is not a member of this workspace');
+  }
+
+  const flags = Array.isArray(permissions) ? permissions : [];
+  if (!flags.every(isPermissionFlag)) {
+    throw new AppError(400, 'INVALID_PERMISSIONS', 'Invalid permission flags');
+  }
+
+  await membership.update({ permissions: flags.length ? flags : null });
+  await audit({
+    action: 'user.permissions_updated',
+    actorId: actorUser.id,
+    tenantId,
+    entityType: 'UserTenant',
+    entityId: membership.id,
+    metadata: { permissions: flags },
+    req,
+  });
+  return { permissions: flags };
+}
+
+/**
+ * Recent security events for the current user (the login audit trail):
+ * logins, failures, lockouts, logouts, refreshes, password changes and
+ * 2FA activity.
+ */
+export async function listAuthAudit(userId, limit = 25) {
+  const rows = await AuditLog.findAll({
+    where: {
+      actor_id: userId,
+      action: {
+        [Op.or]: [
+          { [Op.like]: 'auth.%' },
+          { [Op.like]: 'user.password%' },
+          { [Op.like]: 'user.two_factor%' },
+        ],
+      },
+    },
+    order: [['created_at', 'DESC']],
+    limit: Math.min(Math.max(Number(limit) || 25, 1), 100),
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    action: r.action,
+    createdAt: r.created_at,
+    ip: r.ip,
+    metadata: r.metadata || {},
+  }));
 }
 
 // ── TOTP two-factor authentication ─────────────────────────────────────────

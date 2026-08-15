@@ -32,6 +32,21 @@ const User = sequelize.define(
       defaultValue: false,
     },
     two_factor_secret: { type: DataTypes.STRING(255), allowNull: true },
+    // Brute-force protection (migration 016): failed attempts counter +
+    // a lock window. Reset on successful login or admin unlock.
+    failed_login_attempts: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    locked_until: { type: DataTypes.DATE, allowNull: true },
+    // Admin-forced password change (migration 016): login succeeds but the
+    // client must redirect to the change-password flow before using the app.
+    must_change_password: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
   },
   {
     tableName: 'users',

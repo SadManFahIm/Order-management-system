@@ -33,6 +33,7 @@ const TableQRPage = lazy(() => import('./pages/TableQRPage'));
 const ReportsPage = lazy(() => import('./pages/ReportsPage'));
 const TrackOrderPage = lazy(() => import('./pages/TrackOrderPage'));
 const AdminAnalyticsPage = lazy(() => import('./pages/AdminAnalyticsPage'));
+const ChangePasswordPage = lazy(() => import('./pages/ChangePasswordPage'));
 
 function PageLoader() {
   return (
@@ -87,6 +88,7 @@ export default function App() {
                         <Route path="/reports" element={<ReportsPage />} />
                         <Route path="/admin" element={<AdminAnalyticsPage />} />
                         <Route path="/settings" element={<SettingsPage />} />
+                        <Route path="/change-password" element={<ChangePasswordPage />} />
                       </Routes>
                     </main>
                   </div>
