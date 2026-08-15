@@ -1,0 +1,363 @@
+/* ============================================================
+   Auth pages — "Ticket to your workspace"
+   ------------------------------------------------------------
+   Sign-in, register, forgot/reset password and email verify all
+   render as one ticket: a deep-green brand stub carries the
+   gold-foil ORDERLY wordmark and a ticket number, perforated
+   off with the scalloped tear (same mask as the storefront),
+   and the form sits on paper below. The paper follows the
+   global paper theme — warm rice paper in light, ink paper in
+   dark — so flipping the theme elsewhere follows the auth
+   pages too, and the 🌙 toggle on the stub flips it back.
+   ============================================================ */
+
+.auth-ticket {
+  --paper: #f6f1e5;
+  --card: #fdfaf2;
+  --ink: #18342b;
+  --muted: #7d786a;
+  --line: #e6dcc4;
+  --line-strong: #d6c9a6;
+  --gold: #c9962e;
+  --gold-soft: #f7e08b;
+  --chilli: #d2452f;
+
+  --stub: #0c2f23;
+  --stub-2: #14473a;
+
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(28px, 6vh, 64px) 16px;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(1100px 480px at 85% -12%, rgba(201, 150, 46, 0.1), transparent 60%),
+    radial-gradient(900px 460px at -5% 0%, rgba(20, 71, 58, 0.08), transparent 55%),
+    var(--paper);
+  color: var(--ink);
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+/* ---- Ink-paper (dark) variant ---- */
+.auth-ticket.auth-ticket--dark {
+  color-scheme: dark;
+
+  --paper: #0b1210;
+  --card: #101c18;
+  --ink: #e8efe9;
+  --muted: #8ba397;
+  --line: #1e3129;
+  --line-strong: #2b453b;
+  --gold: #e0b04e;
+  --gold-soft: #f2d47e;
+  --chilli: #ff6b4a;
+
+  --stub: #04100b;
+  --stub-2: #0e2b21;
+
+  background:
+    radial-gradient(1100px 480px at 85% -12%, rgba(224, 176, 78, 0.08), transparent 60%),
+    radial-gradient(900px 460px at -5% 0%, rgba(20, 71, 58, 0.35), transparent 55%),
+    var(--paper);
+}
+
+/* ---- Food orbs floating behind the stub ---- */
+.auth-ticket__orbs {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.auth-ticket__orb {
+  position: absolute;
+  font-size: 26px;
+  opacity: 0.22;
+  filter: blur(0.4px) drop-shadow(0 10px 14px rgba(0, 0, 0, 0.18));
+  animation: auth-orb 9s ease-in-out infinite;
+  user-select: none;
+}
+
+.auth-ticket--dark .auth-ticket__orb {
+  opacity: 0.3;
+}
+
+.auth-ticket__orb--1 { left: 8%; top: 18%; font-size: 32px; animation-delay: 0s; }
+.auth-ticket__orb--2 { right: 10%; top: 10%; font-size: 42px; animation-delay: -2.4s; }
+.auth-ticket__orb--3 { left: 14%; bottom: 14%; font-size: 24px; animation-delay: -4.6s; }
+.auth-ticket__orb--4 { right: 16%; bottom: 16%; font-size: 34px; animation-delay: -3s; }
+.auth-ticket__orb--5 { right: 30%; top: 2%; font-size: 22px; animation-delay: -5.8s; }
+
+@keyframes auth-orb {
+  0%, 100% { transform: translateY(0) rotate(-6deg); }
+  50% { transform: translateY(-20px) rotate(7deg); }
+}
+
+/* ---- The ticket card: stub + tear + paper body ---- */
+.auth-ticket__card {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--card);
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 24px 60px rgba(12, 47, 35, 0.18);
+  animation: oms-page-in 0.5s var(--ease-out);
+}
+
+/* ---------------- Brand stub ---------------- */
+.auth-ticket__stub {
+  position: relative;
+  background: linear-gradient(150deg, var(--stub), var(--stub-2) 78%);
+  color: #fff;
+  padding: 20px 22px 26px;
+  overflow: hidden;
+}
+
+/* warm glow inside the stub */
+.auth-ticket__stub::before {
+  content: '';
+  position: absolute;
+  right: -70px;
+  top: -90px;
+  width: 260px;
+  height: 260px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(247, 224, 139, 0.18), transparent 65%);
+  pointer-events: none;
+}
+
+.auth-ticket__stubTop {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.auth-ticket__brand {
+  font-family: 'Bricolage Grotesque', 'Plus Jakarta Sans', sans-serif;
+  font-weight: 800;
+  font-size: 26px;
+  letter-spacing: -0.01em;
+  background: linear-gradient(120deg, #f7e08b 10%, #e8b64c 45%, #fff3c4 80%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.auth-ticket__paper {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.auth-ticket__paper:hover {
+  background: rgba(255, 255, 255, 0.26);
+  transform: translateY(-1px);
+}
+
+.auth-ticket__paper:focus-visible {
+  outline: 2px solid var(--gold-soft);
+  outline-offset: 2px;
+}
+
+.auth-ticket__stubRow {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.auth-ticket__eyebrow {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.auth-ticket__no {
+  flex-shrink: 0;
+  border: 1px dashed rgba(247, 224, 139, 0.65);
+  background: rgba(0, 0, 0, 0.18);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.07), inset 0 0 18px rgba(247, 224, 139, 0.07);
+  color: var(--gold-soft);
+  border-radius: 10px;
+  padding: 5px 11px;
+  font-family: 'Bricolage Grotesque', 'Plus Jakarta Sans', sans-serif;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.auth-ticket__tagline {
+  position: relative;
+  margin: 8px 0 0;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* The perforation — scalloped tear, same mask as the storefront stub. */
+.auth-ticket__tear {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 14px;
+  background: linear-gradient(150deg, var(--stub), var(--stub-2) 78%);
+  -webkit-mask-image: radial-gradient(circle at 10px -4px, transparent 10px, #000 10.5px);
+  mask-image: radial-gradient(circle at 10px -4px, transparent 10px, #000 10.5px);
+  -webkit-mask-size: 20px 14px;
+  mask-size: 20px 14px;
+  -webkit-mask-repeat: repeat-x;
+  mask-repeat: repeat-x;
+}
+
+/* ---------------- Paper body ---------------- */
+.auth-ticket__body {
+  padding: 26px 26px 24px;
+}
+
+.auth-ticket__title {
+  margin: 0;
+  font-family: 'Bricolage Grotesque', 'Plus Jakarta Sans', sans-serif;
+  font-size: 25px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.auth-ticket__desc {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.auth-ticket__footer {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--line-strong);
+  text-align: center;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+
+.auth-ticket__footer a {
+  color: var(--chilli);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.auth-ticket__footer a:hover {
+  text-decoration: underline;
+}
+
+/* Form rows read as dashed ticket lines on the paper. */
+.auth-ticket .oms-field {
+  margin-top: 14px;
+}
+
+/* Fields sit ON the paper — never the dashboard's global surface. */
+.auth-ticket .oms-input,
+.auth-ticket .oms-textarea,
+.auth-ticket .oms-select {
+  background: var(--card);
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.auth-ticket .oms-input::placeholder,
+.auth-ticket .oms-textarea::placeholder {
+  color: var(--muted);
+}
+
+.auth-ticket .oms-input:hover,
+.auth-ticket .oms-textarea:hover,
+.auth-ticket .oms-select:hover {
+  border-color: var(--gold);
+}
+
+.auth-ticket .oms-input:focus,
+.auth-ticket .oms-textarea:focus,
+.auth-ticket .oms-select:focus {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold) 22%, transparent);
+}
+
+/* The submit is a gold-foil counterfoil. */
+.auth-ticket .oms-btn--primary {
+  --btn-bg: linear-gradient(120deg, #e8b64c, #d9a53f);
+  --btn-fg: #201503;
+  --btn-bd: transparent;
+  box-shadow: 0 3px 12px rgba(201, 150, 46, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  font-weight: 800;
+  border-radius: 12px;
+  height: 46px;
+}
+
+.auth-ticket .oms-btn--primary:hover {
+  --btn-bg: linear-gradient(120deg, #f2c65e, #e8b64c);
+  box-shadow: 0 5px 16px rgba(201, 150, 46, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.auth-ticket .oms-btn--primary:disabled {
+  opacity: 0.6;
+}
+
+/* The 2FA step dots — punched ticket holes. */
+.auth-ticket .oms-steps__dot {
+  background: var(--line-strong);
+  border: 2px solid var(--card);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.auth-ticket .oms-steps__dot--active {
+  background: var(--chilli);
+}
+
+/* ---------------- Responsive ---------------- */
+@media (max-width: 460px) {
+  .auth-ticket__body {
+    padding: 22px 18px 20px;
+  }
+
+  .auth-ticket__stub {
+    padding: 18px 18px 24px;
+  }
+
+  .auth-ticket__brand {
+    font-size: 22px;
+  }
+}
+
+/* ---------------- Reduced motion ---------------- */
+@media (prefers-reduced-motion: reduce) {
+  .auth-ticket__orb {
+    animation: none;
+  }
+
+  .auth-ticket__card {
+    animation: none;
+  }
+}
