@@ -24,7 +24,9 @@ export const apiLimiter = rateLimit({
  */
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  limit: 20,
+  // Configurable via RATE_LIMIT_AUTH_MAX so the e2e harness / test suite can
+  // raise it (default 20 — ~one login per 45s, plus a full lockout cycle).
+  limit: env.RATE_LIMIT_AUTH_MAX || 20,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: rateLimitMessage(

@@ -57,6 +57,7 @@ const envSchema = z.object({
   // The e2e harness raises this so full browser suites never trip the
   // limiter; production keeps the default unless explicitly raised.
   RATE_LIMIT_MAX: z.coerce.number().int().positive().optional(),
+  RATE_LIMIT_AUTH_MAX: z.coerce.number().int().positive().optional(),
   // ── Media / object storage (Phase 4 image pipeline) ────────────────────
   // 'local' writes to UPLOAD_DIR (zero-config dev; served via /uploads).
   // 's3' uses an S3-compatible bucket (AWS, MinIO, R2, etc.).

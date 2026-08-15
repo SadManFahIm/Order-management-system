@@ -138,7 +138,7 @@ describe('password reset', () => {
     // Reset with the token.
     const reset = await request(app)
       .post('/api/auth/reset-password')
-      .send({ token: forgot.body.devToken, password: 'newpassword456' });
+      .send({ token: forgot.body.devToken, password: 'Newpassword456' });
     expect(reset.status).toBe(200);
 
     // Old password fails; new password works.
@@ -149,7 +149,7 @@ describe('password reset', () => {
 
     const newLogin = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'reset@example.com', password: 'newpassword456' });
+      .send({ email: 'reset@example.com', password: 'Newpassword456' });
     expect(newLogin.status).toBe(200);
 
     // Sessions issued before the reset are revoked.

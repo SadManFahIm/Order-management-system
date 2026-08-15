@@ -24,6 +24,35 @@ export const ROLES = [
   'staff',
 ];
 
+/**
+ * Granular permission catalogue — the per-action layer under RBAC.
+ *
+ * 'manage:members' gates team editing, 'refund:orders' gates money-leaving
+ * actions (refunds), 'manage:inventory' gates stock writes, 'view:reports'
+ * gates financial exports, 'manage:billing' gates plans/subscriptions.
+ * Routes guard with requirePermission('<name>'), so a role's access is
+ * exactly the union of its matrix below.
+ */
+export const PERMISSION_CATALOG = [
+  'manage:menu',
+  'manage:promotions',
+  'manage:users',
+  'manage:orders',
+  'manage:members',
+  'manage:settings',
+  'manage:tenants',
+  'manage:inventory',
+  'manage:billing',
+  'place:orders',
+  'view:orders',
+  'view:menu',
+  'view:analytics',
+  'view:reports',
+  'refund:orders',
+  'fulfill:orders',
+  'deliver:orders',
+];
+
 /** Permissions granted to each role. '*' means unrestricted. */
 export const ROLE_PERMISSIONS = {
   platform_admin: ['*'],
@@ -32,25 +61,33 @@ export const ROLE_PERMISSIONS = {
     'manage:promotions',
     'manage:users',
     'manage:orders',
+    'manage:members',
+    'manage:settings',
+    'manage:inventory',
     'place:orders',
     'view:orders',
     'view:menu',
     'view:analytics',
-    'manage:settings',
-    'manage:members',
+    'view:reports',
+    // Refunds move money out — manager-and-above only, never cashier.
+    'refund:orders',
   ],
   owner: [
     'manage:menu',
     'manage:promotions',
     'manage:users',
     'manage:orders',
+    'manage:members',
+    'manage:settings',
+    'manage:tenants',
+    'manage:inventory',
+    'manage:billing',
     'place:orders',
     'view:orders',
     'view:menu',
     'view:analytics',
-    'manage:settings',
-    'manage:members',
-    'manage:tenants',
+    'view:reports',
+    'refund:orders',
   ],
   cashier: ['place:orders', 'view:orders', 'view:menu'],
   kitchen: ['view:orders', 'fulfill:orders', 'view:menu'],
@@ -59,6 +96,16 @@ export const ROLE_PERMISSIONS = {
   // Legacy accounts retain full access so existing functionality keeps working.
   staff: ['*'],
 };
+
+/**
+ * Validates a permission flag (possibly negated with a leading '-').
+ * Unknown names are rejected so typos cannot silently widen access.
+ */
+export function isPermissionFlag(value) {
+  if (typeof value !== 'string') return false;
+  const name = value.startsWith('-') ? value.slice(1) : value;
+  return PERMISSION_CATALOG.includes(name);
+}
 
 /**
  * Resolves the effective permission role for a request, honoring platform
@@ -77,8 +124,25 @@ export function effectiveRole(user) {
   return user.tenant_role || 'staff';
 }
 
-/** Returns true if the user's effective role holds the permission. */
+/**
+ * Returns true if the user holds the permission.
+ *
+ * Per-user flags (attached by resolveTenant from user_tenants.permissions)
+ * override the role matrix: a negated flag ('-perm') always denies, a
+ * positive flag grants even when the role lacks it. Flags never widen a
+ * platform admin (they are already '*').
+ */
 export function hasPermission(user, permission) {
-  const perms = ROLE_PERMISSIONS[effectiveRole(user)] || [];
-  return perms.includes('*') || perms.includes(permission);
+  const role = effectiveRole(user);
+  const rolePerms = ROLE_PERMISSIONS[role] || [];
+  const flags = Array.isArray(user?.permissions) ? user.permissions : [];
+  const effective = role === 'platform_admin' && rolePerms.includes('*')
+    ? ['*']
+    : [...rolePerms, ...flags];
+
+  // A negated flag beats everything (except platform-admin wildcard).
+  if (role !== 'platform_admin' && effective.includes(`-${permission}`)) {
+    return false;
+  }
+  return effective.includes('*') || effective.includes(permission);
 }

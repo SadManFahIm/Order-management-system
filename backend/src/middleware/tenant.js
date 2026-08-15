@@ -71,7 +71,13 @@ export const resolveTenant = asyncHandler(async (req, res, next) => {
 
   // Always prefer the DB membership role: the token's tenant_role reflects
   // the workspace active at login, which is wrong after an X-Tenant switch.
-  if (membership) role = membership.role;
+  if (membership) {
+    role = membership.role;
+    // Per-user permission flags (migration 016) ride on the request so
+    // requirePermission / req.userHas see the flag overrides, not just the
+    // role matrix baked into the JWT.
+    req.user.permissions = Array.isArray(membership.permissions) ? membership.permissions : [];
+  }
 
   if (['suspended', 'archived'].includes(tenant.status) && !isPlatformAdmin(req.user)) {
     return reject(res, 'TENANT_UNAVAILABLE', `This workspace is ${tenant.status}`);

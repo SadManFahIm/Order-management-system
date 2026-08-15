@@ -6,3 +6,6 @@
 process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'test-only-secret-0123456789abcdef';
 process.env.DB_STORAGE = './data.test.sqlite';
+// Raise the auth rate limit so lockout/brute-force suites can run full
+// attempt cycles without tripping the 15-minute limiter.
+process.env.RATE_LIMIT_AUTH_MAX = '1000';

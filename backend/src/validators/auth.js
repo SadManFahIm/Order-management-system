@@ -33,6 +33,18 @@ export const resetPasswordSchema = z.object({
   password: z.string().min(8, 'Password must be at least 8 characters').max(128),
 });
 
+/** Change password (authenticated): current + new password. */
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Current password is required'),
+  newPassword: z.string().min(8, 'Password must be at least 8 characters').max(128),
+});
+
+/** Per-user permission flags for a workspace membership. */
+export const memberPermissionsSchema = z.object({
+  tenantId: z.number().int().positive(),
+  permissions: z.array(z.string().min(2).max(64)).default([]),
+});
+
 /** Provision a staff member into a tenant (platform_admin or manager). */
 export const provisionStaffSchema = z.object({
   name: z.string().trim().min(2).max(120),

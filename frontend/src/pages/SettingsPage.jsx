@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import api from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../i18n';
-import { PageHeader, Card, Button, Field, Input, Textarea, Switch, Skeleton, useToast } from '../components/ui';
+import { PageHeader, Card, Button, Field, Input, Textarea, Switch, Badge, Skeleton, useToast } from '../components/ui';
 
 const PRESETS = [
   { name: 'KFC red', primary: '#e4002b', accent: '#ffd400' },
@@ -17,7 +17,7 @@ const DEFAULT_BRAND = { primaryColor: '#00b3a5', accentColor: '#f5d300', tagline
 
 export default function SettingsPage() {
   const { t } = useI18n();
-  const { activeTenantId, tenants } = useAuth();
+  const { activeTenantId, tenants, user } = useAuth();
   const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -37,7 +37,125 @@ export default function SettingsPage() {
   const [waManualLink, setWaManualLink] = useState(null);
   const [reports, setReports] = useState({ closeoutEmail: '', autoSend: false, hour: 23 });
   const [reportsSaving, setReportsSaving] = useState(false);
+
+  // ── Phase 2 hardening: security, sessions, audit, team & access ──
+  const [pw, setPw] = useState({ current: '', next: '', confirm: '' });
+  const [pwSaving, setPwSaving] = useState(false);
+  const [pwError, setPwError] = useState('');
+  const [sessions, setSessions] = useState(null);
+  const [sessionsBusy, setSessionsBusy] = useState(false);
+  const [audit, setAudit] = useState(null);
+  const [members, setMembers] = useState(null);
+  const [membersBusy, setMembersBusy] = useState(false);
   const mounted = useRef(true);
+
+  const canManageUsers =
+    user?.platformRole === 'platform_admin' ||
+    ['owner', 'manager'].includes(user?.tenantRole);
+
+  const loadSecurity = () => {
+    api.get('/auth/sessions').then((res) => mounted.current && setSessions(res.data.sessions));
+    api.get('/auth/audit').then((res) => mounted.current && setAudit(res.data.events));
+  };
+
+  const loadMembers = () => {
+    if (!canManageUsers || !activeTenantId) return;
+    api
+      .get(`/tenants/${activeTenantId}/members`)
+      .then((res) => mounted.current && setMembers(res.data))
+      .catch(() => mounted.current && setMembers([]));
+  };
+
+  useEffect(() => {
+    loadSecurity();
+    loadMembers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTenantId]);
+
+  const savePassword = async () => {
+    setPwError('');
+    if (pw.next !== pw.confirm) {
+      setPwError(t('settings.secMismatch'));
+      return;
+    }
+    setPwSaving(true);
+    try {
+      await api.post('/auth/change-password', {
+        currentPassword: pw.current,
+        newPassword: pw.next,
+      });
+      setPw({ current: '', next: '', confirm: '' });
+      toast.success(t('settings.secUpdated'));
+      loadSecurity();
+    } catch (err) {
+      setPwError(
+        err?.response?.data?.error?.code === 'INVALID_CREDENTIALS'
+          ? t('settings.secWrongCurrent')
+          : t('settings.secFailed')
+      );
+    } finally {
+      setPwSaving(false);
+    }
+  };
+
+  const revokeSession = async (id) => {
+    try {
+      await api.delete(`/auth/sessions/${id}`);
+      toast.success(t('settings.revoked'));
+      loadSecurity();
+    } catch {
+      toast.error('Could not sign out that session');
+    }
+  };
+
+  const revokeOthers = async () => {
+    setSessionsBusy(true);
+    try {
+      await api.post('/auth/sessions/revoke-others');
+      toast.success(t('settings.revokedOthers'));
+      loadSecurity();
+    } catch {
+      toast.error('Could not sign out other devices');
+    } finally {
+      setSessionsBusy(false);
+    }
+  };
+
+  const forceReset = async (member) => {
+    try {
+      await api.post(`/auth/users/${member.userId}/force-password-reset`);
+      toast.success(t('settings.teamForceResetDone'));
+      loadMembers();
+    } catch {
+      toast.error('Could not force a password reset');
+    }
+  };
+
+  const unlock = async (member) => {
+    try {
+      await api.post(`/auth/users/${member.userId}/unlock`);
+      toast.success(t('settings.teamUnlocked'));
+      loadMembers();
+    } catch {
+      toast.error('Could not unlock the account');
+    }
+  };
+
+  const setFlags = async (member, permissions) => {
+    setMembersBusy(true);
+    try {
+      await api.patch(`/auth/users/${member.userId}/permissions`, {
+        tenantId: Number(activeTenantId),
+        permissions,
+      });
+      toast.success(t('settings.teamPermissionsSaved'));
+      loadMembers();
+    } catch {
+      toast.error('Could not save permission flags');
+    } finally {
+      setMembersBusy(false);
+    }
+  };
 
   const active = tenants.find((x) => Number(x.id) === Number(activeTenantId));
 
@@ -409,6 +527,300 @@ export default function SettingsPage() {
           </div>
         </div>
       </Card>
+
+      {/* Security & password (Phase 2 hardening) */}
+      <Card title={t('settings.secTitle')} subtitle={t('settings.secDesc')} style={{ marginTop: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <Field label={t('settings.secCurrent')}>
+            <Input
+              type="password"
+              value={pw.current}
+              onChange={(e) => setPw((p) => ({ ...p, current: e.target.value }))}
+              placeholder="••••••••"
+              autoComplete="current-password"
+            />
+          </Field>
+          <Field label={t('settings.secNew')} hint={t('settings.secPolicy')}>
+            <Input
+              type="password"
+              value={pw.next}
+              onChange={(e) => setPw((p) => ({ ...p, next: e.target.value }))}
+              placeholder="••••••••"
+              autoComplete="new-password"
+            />
+          </Field>
+          <Field label={t('settings.secConfirm')}>
+            <Input
+              type="password"
+              value={pw.confirm}
+              onChange={(e) => setPw((p) => ({ ...p, confirm: e.target.value }))}
+              placeholder="••••••••"
+              autoComplete="new-password"
+            />
+          </Field>
+        </div>
+        {pwError && (
+          <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 8, background: 'var(--danger-soft)', color: 'var(--danger)', fontSize: 13 }}>
+            {pwError}
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+          <Button variant="primary" onClick={savePassword} disabled={pwSaving}>
+            {pwSaving ? t('common.loading') : t('settings.secSave')}
+          </Button>
+        </div>
+      </Card>
+
+      {/* Active sessions (Phase 2 hardening) */}
+      <Card title={t('settings.sessionsTitle')} subtitle={t('settings.sessionsDesc')} style={{ marginTop: 16 }}>
+        {!sessions ? (
+          <Skeleton height={120} />
+        ) : sessions.length === 0 ? (
+          <div style={{ color: 'var(--text-muted)', fontSize: 13, padding: '4px 0' }}>{t('settings.sessionsEmpty')}</div>
+        ) : (
+          <div style={{ display: 'grid', gap: 8 }}>
+            {sessions.map((s) => (
+              <div
+                key={s.id}
+                className="oms-card"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '10px 12px',
+                  border: s.current ? '1px solid var(--primary)' : undefined,
+                }}
+              >
+                <span style={{ fontSize: 18 }}>{isMobileAgent(s.userAgent) ? '📱' : '🖥️'}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {friendlyDevice(s.userAgent)}
+                    {s.current && <Badge tone="success">{t('settings.currentDevice')}</Badge>}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    {s.ip ? `${s.ip} · ` : ''}
+                    {t('settings.expires')}: {new Date(s.expiresAt).toLocaleDateString()}{' '}
+                    {new Date(s.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </div>
+                {!s.current && (
+                  <Button variant="ghost" size="sm" onClick={() => revokeSession(s.id)}>
+                    {t('settings.revoke')}
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {sessions?.length > 1 && (
+          <div style={{ marginTop: 12 }}>
+            <Button variant="outline" size="sm" onClick={revokeOthers} loading={sessionsBusy}>
+              {t('settings.revokeOthers')}
+            </Button>
+          </div>
+        )}
+      </Card>
+
+      {/* Login activity (Phase 2 hardening) */}
+      <Card title={t('settings.auditTitle')} subtitle={t('settings.auditDesc')} style={{ marginTop: 16 }}>
+        {!audit ? (
+          <Skeleton height={120} />
+        ) : audit.length === 0 ? (
+          <div style={{ color: 'var(--text-muted)', fontSize: 13, padding: '4px 0' }}>{t('settings.auditEmpty')}</div>
+        ) : (
+          <div style={{ display: 'grid', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
+            {audit.slice(0, 20).map((e) => (
+              <AuditRow key={e.id} event={e} />
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {/* Team & access — per-user RBAC flags (Phase 2 hardening) */}
+      {canManageUsers && (
+        <Card title={t('settings.teamTitle')} subtitle={t('settings.teamDesc')} style={{ marginTop: 16 }}>
+          {!members ? (
+            <Skeleton height={160} />
+          ) : members.length === 0 ? (
+            <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>{t('settings.teamLoadFailed')}</div>
+          ) : (
+            <div style={{ display: 'grid', gap: 10 }}>
+              {members.map((m) => (
+                <MemberRow
+                  key={m.id}
+                  member={m}
+                  t={t}
+                  busy={membersBusy}
+                  onFlags={(flags) => setFlags(m, flags)}
+                  onForceReset={() => forceReset(m)}
+                  onUnlock={() => unlock(m)}
+                />
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+    </div>
+  );
+}
+
+/** Parses a user-agent into a friendly device label. */
+function friendlyDevice(ua) {
+  if (!ua) return 'Unknown device';
+  const browser =
+    /Edg\//.test(ua) ? 'Edge'
+      : /OPR\//.test(ua) ? 'Opera'
+      : /Chrome\//.test(ua) ? 'Chrome'
+      : /Firefox\//.test(ua) ? 'Firefox'
+      : /Safari\//.test(ua) ? 'Safari'
+      : '';
+  const os =
+    /Windows/.test(ua) ? 'Windows'
+      : /Mac OS/.test(ua) ? 'macOS'
+      : /Android/.test(ua) ? 'Android'
+      : /iPhone|iPad/.test(ua) ? 'iOS'
+      : /Linux/.test(ua) ? 'Linux'
+      : '';
+  return [browser, os].filter(Boolean).join(' · ') || 'Unknown device';
+}
+
+const isMobileAgent = (ua) => /Android|iPhone|iPad|Mobile/i.test(ua || '');
+
+/** One row of the login-activity trail, with an icon per action. */
+function AuditRow({ event }) {
+  const icons = {
+    'auth.login': '🔓',
+    'auth.login_failed': '⚠️',
+    'auth.account_locked': '🔐',
+    'auth.account_unlocked': '🔓',
+    'auth.logout': '🔒',
+    'auth.refresh': '🔄',
+    'auth.refresh_reuse_detected': '🚨',
+    'auth.password_changed': '🔑',
+    'auth.password_reset': '🔑',
+    'auth.password_reset_requested': '✉️',
+    'auth.sessions_revoked_others': '📴',
+    'auth.session_revoked': '📴',
+    'auth.2fa_failed': '⚠️',
+    'auth.2fa_verified': '🔐',
+    'user.password_force_reset': '🛡️',
+    'user.permissions_updated': '🏷️',
+    'user.two_factor_enabled': '🔐',
+    'user.two_factor_disabled': '🔓',
+  };
+  const label = icons[event.action] || '•';
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, padding: '6px 2px', borderBottom: '1px dashed var(--border)' }}>
+      <span style={{ width: 18, textAlign: 'center' }}>{label}</span>
+      <span style={{ flex: 1 }}>
+        {friendlyAction(event.action)}
+        {event.metadata?.attempts ? ` (attempt ${event.metadata.attempts})` : ''}
+      </span>
+      <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+        {event.ip ? `${event.ip} · ` : ''}
+        {new Date(event.createdAt).toLocaleString()}
+      </span>
+    </div>
+  );
+}
+
+/** Human label for an audit action. */
+function friendlyAction(action) {
+  const map = {
+    'auth.login': 'Signed in',
+    'auth.login_failed': 'Failed sign-in attempt',
+    'auth.account_locked': 'Account locked (too many failures)',
+    'auth.account_unlocked': 'Account unlocked by admin',
+    'auth.logout': 'Signed out',
+    'auth.refresh': 'Session refreshed',
+    'auth.refresh_reuse_detected': 'Stolen-token reuse detected',
+    'auth.password_changed': 'Password changed',
+    'auth.password_reset': 'Password reset',
+    'auth.password_reset_requested': 'Password reset requested',
+    'auth.sessions_revoked_others': 'Other devices signed out',
+    'auth.session_revoked': 'Session signed out',
+    'auth.2fa_failed': '2FA code rejected',
+    'auth.2fa_verified': '2FA verified',
+    'user.password_force_reset': 'Admin forced a password reset',
+    'user.permissions_updated': 'Permission flags updated',
+    'user.two_factor_enabled': '2FA enabled',
+    'user.two_factor_disabled': '2FA disabled',
+  };
+  return map[action] || action;
+}
+
+const TEAM_FLAGS = [
+  { value: 'refund:orders', label: 'Refunds' },
+  { value: 'manage:inventory', label: 'Inventory' },
+  { value: 'view:reports', label: 'Reports' },
+  { value: 'manage:promotions', label: 'Promotions' },
+  { value: 'manage:users', label: 'Users' },
+  { value: 'manage:members', label: 'Team' },
+];
+
+/** One member row: role, tri-state permission flags, account actions. */
+function MemberRow({ member, t, busy, onFlags, onForceReset, onUnlock }) {
+  const setFlag = (value, mode) => {
+    const rest = (member.permissions || []).filter((f) => f !== value && f !== `-${value}`);
+    if (mode === 'grant') rest.push(value);
+    if (mode === 'deny') rest.push(`-${value}`);
+    onFlags(rest);
+  };
+
+  const flagMode = (value) => {
+    if ((member.permissions || []).includes(value)) return 'grant';
+    if ((member.permissions || []).includes(`-${value}`)) return 'deny';
+    return 'default';
+  };
+
+  return (
+    <div className="oms-card" style={{ padding: '12px 14px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>
+            {member.name}
+            {member.locked && (
+              <Badge tone="warning" style={{ marginLeft: 8 }}>
+                🔒 {t('settings.teamLocked')}
+              </Badge>
+            )}
+            {member.mustChangePassword && (
+              <Badge tone="neutral" style={{ marginLeft: 8 }}>
+                {t('settings.teamMustChange')}
+              </Badge>
+            )}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{member.email}</div>
+        </div>
+        <Badge tone="neutral">{t(`roles.${member.role}`)}</Badge>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Button variant="outline" size="sm" onClick={onForceReset} disabled={busy}>
+            {t('settings.teamForceReset')}
+          </Button>
+          {member.locked && (
+            <Button variant="outline" size="sm" onClick={onUnlock} disabled={busy}>
+              {t('settings.teamUnlock')}
+            </Button>
+          )}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+        {TEAM_FLAGS.map((f) => (
+          <select
+            key={f.value}
+            className="oms-input"
+            style={{ width: 'auto', fontSize: 12, padding: '4px 8px' }}
+            value={flagMode(f.value)}
+            disabled={busy}
+            onChange={(e) => setFlag(f.value, e.target.value)}
+            aria-label={`${f.label} flag for ${member.name}`}
+          >
+            <option value="default">{f.label}: {t('settings.teamFlagDefault')}</option>
+            <option value="grant">{f.label}: {t('settings.teamFlagGrant')}</option>
+            <option value="deny">{f.label}: {t('settings.teamFlagDeny')}</option>
+          </select>
+        ))}
+      </div>
     </div>
   );
 }

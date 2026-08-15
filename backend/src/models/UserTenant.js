@@ -19,6 +19,10 @@ const UserTenant = sequelize.define(
       allowNull: false,
       defaultValue: 'staff',
     },
+    // Per-user permission flags (migration 016): JSONB array that overrides
+    // the role's base matrix — e.g. ['refund:orders', '-manage:menu'].
+    // A leading '-' denies a permission the role would otherwise grant.
+    permissions: { type: DataTypes.JSONB, allowNull: true },
   },
   {
     tableName: 'user_tenants',

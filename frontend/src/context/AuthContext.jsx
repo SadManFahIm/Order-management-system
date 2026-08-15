@@ -95,7 +95,11 @@ export function AuthProvider({ children }) {
       return { requiresTwoFactor: true };
     }
     applySession(res.data);
-    return { requiresTwoFactor: false };
+    return {
+      requiresTwoFactor: false,
+      // Admin-forced reset: route to the change-password flow first.
+      mustChangePassword: Boolean(res.data.mustChangePassword),
+    };
   };
 
   const verifyTwoFactor = async (code) => {

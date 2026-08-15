@@ -73,6 +73,13 @@ router.patch(
       throw new AppError(400, 'VALIDATION_ERROR', 'amount must be a number');
     }
 
+    // Refunds move money out of the business — manager-and-above only
+    // (permission-level RBAC, Phase 2). Cashiers can confirm/fail but never
+    // refund, even though they hold 'place:orders'.
+    if (status === 'refunded' && !req.userHas('refund:orders')) {
+      throw new AppError(403, 'FORBIDDEN', 'Requires permission: refund:orders');
+    }
+
     const result = await applyPaymentStatus(
       payment,
       { status, reference, notes, amount, reason, actorId: req.user?.id },
