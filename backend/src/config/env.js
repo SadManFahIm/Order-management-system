@@ -32,7 +32,10 @@ const envSchema = z.object({
     .transform((v) => v === '1' || v === 'true'),
   CORS_ORIGINS: z
     .string()
-    .default('http://localhost:5173,http://localhost:5174'),
+    .default(
+      'http://localhost:5173,http://localhost:5174,' +
+        'http://127.0.0.1:5173,http://127.0.0.1:5174'
+    ),
   // Public base URL used to build email links (verification, password reset).
   APP_BASE_URL: z.string().default('http://localhost:5173'),
   // ── Email delivery (Phase 5) ──────────────────────────────────────────
