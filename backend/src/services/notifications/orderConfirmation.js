@@ -1,4 +1,5 @@
 import { sendEmail } from './email.js';
+import { renderTicketPdf } from './ticketPdf.js';
 
 /**
  * Ticket-styled order confirmation email (Phase 5 storefront).
@@ -106,11 +107,15 @@ export function renderOrderConfirmationHtml(data) {
  * Send the confirmation (fire-and-forget from the checkout route).
  * Respects the MAIL_DRIVER adapter — the stub driver logs the ticket HTML
  * in dev/test, SMTP delivers it for real in production.
+ *
+ * The email carries the ticket as a printable PDF attachment too (Phase 8) —
+ * generated with pdfkit, so the customer can save or print the ticket even
+ * without opening the HTML. A PDF failure never blocks the email.
  */
 export async function sendOrderConfirmationEmail({ tenant, order, items, trackUrl }) {
   const email = order.customer_email;
   if (!email) return null;
-  const html = renderOrderConfirmationHtml({
+  const ticket = {
     restaurantName: tenant?.name || 'Restaurant',
     orderNo: order.order_no || order.id,
     customerName: order.customer_name || 'guest',
@@ -123,11 +128,13 @@ export async function sendOrderConfirmationEmail({ tenant, order, items, trackUr
     grandTotal: order.grand_total ?? order.grandTotal,
     paymentMethod: order.payment_method ?? null,
     trackUrl,
-  });
+  };
+  const html = renderOrderConfirmationHtml(ticket);
   return sendTicketEmail({
     email,
     subject: `Your order ${order.order_no || order.id} — ${tenant?.name || 'Restaurant'}`,
     html,
+    attachments: await ticketPdfAttachment(ticket, 'ORDER TICKET · CONFIRMED'),
   });
 }
 
@@ -251,16 +258,53 @@ export async function sendOrderStatusEmail({ tenant, order, status }) {
       email,
       subject: `${STATUS_EMAILS[status].label} — ${order.order_no || order.id}`,
       html,
+      attachments: await ticketPdfAttachment(
+        {
+          restaurantName: tenant?.name || 'Restaurant',
+          orderNo: order.order_no || order.id,
+          customerName: order.customer_name || 'guest',
+          tableNo: order.table_no ?? null,
+          items: items.map((i) => ({
+            name: i.item_name || i.itemName || i.name,
+            quantity: i.quantity,
+            lineTotal: i.line_total ?? i.lineTotal,
+          })),
+          grandTotal: order.grand_total ?? order.grandTotal,
+          paymentMethod: null,
+          trackUrl,
+        },
+        `STATUS · ${STATUS_EMAILS[status].label.replace(/[^\x20-\x7E]/g, '').toUpperCase()}`
+      ),
     });
   } catch {
     return null;
   }
 }
 
-/** Shared best-effort send through the mail adapter. */
-async function sendTicketEmail({ email, subject, html }) {
+/**
+ * Builds the printable ticket PDF attachment (Phase 8). A PDF is a
+ * nice-to-have — if generation fails we return no attachment so the email
+ * still goes out with just the ticket HTML. Exported for tests.
+ */
+export async function ticketPdfAttachment(ticket, stamp) {
   try {
-    return await sendEmail({ to: email, subject, html });
+    const pdf = await renderTicketPdf({ ...ticket, stamp });
+    return [
+      {
+        filename: `order-${String(ticket.orderNo).replace(/[^A-Za-z0-9._-]/g, '-') || 'ticket'}.pdf`,
+        content: pdf,
+        contentType: 'application/pdf',
+      },
+    ];
+  } catch {
+    return [];
+  }
+}
+
+/** Shared best-effort send through the mail adapter. */
+async function sendTicketEmail({ email, subject, html, attachments = [] }) {
+  try {
+    return await sendEmail({ to: email, subject, html, attachments });
   } catch {
     return null;
   }

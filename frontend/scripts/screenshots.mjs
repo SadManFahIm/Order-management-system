@@ -180,6 +180,29 @@ await page.getByRole('heading', { name: /Dashboard|ড্যাশবোর্�
 await page.waitForTimeout(900);
 await shot(page, 'dashboard-light.png', { fullPage: true });
 
+// ---------- 5b. Dashboard — ink-paper merchant ledger (Phase 8) ----------
+page = await login(browser, 'light');
+await page.addInitScript(() => localStorage.setItem('oms.storefront.paper', 'dark'));
+await page.goto(`${BASE}/dashboard`, { waitUntil: 'networkidle' });
+await page.getByRole('heading', { name: /Dashboard|ড্যাশবোর্ড/ }).waitFor();
+await page.waitForTimeout(1200);
+await shot(page, 'dashboard-ink-paper.png', { fullPage: true });
+
+// ---------- 5c. Closeout email ticket (Phase 8) — the nightly digest email ----------
+// Rendered server-side; capture it by feeding the backend's print HTML into
+// a blank page so docs show the exact ticket the owner receives.
+{
+  const date = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Dhaka' });
+  const htmlRes = await fetch(`http://localhost:4000/api/reports/closeout.pdf?date=${date}`, {
+    headers: { Authorization: `Bearer ${adminToken}`, 'X-Tenant': tenantId },
+  });
+  const html = await htmlRes.text();
+  const closeoutPage = await browser.newPage({ viewport: { width: 760, height: 1000 }, deviceScaleFactor: 2 });
+  await closeoutPage.setContent(html, { waitUntil: 'networkidle' });
+  await shot(closeoutPage, 'closeout-email-ticket.png', { fullPage: true });
+  await closeoutPage.close();
+}
+
 // ---------- 6. Reports — light (closeout + VAT compliance) ----------
 page = await login(browser, 'light');
 await page.goto(`${BASE}/reports`, { waitUntil: 'networkidle' });
@@ -349,10 +372,15 @@ const invoiceHref = await page
   .getAttribute('href')
   .catch(() => null);
 if (invoiceHref) {
+  // The invoice rides the global paper theme — pin light for the rice copy,
+  // then dark for the ink-paper merchant copy.
+  await page.addInitScript(() => localStorage.setItem('oms.storefront.paper', 'light'));
   await page.goto(`${BASE}${invoiceHref}`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1000);
   await shot(page, 'invoice-phase6-light.png', { fullPage: true });
-  // The invoice sheet is ink-paper by design — capture it on its own.
+  await page.addInitScript(() => localStorage.setItem('oms.storefront.paper', 'dark'));
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForTimeout(1000);
   await shot(page, 'invoice-ink-paper.png', { fullPage: true });
 } else {
   console.log('skipped invoice — no invoice link found');
@@ -394,9 +422,9 @@ if (await splitRow.count()) {
     .getAttribute('href')
     .catch(() => null);
   if (receiptHref) {
-    await page.goto(`${BASE}${receiptHref}`, { waitUntil: 'networkidle' });
-    await page.waitForTimeout(800);
-    await shot(page, 'diner-receipt-light.png', { fullPage: true });
+    // The receipt sheet is ink-paper by design — captured once in section
+    // 7b (diner-receipt-ink-paper.png), so nothing further to shoot here.
+    void receiptHref;
   }
 } else {
   console.log('skipped split-billing shots — no Split Bill Demo order found');

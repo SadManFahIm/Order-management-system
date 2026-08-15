@@ -179,7 +179,14 @@ export function buildCloseoutCsv(data) {
     .join('\r\n')}`;
 }
 
-/** Renders the closeout as a print-ready HTML document (PDF via browser). */
+/**
+ * Renders the closeout as a print-ready HTML document (PDF via browser) —
+ * the same hand-held ticket identity as the storefront: a gold-foil brand
+ * stub with the date stamped on it, the scalloped tear, then the day's
+ * numbers as dashed ticket rows on rice paper. Also the body of the
+ * nightly closeout email (the digest sections are injected before the
+ * `.foot`).
+ */
 export function renderCloseoutHtml(data, tenantName) {
   const rows = data.orders
     .map(
@@ -204,63 +211,89 @@ export function renderCloseoutHtml(data, tenantName) {
     )
     .join('');
   const fmt = (n) => `৳ ${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+  const stamp = `${data.date} · Dhaka (UTC+6) · ${data.orders.length} orders`;
+  const t = (v) => csvCell(v);
 
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
-<title>Closeout — ${data.date} — ${csvCell(tenantName)}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Closeout — ${data.date} — ${t(tenantName)}</title>
 <style>
-  :root{--ink:#16181d;--muted:#68707a;--line:#e6e8ec;--brand:#e11d48;--bg:#fff}
+  :root{--ink:#18342b;--muted:#7d786a;--line:#e6dcc4;--line-strong:#d6c9a6;--chilli:#d2452f;--gold:#c9962e;--brand:#00b3a5;--stub:color-mix(in srgb,var(--brand) 82%,#0c2f23)}
   *{box-sizing:border-box}
-  body{font-family:system-ui,'Segoe UI',Roboto,'Noto Sans Bengali',sans-serif;color:var(--ink);margin:0;background:#f6f7f9;padding:32px}
-  .sheet{max-width:760px;margin:0 auto;background:var(--bg);border-radius:16px;padding:40px 44px;box-shadow:0 8px 28px rgba(0,0,0,.06)}
-  h1{font-size:22px;margin:0 0 4px}
-  .sub{color:var(--muted);margin:0 0 26px;font-size:13.5px}
-  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:26px}
-  .stat{background:#fafbfc;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
-  .stat b{display:block;font-size:19px;margin-top:3px;font-variant-numeric:tabular-nums}
-  .stat span{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
-  h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:22px 0 10px}
+  body{margin:0;padding:0;background:#f6f1e5;font-family:system-ui,'Segoe UI',Roboto,'Noto Sans Bengali',sans-serif;color:var(--ink)}
+  .wrap{max-width:700px;margin:0 auto;padding:28px 16px}
+  .ticket{background:#fdfaf2;border:1px solid var(--line);border-radius:18px;overflow:hidden;box-shadow:0 10px 30px rgba(15,23,42,.08)}
+  .stub{position:relative;background:var(--stub);color:#fff;padding:24px 26px 34px}
+  .stub::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:12px;background:var(--stub);-webkit-mask-image:radial-gradient(circle at 10px -4px,transparent 10px,#000 10.5px);mask-image:radial-gradient(circle at 10px -4px,transparent 10px,#000 10.5px);-webkit-mask-size:20px 12px;mask-size:20px 12px;-webkit-mask-repeat:repeat-x;mask-repeat:repeat-x}
+  .eyebrow{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.72);border:1px dashed rgba(255,255,255,.35);border-radius:999px;padding:5px 12px;background:rgba(0,0,0,.12)}
+  h1{margin:12px 0 2px;font-size:23px;letter-spacing:-.02em}
+  .stamp{display:inline-block;margin-top:10px;border:1px dashed rgba(247,213,113,.7);background:rgba(0,0,0,.16);box-shadow:0 0 0 3px rgba(0,0,0,.07),inset 0 0 22px rgba(247,213,113,.08);color:#f7e08b;border-radius:12px;padding:8px 16px;font-weight:800;font-size:14px;letter-spacing:.02em}
+  .body{padding:26px}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:0 0 6px}
+  .stat{border:1px dashed var(--line-strong);border-radius:14px;padding:11px 12px;text-align:center;background:rgba(255,255,255,.4)}
+  .stat b{display:block;font-size:17px;margin-top:3px;font-variant-numeric:tabular-nums}
+  .stat span{font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  h2{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:20px 0 8px;display:flex;align-items:center;gap:12px}
+  h2::after{content:'';flex:1;border-top:1px dashed var(--line-strong)}
   .method{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px dashed var(--line);font-size:14px}
   table{width:100%;border-collapse:collapse;font-size:13px}
-  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:8px 6px;border-bottom:2px solid var(--line)}
-  td{padding:8px 6px;border-bottom:1px solid var(--line)}
-  .num{text-align:right;font-variant-numeric:tabular-nums}
+  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:8px 6px;border-bottom:2px solid var(--line-strong)}
+  td{padding:8px 6px;border-bottom:1px dashed var(--line);vertical-align:top}
+  .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
   .mono{font-family:'JetBrains Mono',Consolas,monospace;font-size:12px}
-  .foot{margin-top:28px;color:var(--muted);font-size:11.5px;border-top:1px solid var(--line);padding-top:14px}
-  .empty{color:var(--muted);padding:20px 0}
-  @media print{body{background:#fff;padding:0}.sheet{box-shadow:none;border-radius:0;padding:0;max-width:none}}
-</style></head><body><div class="sheet">
-  <h1>${csvCell(tenantName)} — Daily Closeout</h1>
-  <p class="sub">${data.date} · Dhaka (UTC+6) · ${data.orders.length} orders · generated ${new Date().toLocaleString('en-GB', { timeZone: 'Asia/Dhaka' })}</p>
-  <div class="grid">
-    <div class="stat"><span>Orders</span><b>${data.totals.orders}</b></div>
-    <div class="stat"><span>Revenue (paid)</span><b>${fmt(data.totals.revenue)}</b></div>
-    <div class="stat"><span>Pending</span><b>${fmt(data.totals.pendingAmount)}</b></div>
-    <div class="stat"><span>Refunded</span><b>${fmt(data.totals.refundedAmount)}</b></div>
+  .rank{font-weight:800;color:var(--chilli)}
+  .foot{margin-top:26px;color:var(--muted);font-size:11.5px;border-top:1px dashed var(--line);padding-top:14px}
+  .empty{color:var(--muted);padding:14px 0}
+  @media print{
+    body{background:#fff;padding:0}
+    .wrap{max-width:none;padding:0}
+    .ticket{box-shadow:none;border-radius:0;border:none}
+    .stub,.stub::after{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .stub{background:var(--brand)}
+    .stat{background:#fff}
+  }
+</style></head><body>
+<div class="wrap">
+  <div class="ticket">
+    <div class="stub">
+      <span class="eyebrow">🧾 Daily closeout</span>
+      <h1>${t(tenantName)} — Daily Closeout</h1>
+      <div class="stamp">📆 ${stamp}</div>
+    </div>
+    <div class="body">
+      <div class="stats">
+        <div class="stat"><span>Orders</span><b>${data.totals.orders}</b></div>
+        <div class="stat"><span>Revenue (paid)</span><b>${fmt(data.totals.revenue)}</b></div>
+        <div class="stat"><span>Pending</span><b>${fmt(data.totals.pendingAmount)}</b></div>
+        <div class="stat"><span>Refunded</span><b>${fmt(data.totals.refundedAmount)}</b></div>
+      </div>
+      <h2>Revenue by payment method</h2>
+      ${methods || '<div class="empty">No payments this day.</div>'}
+      ${(data.split?.parts || []).length > 0
+        ? `<h2>Split payments (${data.split.orders} order${data.split.orders === 1 ? '' : 's'})</h2>
+           <table><thead><tr><th>Order</th><th>Diner / part</th><th>Method</th><th class="num">Amount</th><th>Status</th><th>Ref</th></tr></thead><tbody>
+           ${data.split.parts
+             .map(
+               (p) => `<tr>
+                 <td class="mono">${p.orderNo}</td>
+                 <td>${p.note ? t(p.note) : '—'}</td>
+                 <td>${t(p.label)}</td>
+                 <td class="num">${fmt(p.amount)}</td>
+                 <td>${p.status}</td>
+                 <td class="mono">${p.reference ? t(p.reference) : '—'}</td>
+               </tr>`
+             )
+             .join('')}
+           </tbody></table>`
+        : ''}
+      <h2>Orders</h2>
+      ${rows ? `<table><thead><tr><th>Order</th><th>Time</th><th>Customer</th><th>Table</th><th>Status</th><th>Payment</th><th class="num">Items</th><th class="num">Amount</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">No orders this day.</div>'}
+      <div class="foot">Generated by Orderly — Order Management System · avg order ${fmt(data.totals.avgOrder)} · canceled ${data.totals.canceled}</div>
+    </div>
   </div>
-  <h2>Revenue by payment method</h2>
-  ${methods || '<div class="empty">No payments this day.</div>'}
-  ${(data.split?.parts || []).length > 0
-    ? `<h2>Split payments (${data.split.orders} order${data.split.orders === 1 ? '' : 's'})</h2>
-       <table><thead><tr><th>Order</th><th>Diner / part</th><th>Method</th><th class="num">Amount</th><th>Status</th><th>Ref</th></tr></thead><tbody>
-       ${data.split.parts
-         .map(
-           (p) => `<tr>
-             <td class="mono">${p.orderNo}</td>
-             <td>${p.note ? csvCell(p.note) : '—'}</td>
-             <td>${csvCell(p.label)}</td>
-             <td class="num">${fmt(p.amount)}</td>
-             <td>${p.status}</td>
-             <td class="mono">${p.reference ? csvCell(p.reference) : '—'}</td>
-           </tr>`
-         )
-         .join('')}
-       </tbody></table>`
-    : ''}
-  <h2>Orders</h2>
-  ${rows ? `<table><thead><tr><th>Order</th><th>Time</th><th>Customer</th><th>Table</th><th>Status</th><th>Payment</th><th class="num">Items</th><th class="num">Amount</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">No orders this day.</div>'}
-  <div class="foot">Generated by Orderly — Order Management System · avg order ${fmt(data.totals.avgOrder)} · canceled ${data.totals.canceled}</div>
-</div></body></html>`;
+</div>
+</body></html>`;
 }
 
 /**
