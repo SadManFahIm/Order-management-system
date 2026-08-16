@@ -124,6 +124,14 @@ const envSchema = z.object({
   BKASH_CALLBACK_URL: z
     .string()
     .default('http://localhost:4000/api/webhooks/bkash/callback'),
+  // ── Usage-based billing (Phase 3 follow-ups) ──────────────────────────
+  // Optional webhook that receives per-tenant usage meter snapshots on a
+  // schedule (products / orders today / members / storage vs plan limits).
+  // When unset the reporter is a no-op; a secret (when set) signs each
+  // request with an HMAC-SHA256 `X-Billing-Signature` header.
+  BILLING_WEBHOOK_URL: z.string().optional(),
+  BILLING_WEBHOOK_SECRET: z.string().optional(),
+  BILLING_REPORT_INTERVAL_MS: z.coerce.number().int().positive().default(6 * 60 * 60 * 1000),
 });
 
 const parsed = envSchema.safeParse(process.env);

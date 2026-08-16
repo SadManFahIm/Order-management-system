@@ -6,6 +6,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { resolveTenant } from '../middleware/tenant.js';
 import * as tenantService from '../services/tenantService.js';
 import { getPlanUsage } from '../services/planService.js';
+import { getBillingMeter, reportTenantMeter } from '../services/billingService.js';
 import { TenantSamlConfig } from '../models/index.js';
 import { serializeSamlConfig } from '../services/samlService.js';
 import {
@@ -142,6 +143,31 @@ router.get(
   asyncHandler(async (req, res) => {
     await tenantService.assertTenantAccess(req.user, Number(req.params.id));
     res.json(await getPlanUsage(Number(req.params.id)));
+  })
+);
+
+/** GET /api/tenants/:id/billing/meter — usage meter snapshot (owner/platform admin). */
+router.get(
+  '/:id/billing/meter',
+  asyncHandler(async (req, res) => {
+    const { role, tenant } = await tenantService.assertTenantAccess(req.user, Number(req.params.id));
+    if (role !== 'owner' && req.user.platform_role !== 'platform_admin') {
+      throw new AppError(403, 'FORBIDDEN', 'Only the workspace owner can read the billing meter');
+    }
+    res.json(await getBillingMeter(tenant.id));
+  })
+);
+
+/** POST /api/tenants/:id/billing/meter/report — push a meter snapshot to the billing webhook (owner/platform admin). */
+router.post(
+  '/:id/billing/meter/report',
+  asyncHandler(async (req, res) => {
+    const { role, tenant } = await tenantService.assertTenantAccess(req.user, Number(req.params.id));
+    if (role !== 'owner' && req.user.platform_role !== 'platform_admin') {
+      throw new AppError(403, 'FORBIDDEN', 'Only the workspace owner can trigger a billing report');
+    }
+    const result = await reportTenantMeter(tenant.id);
+    res.json(result);
   })
 );
 

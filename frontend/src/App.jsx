@@ -33,6 +33,7 @@ const TableQRPage = lazy(() => import('./pages/TableQRPage'));
 const ReportsPage = lazy(() => import('./pages/ReportsPage'));
 const TrackOrderPage = lazy(() => import('./pages/TrackOrderPage'));
 const AdminAnalyticsPage = lazy(() => import('./pages/AdminAnalyticsPage'));
+const AdminSsoOverviewPage = lazy(() => import('./pages/AdminSsoOverviewPage'));
 const ChangePasswordPage = lazy(() => import('./pages/ChangePasswordPage'));
 const InviteAcceptPage = lazy(() => import('./pages/InviteAcceptPage'));
 const SsoSuccessPage = lazy(() => import('./pages/SsoSuccessPage'));
@@ -91,6 +92,7 @@ export default function App() {
                         <Route path="/tables" element={<TableQRPage />} />
                         <Route path="/reports" element={<ReportsPage />} />
                         <Route path="/admin" element={<AdminAnalyticsPage />} />
+                        <Route path="/admin/sso" element={<AdminSsoOverviewPage />} />
                         <Route path="/settings" element={<SettingsPage />} />
                         <Route path="/change-password" element={<ChangePasswordPage />} />
                       </Routes>
