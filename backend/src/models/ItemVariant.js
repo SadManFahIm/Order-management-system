@@ -21,6 +21,9 @@ const ItemVariant = sequelize.define(
     name: { type: DataTypes.STRING(80), allowNull: false },
     price_adjustment: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 0 },
     sort_order: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    // Per-variant stock (migration 020) — quantity on hand; NULL means
+    // unlimited / inherits the product-level inventory.
+    stock: { type: DataTypes.INTEGER, allowNull: true },
   },
   {
     tableName: 'item_variants',

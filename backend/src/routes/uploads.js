@@ -5,7 +5,7 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { requirePermission } from '../middleware/rbac.js';
 import { resolveTenant, requireTenant } from '../middleware/tenant.js';
-import { processAndStoreImage, removeImageObjects } from '../services/imageService.js';
+import { processAndStoreImage, removeImageObjects, optimizeImageObject } from '../services/imageService.js';
 import { env } from '../config/env.js';
 import { assertQuota, incrementUsage, notifyQuotaIfCrossed, LIFETIME_PERIOD } from '../services/planService.js';
 
@@ -75,6 +75,28 @@ router.post(
       width: result.width,
       height: result.height,
     });
+  })
+);
+
+/** POST /api/uploads/images/:key/optimize — crop/compress an existing
+ * image in place (Phase 4 image-optimization UI). Body:
+ * { quality?: 10-95, crop?: { x, y, width, height } }. Re-uploads to the
+ * same key and invalidates the CDN edge copy. */
+router.post(
+  '/images/:key/optimize',
+  canManageMenu,
+  asyncHandler(async (req, res) => {
+    const KEY_PATTERN = /^[a-f0-9-]{36}-[a-z0-9._-]+\.webp$/;
+    if (!KEY_PATTERN.test(req.params.key)) {
+      throw new AppError(400, 'INVALID_IMAGE_KEY', 'Invalid image key');
+    }
+    const key = `tenants/${req.tenant.id}/images/${req.params.key}`;
+    const result = await optimizeImageObject({
+      url: key,
+      quality: req.body?.quality,
+      crop: req.body?.crop,
+    });
+    res.json({ message: 'Image optimized', ...result });
   })
 );
 

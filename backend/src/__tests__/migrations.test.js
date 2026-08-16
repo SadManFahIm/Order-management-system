@@ -81,6 +81,7 @@ describe('migration runner', () => {
       '017_plan_quotas_invites.js',
       '018_tenant_saml_configs.js',
       '019_saml_slo_sp_config.js',
+      '020_menu_media_enhancements.js',
     ]);
   });
 
@@ -112,7 +113,7 @@ describe('migration runner', () => {
   it('reports every migration as applied', async () => {
     const status = await migrationStatus(sequelize);
     expect(status.every((row) => row.state === 'applied')).toBe(true);
-    expect(status).toHaveLength(19);
+    expect(status).toHaveLength(20);
   });
 
   it('adds menu_items.vat_rate via migration 009', async () => {
@@ -126,6 +127,15 @@ describe('migration runner', () => {
 
   it('rolls back only the most recent migration, then re-applies', async () => {
     const qi = sequelize.getQueryInterface();
+
+    // Down 020: removes the menu/media columns (availability schedule,
+    // tags, sort order, variant stock).
+    expect(await migrateDown(sequelize)).toBe(1);
+    expect((await qi.describeTable('menu_items')).available_from).toBeUndefined();
+    expect((await qi.describeTable('menu_items')).available_to).toBeUndefined();
+    expect((await qi.describeTable('menu_items')).tags).toBeUndefined();
+    expect((await qi.describeTable('menu_items')).sort_order).toBeUndefined();
+    expect((await qi.describeTable('item_variants')).stock).toBeUndefined();
 
     // Down 019: drops saml_sp_config + the idp_slo_url column.
     expect(await migrateDown(sequelize)).toBe(1);
@@ -197,8 +207,8 @@ describe('migration runner', () => {
     expect(await migrateDown(sequelize)).toBe(1);
     expect((await qi.describeTable('orders')).table_no).toBeUndefined();
 
-    // Re-applying restores all thirteen rolled-back (including 019).
-    expect(await migrateUp(sequelize)).toBe(13);
+    // Re-applying restores all fourteen rolled-back (including 020).
+    expect(await migrateUp(sequelize)).toBe(14);
     expect(await qi.tableExists('tenant_invites')).toBe(true);
     expect((await qi.describeTable('plans')).max_products).toBeDefined();
     expect((await qi.describeTable('plans')).storage_mb).toBeDefined();
@@ -222,6 +232,11 @@ describe('migration runner', () => {
     const repayIndexes = await qi.showIndex('payments', {});
     expect(reorderIndexes.some((i) => i.name === 'ix_orders_tenant_created_at')).toBe(true);
     expect(repayIndexes.some((i) => i.name === 'ix_payments_tenant_created_at')).toBe(true);
+    // 020 restored: availability schedule, tags, sort order, variant stock.
+    expect((await qi.describeTable('menu_items')).available_from).toBeDefined();
+    expect((await qi.describeTable('menu_items')).tags).toBeDefined();
+    expect((await qi.describeTable('menu_items')).sort_order).toBeDefined();
+    expect((await qi.describeTable('item_variants')).stock).toBeDefined();
   });
 
   it('refuses to roll back a migration that is not the most recent', async () => {

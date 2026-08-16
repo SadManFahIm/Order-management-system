@@ -20,6 +20,7 @@ import {
 } from '../services/importService.js';
 import { env } from '../config/env.js';
 import { assertQuota, notifyQuotaIfCrossed } from '../services/planService.js';
+import { normalizeTags, bulkUpdateItems, duplicateCategory, sortItems } from '../services/menuService.js';
 
 // Rich menu includes (Phase 4).
 const MENU_INCLUDE = [
@@ -62,6 +63,8 @@ router.post(
   asyncHandler(async (req, res) => {
     const { name, description, price, weight_gm, enabled, category_id, prep_minutes, image_url, vat_rate } =
       req.body;
+    const tags = normalizeTags(req.body.tags);
+    const { available_from, available_to, sort_order } = req.body;
 
     if (!name || typeof name !== 'string') {
       throw new AppError(400, 'VALIDATION_ERROR', 'Product name is required');
@@ -100,6 +103,10 @@ router.post(
       prep_minutes: prep_minutes ?? null,
       image_url: image_url ?? null,
       vat_rate: vat_rate ?? 5,
+      tags,
+      available_from: available_from ?? null,
+      available_to: available_to ?? null,
+      sort_order: sort_order ?? 0,
     });
 
     // Optional inventory snapshot rides on the create payload.
@@ -113,6 +120,26 @@ router.post(
   })
 );
 
+/** POST /api/products/bulk — bulk price / stock / enabled / tags edit (Phase 4). */
+router.post(
+  '/bulk',
+  canManageMenu,
+  asyncHandler(async (req, res) => {
+    const updated = await bulkUpdateItems(req.tenant.id, req.user, req.body, req);
+    res.json({ updated });
+  })
+);
+
+/** POST /api/products/categories/:id/duplicate — deep-copy a category (Phase 4). */
+router.post(
+  '/categories/:id/duplicate',
+  canManageMenu,
+  asyncHandler(async (req, res) => {
+    const copy = await duplicateCategory(req.tenant.id, req.user, Number(req.params.id), req);
+    res.status(201).json(copy);
+  })
+);
+
 /** GET /api/products/import/template — CSV template + column reference. */
 router.get(
   '/import/template',
@@ -122,6 +149,15 @@ router.get(
     res.setHeader('Content-Disposition', 'attachment; filename="menu-import-template.csv"');
     res.send(CSV_TEMPLATE);
   }
+);
+
+/** POST /api/products/sort — persist a drag-and-drop item order (Phase 4). */
+router.post(
+  '/sort',
+  asyncHandler(async (req, res) => {
+    const updated = await sortItems(req.tenant.id, req.user, req.body?.order, req);
+    res.json({ updated });
+  })
 );
 
 /** POST /api/products/import — bulk CSV **or XLSX** import (partial success). */
@@ -194,6 +230,8 @@ router.put(
 
     const { name, description, price, weight_gm, enabled, category_id, prep_minutes, image_url, vat_rate } =
       req.body;
+    const tags = req.body.tags !== undefined ? normalizeTags(req.body.tags) : undefined;
+    const { available_from, available_to, sort_order } = req.body;
 
     if (
       vat_rate !== undefined &&
@@ -235,6 +273,10 @@ router.put(
     if (prep_minutes !== undefined) p.prep_minutes = prep_minutes;
     if (image_url !== undefined) p.image_url = image_url;
     if (vat_rate !== undefined) p.vat_rate = vat_rate;
+    if (tags !== undefined) p.tags = tags;
+    if (available_from !== undefined) p.available_from = available_from ?? null;
+    if (available_to !== undefined) p.available_to = available_to ?? null;
+    if (sort_order !== undefined) p.sort_order = sort_order ?? 0;
     p.version = (p.version ?? 1) + 1;
     await p.save();
 
