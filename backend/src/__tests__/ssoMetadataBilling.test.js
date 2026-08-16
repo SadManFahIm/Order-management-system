@@ -280,6 +280,54 @@ describe('SLO round trip', () => {
     expect(replyXml).toContain('samlp:LogoutResponse');
     expect(replyXml).toContain(`InResponseTo="${requestId}"`);
   });
+
+  it('resolves the tenant by Issuer when RelayState is missing (IdP-initiated)', async () => {
+    const requestId = `_${crypto.randomBytes(8).toString('hex')}`;
+    const xml = [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<samlp:LogoutRequest xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"',
+      ' xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"',
+      ' xmlns:ds="http://www.w3.org/2000/09/xmldsig#"',
+      ` ID="${requestId}" Version="2.0" IssueInstant="${new Date().toISOString()}" Destination="http://localhost:4000/api/auth/saml/slo">`,
+      '<saml:Issuer>https://idp.example.com/metadata</saml:Issuer>',
+      '<saml:NameID Format="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress">sso2owner@example.com</saml:NameID>',
+      '</samlp:LogoutRequest>',
+    ].join('');
+    const signed = signSamlMessageXml(xml, idpKeyPem);
+
+    // No RelayState — the service must match the response Issuer to the config.
+    const res = await request(app)
+      .post('/api/auth/saml/slo')
+      .type('form')
+      .set('Accept', 'application/json')
+      .send({ SAMLRequest: Buffer.from(signed).toString('base64') });
+
+    expect(res.status).toBe(200);
+    expect(res.body.loggedOut).toBe(true);
+    expect(res.body.redirectTo).toContain('https://idp.example.com/slo/post');
+  });
+
+  it('rejects a SLO POST with neither message (400)', async () => {
+    const res = await request(app)
+      .post('/api/auth/saml/slo')
+      .type('form')
+      .set('Accept', 'application/json')
+      .send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('SAML_MESSAGE_REQUIRED');
+  });
+
+  it('revokes nothing and still redirects when there is no local session', async () => {
+    const xml = buildSignedLogoutResponse({ keyPem: idpKeyPem });
+    const res = await request(app)
+      .post('/api/auth/saml/slo')
+      .type('form')
+      .set('Accept', 'application/json')
+      .send({ SAMLResponse: Buffer.from(xml).toString('base64'), RelayState: 'sso2-diner' });
+    expect(res.status).toBe(200);
+    expect(res.body.loggedOut).toBe(true);
+    expect(res.body.redirectTo).toContain('/login?logged_out=1');
+  });
 });
 
 describe('usage billing meter', () => {
