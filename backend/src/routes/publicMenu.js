@@ -19,6 +19,7 @@ import {
   paymentMethodsConfig,
 } from '../services/paymentsService.js';
 import { deliveryConfig } from '../services/checkoutService.js';
+import { isAvailableNow } from '../services/menuService.js';
 
 /**
  * Public, read-only storefront menu API (Phase 4).
@@ -114,13 +115,15 @@ function serializeItem(item) {
     weightGm: item.weight_gm,
     prepMinutes: item.prep_minutes,
     imageUrl: item.image_url,
-    available: item.enabled,
+    available: isAvailableNow(item), // hard switch + time window
+    tags: item.tags || [],
     categoryId: item.category_id,
     variants: (item.variants || []).map((v) => ({
       id: v.id,
       name: v.name,
       priceAdjustment: v.price_adjustment,
       sortOrder: v.sort_order,
+      stock: v.stock ?? null,
     })),
     addons: (item.addons || []).map((a) => ({
       id: a.id,
@@ -163,8 +166,15 @@ router.get(
     });
 
     const itemWhere = { tenant_id: tenant.id };
-    if (onlyAvailable) itemWhere.enabled = true;
     if (categoryId && Number.isInteger(categoryId)) itemWhere.category_id = categoryId;
+
+    // Availability: the hard `enabled` switch AND the time-of-day window.
+    // Window filtering happens in JS (isAvailableNow) because the bounds are
+    // 'HH:MM' strings compared against the server's local clock — the SQL
+    // where-clause only removes hard-disabled items.
+    if (onlyAvailable) {
+      itemWhere.enabled = true;
+    }
 
     // X-Total-Count reflects ALL matching items (before pagination) so
     // storefronts can render a "load more" affordance from the header.
@@ -176,13 +186,18 @@ router.get(
         { model: ItemVariant, as: 'variants', order: [['sort_order', 'ASC'], ['id', 'ASC']] },
         { model: ItemAddon, as: 'addons', order: [['sort_order', 'ASC'], ['id', 'ASC']] },
       ],
-      order: [['id', 'ASC']],
+      order: [['sort_order', 'ASC'], ['id', 'ASC']],
       limit,
       offset,
     });
 
+    // Time-window filtering (only when the storefront asked for available
+    // items): drop anything currently outside its availability window.
+    // NB: arrow wrapper — Array#filter would pass the index as `now`.
+    const visibleItems = onlyAvailable ? items.filter((i) => isAvailableNow(i)) : items;
+
     const itemsByCategory = new Map();
-    for (const item of items) {
+    for (const item of visibleItems) {
       const key = item.category_id ?? null;
       if (!itemsByCategory.has(key)) itemsByCategory.set(key, []);
       itemsByCategory.get(key).push(serializeItem(item));

@@ -155,13 +155,14 @@ router.post(
     });
     if (!product) throw new AppError(404, 'NOT_FOUND', 'Product not found');
 
-    const { name, priceAdjustment, sortOrder } = variantSchema.parse(req.body);
+    const { name, priceAdjustment, sortOrder, stock } = variantSchema.parse(req.body);
     const variant = await ItemVariant.create({
       tenant_id: req.tenant.id,
       product_id: product.id,
       name,
       price_adjustment: priceAdjustment ?? 0,
       sort_order: sortOrder ?? 0,
+      stock: stock ?? null,
     });
     res.status(201).json(variant);
   })
@@ -177,10 +178,11 @@ router.put(
     });
     if (!variant) throw new AppError(404, 'NOT_FOUND', 'Variant not found');
 
-    const { name, priceAdjustment, sortOrder } = variantSchema.partial().parse(req.body);
+    const { name, priceAdjustment, sortOrder, stock } = variantSchema.partial().parse(req.body);
     if (name !== undefined) variant.name = name;
     if (priceAdjustment !== undefined) variant.price_adjustment = priceAdjustment;
     if (sortOrder !== undefined) variant.sort_order = sortOrder;
+    if (stock !== undefined) variant.stock = stock;
     await variant.save();
     res.json(variant);
   })

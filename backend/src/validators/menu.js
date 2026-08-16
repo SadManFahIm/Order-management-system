@@ -16,6 +16,8 @@ export const variantSchema = z.object({
   name: z.string().trim().min(1, 'Variant name is required').max(80),
   priceAdjustment: z.number().min(0).optional(),
   sortOrder: z.number().int().min(0).optional(),
+  // Per-variant stock (Phase 4) — NULL = unlimited / inherits the product.
+  stock: z.number().int().min(0).nullable().optional(),
 });
 
 export const addonSchema = z.object({

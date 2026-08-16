@@ -36,6 +36,16 @@ const Product = sequelize.define(
     version: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
     // VAT rate percent (migration 009) — VAT-inclusive pricing, NBR-ready.
     vat_rate: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 5 },
+    // Item-level availability schedule (migration 020): 'HH:MM' time window
+    // during which the item is orderable — NULL means any time. Enforced on
+    // the storefront and at staff order placement.
+    available_from: { type: DataTypes.STRING(5), allowNull: true },
+    available_to: { type: DataTypes.STRING(5), allowNull: true },
+    // Dietary / merchandising tags (migration 020): veg | spicy | new |
+    // bestseller — rendered as badges on the storefront.
+    tags: { type: DataTypes.JSONB, allowNull: false, defaultValue: [] },
+    // Per-item display order within its category (migration 020).
+    sort_order: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
   },
   {
     tableName: 'menu_items',

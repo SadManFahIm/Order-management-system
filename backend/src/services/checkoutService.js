@@ -5,6 +5,7 @@ import ItemAddon from '../models/ItemAddon.js';
 import Promotion from '../models/Promotion.js';
 import PromotionSlab from '../models/PromotionSlab.js';
 import { applyPromotionsToCart } from '../utils/promotionEngine.js';
+import { isAvailableNow } from './menuService.js';
 
 /**
  * Storefront checkout core (Phase 5) — shared by the public checkout route.
@@ -80,6 +81,15 @@ export async function priceCart(tenant, rawItems) {
     if (!product) {
       throw new AppError(400, 'PRODUCT_UNAVAILABLE', `Product ${raw.product_id} is unavailable`);
     }
+    // Item-level availability window (Phase 4): a scheduled item outside
+    // its orderable window is treated exactly like a disabled product.
+    if (!isAvailableNow(product)) {
+      throw new AppError(
+        400,
+        'AVAILABILITY_WINDOW',
+        `${product.name} is not orderable at this time`
+      );
+    }
     const quantity = Number(raw.quantity);
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > 999) {
       throw new AppError(400, 'VALIDATION_ERROR', 'quantity must be an integer between 1 and 999');
@@ -90,6 +100,15 @@ export async function priceCart(tenant, rawItems) {
       : null;
     if (raw.variant_id && !variant) {
       throw new AppError(400, 'INVALID_VARIANT', `Variant ${raw.variant_id} does not belong to this product`);
+    }
+    // Variant-level stock (Phase 4): a tracked variant (stock not NULL)
+    // cannot be ordered beyond its quantity on hand.
+    if (variant && variant.stock !== null && variant.stock !== undefined && quantity > variant.stock) {
+      throw new AppError(
+        400,
+        'VARIANT_OUT_OF_STOCK',
+        `Only ${variant.stock} × ${variant.name} left in stock`
+      );
     }
     const addonIds = (raw.addon_ids || []).map(Number);
     const addons = addonIds.map((id) => (product.addons || []).find((a) => a.id === id));

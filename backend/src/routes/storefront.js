@@ -20,6 +20,7 @@ import { sendOrderAlert } from '../services/whatsappService.js';
 import { sendOrderConfirmationEmail } from '../services/notifications/orderConfirmation.js';
 import { publishOrderEvent } from '../services/realtime.js';
 import { assertQuota, incrementUsage, notifyQuotaIfCrossed } from '../services/planService.js';
+import { decrementVariantStock } from '../services/menuService.js';
 
 /**
  * Public storefront checkout (Phase 5) — the customer journey's final step.
@@ -144,6 +145,10 @@ async function placeCheckoutOrder(tenant, payload) {
   await incrementUsage(tenant.id, 'orders_daily');
   // Quota alerting (Phase 3): fire-and-forget threshold nudges.
   void notifyQuotaIfCrossed(tenant.id);
+
+  // 4.6 Variant stock (Phase 4): tracked variants drop by the ordered
+  //    quantity. Best-effort — a stale variant never fails the order.
+  await decrementVariantStock(pricedItems);
 
   // 5. Payment record(s) — cash paid on the spot, wallets pending, online
   //    → gateway; split orders create one row per part (never the gateway:

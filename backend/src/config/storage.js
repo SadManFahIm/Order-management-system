@@ -1,6 +1,6 @@
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { env } from './env.js';
 
 /**
@@ -81,6 +81,11 @@ async function putLocal(key, buffer, _contentType) {
   await fsp.writeFile(filePath, buffer);
 }
 
+async function getLocal(key) {
+  const filePath = path.join(localRoot, key);
+  return fsp.readFile(filePath);
+}
+
 async function removeLocal(key) {
   const filePath = path.join(localRoot, key);
   await fsp.rm(filePath, { force: true });
@@ -98,6 +103,16 @@ async function putS3(key, buffer, contentType) {
   );
 }
 
+async function getS3(key) {
+  const res = await s3Client.send(
+    new GetObjectCommand({ Bucket: env.S3_BUCKET, Key: key })
+  );
+  // Stream → Buffer (body is a Readable in Node ≥18).
+  const chunks = [];
+  for await (const chunk of res.Body) chunks.push(chunk);
+  return Buffer.concat(chunks);
+}
+
 async function removeS3(key) {
   await s3Client.send(
     new DeleteObjectCommand({ Bucket: env.S3_BUCKET, Key: key })
@@ -112,6 +127,13 @@ export async function putObject({ key, buffer, contentType }) {
   }
   await putLocal(key, buffer, contentType);
   return publicUrl(key);
+}
+
+/** Reads an object's bytes by key (throws if missing). */
+export async function getObject(keyOrUrl) {
+  const key = keyFromUrl(keyOrUrl) || keyOrUrl;
+  if (storageDriver === 's3') return getS3(key);
+  return getLocal(key);
 }
 
 // Strict allowlist for deletion targets — UUID + safe basename + webp only.
