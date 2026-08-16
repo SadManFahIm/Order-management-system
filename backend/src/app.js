@@ -23,6 +23,7 @@ import './models/Subscription.js';
 import './models/FeatureFlag.js';
 import './models/UsageCounter.js';
 import './models/TenantInvite.js';
+import './models/TenantSamlConfig.js';
 import './models/MenuCategory.js';
 import './models/ItemVariant.js';
 import './models/ItemAddon.js';
@@ -38,6 +39,7 @@ import promotionRoutes from './routes/promotions.js';
 import orderRoutes from './routes/orders.js';
 import tenantRoutes from './routes/tenants.js';
 import inviteRoutes from './routes/invites.js';
+import samlRoutes from './routes/saml.js';
 import menuRoutes from './routes/menu.js';
 import uploadRoutes from './routes/uploads.js';
 import publicMenuRoutes from './routes/publicMenu.js';
@@ -128,6 +130,7 @@ app.get(['/health/ready', '/api/health/ready'], async (req, res) => {
 
 // Routes
 // Global API cap; the strict brute-force limiter is applied on /login itself.
+app.use('/api/auth/saml', apiLimiter, samlRoutes);
 app.use('/api/auth', apiLimiter, authRoutes);
 app.use('/api/products', apiLimiter, productRoutes);
 app.use('/api/promotions', apiLimiter, promotionRoutes);

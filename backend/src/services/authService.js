@@ -85,7 +85,7 @@ async function createRefreshToken(user, req) {
   return raw;
 }
 
-async function issueSession(user, req) {
+export async function issueSession(user, req) {
   const tenant = await activeTenantFor(user.id);
   const accessToken = jwt.sign(
     {

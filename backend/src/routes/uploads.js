@@ -7,7 +7,7 @@ import { requirePermission } from '../middleware/rbac.js';
 import { resolveTenant, requireTenant } from '../middleware/tenant.js';
 import { processAndStoreImage, removeImageObjects } from '../services/imageService.js';
 import { env } from '../config/env.js';
-import { assertQuota, incrementUsage, LIFETIME_PERIOD } from '../services/planService.js';
+import { assertQuota, incrementUsage, notifyQuotaIfCrossed, LIFETIME_PERIOD } from '../services/planService.js';
 
 /**
  * Image upload endpoints (Phase 4).
@@ -66,6 +66,7 @@ router.post(
       tenantId: req.tenant.id,
     });
     await incrementUsage(req.tenant.id, 'storage_bytes', req.file.size, LIFETIME_PERIOD);
+    void notifyQuotaIfCrossed(req.tenant.id);
     res.status(201).json({
       url: result.url,
       thumbUrl: result.thumbUrl,

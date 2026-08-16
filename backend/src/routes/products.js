@@ -19,7 +19,7 @@ import {
   IMPORT_COLUMNS,
 } from '../services/importService.js';
 import { env } from '../config/env.js';
-import { assertQuota } from '../services/planService.js';
+import { assertQuota, notifyQuotaIfCrossed } from '../services/planService.js';
 
 // Rich menu includes (Phase 4).
 const MENU_INCLUDE = [
@@ -104,6 +104,9 @@ router.post(
 
     // Optional inventory snapshot rides on the create payload.
     await upsertInventory(req.tenant.id, p.id, name, req.body.inventory);
+
+    // Quota alerting (Phase 3): nudge the owner near the menu limit.
+    void notifyQuotaIfCrossed(req.tenant.id);
 
     const withMenu = await Product.findByPk(p.id, { include: MENU_INCLUDE });
     res.status(201).json(withMenu);

@@ -232,6 +232,61 @@ async function postWebhook(config, payload) {
  * gateway can verify it came from us. Fire-and-forget, never rejects;
  * failures are logged without secrets.
  */
+/**
+ * Plan-quota alert push (Phase 3 hardening).
+ *
+ * Posts a `quota.warning` event to the tenant's WhatsApp webhook when usage
+ * crosses a plan threshold (80/90/100%). Same contract as the digest push:
+ * HMAC-SHA256 `X-Webhook-Signature` when a secret is configured, fire and
+ * forget, never rejects.
+ */
+export async function sendQuotaWebhook(tenant, alert) {
+  try {
+    const config = whatsappConfig(tenant);
+    if (!config.enabled || !config.webhookUrl) return { sent: false, reason: 'disabled' };
+
+    const payload = {
+      event: 'quota.warning',
+      tenantId: tenant.id,
+      tenantSlug: tenant.slug,
+      metric: alert.metric,
+      used: alert.used,
+      limit: alert.limit,
+      percent: alert.percent,
+      message: alert.message,
+    };
+    const body = JSON.stringify(payload);
+    const signature = config.secret
+      ? createHmac('sha256', config.secret).update(body).digest('hex')
+      : null;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
+    try {
+      const res = await fetch(config.webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(config.secret ? { Authorization: `Bearer ${config.secret}` } : {}),
+          ...(signature ? { 'X-Webhook-Signature': signature } : {}),
+        },
+        body,
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        console.warn(`[whatsapp] quota webhook responded ${res.status}`);
+        return { sent: false, reason: `http-${res.status}` };
+      }
+      return { sent: true, signature: Boolean(signature) };
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (err) {
+    console.warn(`[whatsapp] quota webhook failed: ${err?.message || 'unknown'}`);
+    return { sent: false, reason: 'error' };
+  }
+}
+
 export async function sendDigestWebhook(tenant, digest) {
   try {
     const config = whatsappConfig(tenant);

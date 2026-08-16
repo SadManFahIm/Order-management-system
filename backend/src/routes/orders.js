@@ -27,7 +27,7 @@ import { DELIVERY_TYPES, validateSchedule, deliveryConfig } from '../services/ch
 import { assertMethodEnabled, createPaymentForOrder, validateSplits } from '../services/paymentsService.js';
 import { createOnlinePayment } from '../services/paymentGateway.js';
 import { RECONCILIATION_TTL_MS } from '../services/paymentReconciliation.js';
-import { assertQuota, incrementUsage } from '../services/planService.js';
+import { assertQuota, incrementUsage, notifyQuotaIfCrossed } from '../services/planService.js';
 import { buildInvoice, renderInvoiceHtml } from '../services/invoiceService.js';
 import { splitRequestSchema } from '../validators/split.js';
 import {
@@ -619,6 +619,9 @@ async function placeStaffOrder(req, {
     // daily order quota. Runs after the order row exists (idempotent replays
     // short-circuit above, so a retried order is never double-counted).
     await incrementUsage(req.tenant.id, 'orders_daily');
+    // Quota alerting (Phase 3): owner is nudged when today's order volume
+    // crosses a plan threshold — fire-and-forget, never blocks the order.
+    void notifyQuotaIfCrossed(req.tenant.id);
 
     // Payment record(s) — cash is paid on the spot, wallets start pending;
     // split orders create one row per part.

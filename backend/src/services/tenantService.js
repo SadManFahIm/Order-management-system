@@ -14,8 +14,9 @@ import { hasPermission } from '../config/roles.js';
 import { audit } from './auditService.js';
 import { publicUser, validatePassword } from './authService.js';
 import { sendTestAlert } from './whatsappService.js';
-import { assertQuota } from './planService.js';
+import { assertQuota, notifyQuotaIfCrossed } from './planService.js';
 import { getPlanForTenant, getPlanUsage } from './planService.js';
+import TenantSamlConfig from '../models/TenantSamlConfig.js';
 
 /** True if the user is a platform admin (bypasses membership checks). */
 const isPlatformAdmin = (user) => user?.platform_role === 'platform_admin';
@@ -100,6 +101,7 @@ export async function createTenant(user, { name, slug, settings }, req) {
     defaults: {
       plan_id: starter?.id ?? null,
       status: 'trialing',
+      trial_ends_at: end,
       current_period_start: now,
       current_period_end: end,
     },
@@ -305,6 +307,7 @@ export async function addMember(user, tenantId, { email, name, password, role },
     tenant_id: tenant.id,
     role,
   });
+  void notifyQuotaIfCrossed(tenant.id);
 
   await audit({
     action: 'tenant.member_added',
@@ -539,6 +542,7 @@ export async function acceptInvite({ token, user = null, name, password }, req) 
 
   invite.accepted_at = new Date();
   await invite.save();
+  void notifyQuotaIfCrossed(tenant.id);
 
   await audit({
     action: 'tenant.invite_accepted',
@@ -629,6 +633,51 @@ export async function listTenantAudit(user, tenantId, { limit = 50, offset = 0, 
         : null,
     })),
   };
+}
+
+/**
+ * Set the workspace's SAML SSO config (owner or platform admin).
+ * The certificate is the trust anchor for ACS verification.
+ */
+export async function setSamlConfig(user, tenantId, body, req) {
+  const { tenant, role } = await assertTenantAccess(user, tenantId);
+  if (role !== 'owner' && !isPlatformAdmin(user)) {
+    throw new AppError(403, 'FORBIDDEN', 'Only the workspace owner can configure SSO');
+  }
+
+  const [config] = await TenantSamlConfig.findOrCreate({
+    where: { tenant_id: tenant.id },
+    defaults: {
+      tenant_id: tenant.id,
+      enabled: body.enabled,
+      idp_entity_id: body.idpEntityId,
+      idp_sso_url: body.idpSsoUrl,
+      idp_cert: body.idpCert,
+      attribute_email: body.attributeEmail,
+      attribute_name: body.attributeName,
+      default_role: body.defaultRole,
+    },
+  });
+  await config.update({
+    enabled: body.enabled,
+    idp_entity_id: body.idpEntityId,
+    idp_sso_url: body.idpSsoUrl,
+    idp_cert: body.idpCert,
+    attribute_email: body.attributeEmail,
+    attribute_name: body.attributeName,
+    default_role: body.defaultRole,
+  });
+
+  await audit({
+    action: 'tenant.saml_configured',
+    actorId: user.id,
+    tenantId: tenant.id,
+    entityType: 'Tenant',
+    entityId: tenant.id,
+    metadata: { enabled: body.enabled, idpEntityId: body.idpEntityId, defaultRole: body.defaultRole },
+    req,
+  });
+  return config;
 }
 
 /** Change a workspace's plan (platform admin only). */

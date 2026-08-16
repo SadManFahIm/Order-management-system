@@ -7,6 +7,8 @@ import {
   UserTenant,
   UsageCounter,
 } from '../models/index.js';
+import { sendQuotaWebhook } from './whatsappService.js';
+import { sendQuotaAlertEmail } from './notifications/quotaAlert.js';
 
 /**
  * Plan quota enforcement (Phase 3 hardening).
@@ -172,4 +174,72 @@ export async function incrementUsage(tenantId, metric, by = 1, periodStart = tod
   row.value = Number(row.value) + by;
   await row.save();
   return row;
+}
+
+// ── Quota alerting (Phase 3) ───────────────────────────────────────────────
+
+// Percentage levels at which the owner is alerted, per metric per day.
+export const QUOTA_ALERT_THRESHOLDS = [80, 90, 100];
+
+/**
+ * Fire-and-forget quota alerts: after a write, recompute usage vs limits and
+ * notify the owner (WhatsApp webhook + email) when a metric crosses an
+ * un-stamped threshold. Each (metric, threshold) fires once per calendar day
+ * — the stamp lives in `tenant.settings.quotaAlerts`. Never rejects.
+ */
+export async function notifyQuotaIfCrossed(tenantId) {
+  try {
+    const { tenant, plan } = await getPlanForTenant(tenantId);
+    const limits = planLimits(plan);
+    const usage = await countUsage(tenantId);
+    const metrics = [
+      { metric: 'products', label: 'menu items', used: usage.products, limit: limits.products },
+      { metric: 'orders_today', label: 'orders today', used: usage.ordersToday, limit: limits.ordersPerDay },
+      { metric: 'members', label: 'team members', used: usage.members, limit: limits.members },
+      { metric: 'storage', label: 'storage', used: Math.round((usage.storageBytes / (1024 * 1024)) * 100) / 100, limit: limits.storageMb },
+    ];
+
+    const stamped = { ...(tenant.settings?.quotaAlerts || {}) };
+    const day = today();
+    const alerts = [];
+    for (const m of metrics) {
+      if (!m.limit || m.limit <= 0) continue;
+      const pct = Math.round((m.used / m.limit) * 100);
+      // Highest threshold crossed that hasn't been stamped for this day. Only
+      // the topmost un-stamped one fires, and stamping it covers every lower
+      // threshold too — otherwise a jump from 70% to 100% would cascade
+      // 100 → 90 → 80 alerts over the following days.
+      const crossed = QUOTA_ALERT_THRESHOLDS
+        .filter((t) => pct >= t)
+        .sort((a, b) => b - a)
+        .find((t) => stamped[`${m.metric}:${t}`] !== day);
+      if (!crossed) continue;
+      for (const t of QUOTA_ALERT_THRESHOLDS.filter((x) => x <= crossed)) {
+        stamped[`${m.metric}:${t}`] = day;
+      }
+      const unit = m.metric === 'storage' ? 'MB' : '';
+      alerts.push({
+        metric: m.metric,
+        used: m.used,
+        limit: m.limit,
+        percent: pct,
+        label: m.label,
+        message: `Plan alert: ${m.label} at ${pct}% (${m.used}${unit ? ` ${unit}` : ''}/${m.limit}${unit ? ` ${unit}` : ''}) — upgrade to keep going.`,
+      });
+    }
+    if (alerts.length === 0) return [];
+
+    // Stamp first (idempotent even if a send below fails).
+    await tenant.update({ settings: { ...(tenant.settings || {}), quotaAlerts: stamped } });
+
+    for (const alert of alerts) {
+      void sendQuotaWebhook(tenant, alert);
+      void sendQuotaAlertEmail({ tenant, alert });
+    }
+    return alerts;
+  } catch (err) {
+    // Alerting must never break the request that triggered it.
+    console.warn(`[quota-alert] failed for tenant ${tenantId}: ${err.message}`);
+    return [];
+  }
 }
