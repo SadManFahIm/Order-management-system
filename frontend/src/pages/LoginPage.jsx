@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import api from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../i18n';
 import { Field, Input, Button } from '../components/ui';
@@ -15,6 +16,22 @@ export default function LoginPage() {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [ssoSlug, setSsoSlug] = useState('');
+  const [ssoBusy, setSsoBusy] = useState(false);
+
+  const startSso = async () => {
+    setSsoBusy(true);
+    setError('');
+    try {
+      const res = await api.get('/auth/saml/init', {
+        params: { tenant: ssoSlug.trim().toLowerCase() },
+      });
+      window.location.href = res.data.url;
+    } catch {
+      setError(t('settings.ssoFailed'));
+      setSsoBusy(false);
+    }
+  };
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -146,6 +163,53 @@ export default function LoginPage() {
           {submitting ? t('auth.pleaseWait') : step === '2fa' ? t('auth.verify') : t('auth.signIn')}
         </Button>
       </form>
+
+      {step === 'credentials' && (
+        <div style={{ marginTop: 18 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              color: 'var(--text-muted)',
+              fontSize: 11,
+              letterSpacing: '.08em',
+              textTransform: 'uppercase',
+            }}
+          >
+            <span style={{ flex: 1, borderTop: '1px dashed var(--border)' }} />
+            SSO
+            <span style={{ flex: 1, borderTop: '1px dashed var(--border)' }} />
+          </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              startSso();
+            }}
+            style={{ marginTop: 12 }}
+          >
+            <Field label={t('settings.ssoSlug')} hint={t('settings.ssoHint')}>
+              <Input
+                value={ssoSlug}
+                onChange={(e) => setSsoSlug(e.target.value)}
+                placeholder={t('settings.ssoSlugPlaceholder')}
+                autoCapitalize="none"
+                autoCorrect="off"
+              />
+            </Field>
+            <Button
+              type="submit"
+              variant="outline"
+              size="lg"
+              loading={ssoBusy}
+              disabled={!ssoSlug.trim()}
+              style={{ width: '100%', marginTop: 10 }}
+            >
+              {ssoBusy ? t('settings.ssoRedirecting') : t('settings.ssoStart')}
+            </Button>
+          </form>
+        </div>
+      )}
     </AuthTicket>
   );
 }

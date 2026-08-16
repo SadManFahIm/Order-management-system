@@ -134,3 +134,13 @@ export const transferOwnershipSchema = z.object({
 export const changePlanSchema = z.object({
   code: z.enum(['free', 'starter', 'pro', 'growth']),
 });
+
+export const samlConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  idpEntityId: z.string().trim().min(3).max(255),
+  idpSsoUrl: z.string().url('Must be a valid IdP SSO URL').max(500),
+  idpCert: z.string().trim().min(64, 'PEM certificate looks too short').max(20000),
+  attributeEmail: z.string().trim().min(1).max(64).default('nameid'),
+  attributeName: z.string().trim().min(1).max(64).default('displayname'),
+  defaultRole: z.enum(['owner', 'manager', 'cashier', 'kitchen', 'delivery', 'staff']).default('cashier'),
+});

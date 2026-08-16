@@ -6,6 +6,8 @@ import { AppError } from '../middleware/errorHandler.js';
 import { resolveTenant } from '../middleware/tenant.js';
 import * as tenantService from '../services/tenantService.js';
 import { getPlanUsage } from '../services/planService.js';
+import { TenantSamlConfig } from '../models/index.js';
+import { serializeSamlConfig } from '../services/samlService.js';
 import {
   createTenantSchema,
   updateTenantSchema,
@@ -14,6 +16,7 @@ import {
   createInviteSchema,
   transferOwnershipSchema,
   changePlanSchema,
+  samlConfigSchema,
 } from '../validators/tenant.js';
 
 const router = express.Router();
@@ -205,6 +208,33 @@ router.post(
       req
     );
     res.json(result);
+  })
+);
+
+/** GET /api/tenants/:id/saml — SSO config view (owner or platform admin). */
+router.get(
+  '/:id/saml',
+  asyncHandler(async (req, res) => {
+    await tenantService.assertTenantAccess(req.user, Number(req.params.id));
+    const config = await TenantSamlConfig.findOne({
+      where: { tenant_id: Number(req.params.id) },
+    });
+    res.json(serializeSamlConfig(config));
+  })
+);
+
+/** PUT /api/tenants/:id/saml — set SSO config (platform admin only). */
+router.put(
+  '/:id/saml',
+  asyncHandler(async (req, res) => {
+    const body = samlConfigSchema.parse(req.body);
+    const config = await tenantService.setSamlConfig(
+      req.user,
+      Number(req.params.id),
+      body,
+      req
+    );
+    res.json(serializeSamlConfig(config));
   })
 );
 

@@ -19,7 +19,7 @@ import { withIdempotency } from '../services/idempotency.js';
 import { sendOrderAlert } from '../services/whatsappService.js';
 import { sendOrderConfirmationEmail } from '../services/notifications/orderConfirmation.js';
 import { publishOrderEvent } from '../services/realtime.js';
-import { assertQuota, incrementUsage } from '../services/planService.js';
+import { assertQuota, incrementUsage, notifyQuotaIfCrossed } from '../services/planService.js';
 
 /**
  * Public storefront checkout (Phase 5) — the customer journey's final step.
@@ -142,6 +142,8 @@ async function placeCheckoutOrder(tenant, payload) {
   // 4.5 Plan usage accounting (Phase 3): this order counts toward the plan's
   //    daily order quota (idempotent replays short-circuit above).
   await incrementUsage(tenant.id, 'orders_daily');
+  // Quota alerting (Phase 3): fire-and-forget threshold nudges.
+  void notifyQuotaIfCrossed(tenant.id);
 
   // 5. Payment record(s) — cash paid on the spot, wallets pending, online
   //    → gateway; split orders create one row per part (never the gateway:

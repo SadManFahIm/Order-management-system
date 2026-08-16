@@ -4,6 +4,7 @@ import { env } from './config/env.js';
 import { migrateUp } from '../scripts/migrate.js';
 import { ensureBootstrapData } from './config/schemaSync.js';
 import { startCloseoutScheduler } from './services/reportsScheduler.js';
+import { startTrialExpirySweeper } from './services/trialService.js';
 import { startReconciliationScheduler } from './services/paymentReconciliation.js';
 import { startRollupScheduler } from './services/rollupService.js';
 import { attachRealtime } from './services/realtime.js';
@@ -29,6 +30,7 @@ async function start() {
 
     // Nightly closeout emails (per-tenant, Dhaka hour, once/day).
     startCloseoutScheduler();
+    startTrialExpirySweeper();
     // Stale online payment intents → expired (reconciliation).
     startReconciliationScheduler();
     // Nightly analytics rollup (daily_stats per tenant + Dhaka day).

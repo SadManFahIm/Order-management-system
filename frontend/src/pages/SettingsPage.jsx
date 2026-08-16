@@ -685,6 +685,17 @@ export default function SettingsPage() {
                 </span>
               )}
             </div>
+            {planData.subscription?.status === 'trialing' && planData.subscription?.trialEndsAt && (() => {
+              const days = Math.max(0, Math.ceil((new Date(planData.subscription.trialEndsAt) - new Date()) / 86400000));
+              if (days <= 5) {
+                return (
+                  <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 8, background: 'var(--warning-soft, #fff4d6)', color: 'var(--warning, #b45309)', fontSize: 13 }}>
+                    ⏳ {days === 0 ? t('settings.trialEndedBanner') : t('settings.trialEndsSoon')(days)}
+                  </div>
+                );
+              }
+              return null;
+            })()}
             <div style={{ display: 'grid', gap: 12 }}>
               <QuotaMeter label={t('settings.planProducts')} used={planData.usage.products} limit={planData.limits.products} />
               <QuotaMeter label={t('settings.planOrdersToday')} used={planData.usage.ordersToday} limit={planData.limits.ordersPerDay} />
