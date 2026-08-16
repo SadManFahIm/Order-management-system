@@ -15,6 +15,7 @@ const TenantSamlConfig = sequelize.define(
     enabled: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
     idp_entity_id: { type: DataTypes.STRING(255), allowNull: false },
     idp_sso_url: { type: DataTypes.STRING(500), allowNull: false },
+    idp_slo_url: { type: DataTypes.STRING(500), allowNull: true },
     idp_cert: { type: DataTypes.TEXT, allowNull: false },
     attribute_email: { type: DataTypes.STRING(64), allowNull: false, defaultValue: 'nameid' },
     attribute_name: { type: DataTypes.STRING(64), allowNull: false, defaultValue: 'displayname' },

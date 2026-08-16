@@ -24,6 +24,7 @@ import './models/FeatureFlag.js';
 import './models/UsageCounter.js';
 import './models/TenantInvite.js';
 import './models/TenantSamlConfig.js';
+import './models/SamlSpConfig.js';
 import './models/MenuCategory.js';
 import './models/ItemVariant.js';
 import './models/ItemAddon.js';

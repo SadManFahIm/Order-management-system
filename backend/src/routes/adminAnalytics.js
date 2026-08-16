@@ -6,6 +6,7 @@ import { requireRole } from '../middleware/rbac.js';
 import Tenant from '../models/Tenant.js';
 import Order from '../models/Order.js';
 import Payment from '../models/Payment.js';
+import { TenantSamlConfig, AuditLog, User } from '../models/index.js';
 
 const router = express.Router();
 
@@ -152,6 +153,75 @@ router.get(
       topRestaurants,
       methodMix,
       tenantStatusBreakdown,
+    });
+  })
+);
+
+/**
+ * GET /api/admin/sso — platform-wide SSO overview (Phase 3 follow-up).
+ *
+ * Every tenant with its SAML configuration status (enabled / IdP / SLO /
+ * default role / last updated), plus the most recent `auth.saml_login`
+ * events with actor email, workspace and timestamp — so a platform admin
+ * can see at a glance which workspaces use enterprise SSO and how active
+ * it is. No certificates are ever serialized.
+ */
+router.get(
+  '/sso',
+  asyncHandler(async (req, res) => {
+    const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 10, 1), 50);
+
+    const [tenants, configs, recentLogins] = await Promise.all([
+      Tenant.findAll({
+        attributes: ['id', 'name', 'slug', 'status'],
+        order: [['id', 'ASC']],
+      }),
+      TenantSamlConfig.findAll(),
+      AuditLog.findAll({
+        where: { action: 'auth.saml_login' },
+        order: [['id', 'DESC']],
+        limit,
+        include: [{ model: User, as: 'actor', attributes: ['id', 'name', 'email'], required: false }],
+      }),
+    ]);
+
+    const configByTenant = new Map(configs.map((c) => [c.tenant_id, c]));
+    const workspaces = tenants.map((t) => {
+      const c = configByTenant.get(t.id);
+      return {
+        id: t.id,
+        name: t.name,
+        slug: t.slug,
+        status: t.status,
+        sso: c
+          ? {
+              enabled: Boolean(c.enabled),
+              idpEntityId: c.idp_entity_id,
+              idpSsoUrl: c.idp_sso_url,
+              idpSloUrl: c.idp_slo_url || null,
+              defaultRole: c.default_role,
+              attributeEmail: c.attribute_email,
+              updatedAt: c.updated_at,
+            }
+          : null,
+      };
+    });
+
+    res.json({
+      workspaces,
+      recentLogins: recentLogins.map((l) => ({
+        id: l.id,
+        email: l.actor?.email ?? l.metadata?.email ?? null,
+        name: l.actor?.name ?? null,
+        tenantId: l.tenant_id,
+        at: l.createdAt,
+        metadata: l.metadata ?? {},
+      })),
+      totals: {
+        tenants: tenants.length,
+        configured: configs.length,
+        enabled: configs.filter((c) => c.enabled).length,
+      },
     });
   })
 );

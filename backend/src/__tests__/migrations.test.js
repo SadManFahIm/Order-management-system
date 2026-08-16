@@ -47,6 +47,7 @@ const EXPECTED_TABLES = [
   'order_split_items',
   'tenant_invites',
   'tenant_saml_configs',
+  'saml_sp_config',
 ];
 
 describe('migration runner', () => {
@@ -79,6 +80,7 @@ describe('migration runner', () => {
       '016_auth_hardening.js',
       '017_plan_quotas_invites.js',
       '018_tenant_saml_configs.js',
+      '019_saml_slo_sp_config.js',
     ]);
   });
 
@@ -110,7 +112,7 @@ describe('migration runner', () => {
   it('reports every migration as applied', async () => {
     const status = await migrationStatus(sequelize);
     expect(status.every((row) => row.state === 'applied')).toBe(true);
-    expect(status).toHaveLength(18);
+    expect(status).toHaveLength(19);
   });
 
   it('adds menu_items.vat_rate via migration 009', async () => {
@@ -124,6 +126,11 @@ describe('migration runner', () => {
 
   it('rolls back only the most recent migration, then re-applies', async () => {
     const qi = sequelize.getQueryInterface();
+
+    // Down 019: drops saml_sp_config + the idp_slo_url column.
+    expect(await migrateDown(sequelize)).toBe(1);
+    expect(await qi.tableExists('saml_sp_config')).toBe(false);
+    expect((await qi.describeTable('tenant_saml_configs')).idp_slo_url).toBeUndefined();
 
     // Down 018: drops tenant_saml_configs.
     expect(await migrateDown(sequelize)).toBe(1);
@@ -190,8 +197,8 @@ describe('migration runner', () => {
     expect(await migrateDown(sequelize)).toBe(1);
     expect((await qi.describeTable('orders')).table_no).toBeUndefined();
 
-    // Re-applying restores all twelve rolled-back (including 018).
-    expect(await migrateUp(sequelize)).toBe(12);
+    // Re-applying restores all thirteen rolled-back (including 019).
+    expect(await migrateUp(sequelize)).toBe(13);
     expect(await qi.tableExists('tenant_invites')).toBe(true);
     expect((await qi.describeTable('plans')).max_products).toBeDefined();
     expect((await qi.describeTable('plans')).storage_mb).toBeDefined();

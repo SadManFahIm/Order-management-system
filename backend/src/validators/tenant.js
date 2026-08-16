@@ -139,6 +139,7 @@ export const samlConfigSchema = z.object({
   enabled: z.boolean().default(true),
   idpEntityId: z.string().trim().min(3).max(255),
   idpSsoUrl: z.string().url('Must be a valid IdP SSO URL').max(500),
+  idpSloUrl: z.string().url('Must be a valid IdP SLO URL').max(500).optional().nullable(),
   idpCert: z.string().trim().min(64, 'PEM certificate looks too short').max(20000),
   attributeEmail: z.string().trim().min(1).max(64).default('nameid'),
   attributeName: z.string().trim().min(1).max(64).default('displayname'),
