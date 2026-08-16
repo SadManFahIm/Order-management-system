@@ -259,7 +259,7 @@ export function serializeSamlConfig(config) {
     attributeName: config.attribute_name,
     defaultRole: config.default_role,
     hasCertificate: Boolean(config.idp_cert),
-    updatedAt: config.updated_at,
+    updatedAt: config.updatedAt ?? config.updated_at ?? null,
   };
 }
 

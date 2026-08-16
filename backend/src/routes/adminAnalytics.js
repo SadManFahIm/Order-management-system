@@ -201,7 +201,7 @@ router.get(
               idpSloUrl: c.idp_slo_url || null,
               defaultRole: c.default_role,
               attributeEmail: c.attribute_email,
-              updatedAt: c.updated_at,
+              updatedAt: c.updatedAt ?? c.updated_at ?? null,
             }
           : null,
       };
