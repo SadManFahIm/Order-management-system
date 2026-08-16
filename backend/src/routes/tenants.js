@@ -5,11 +5,15 @@ import { requirePermission } from '../middleware/rbac.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { resolveTenant } from '../middleware/tenant.js';
 import * as tenantService from '../services/tenantService.js';
+import { getPlanUsage } from '../services/planService.js';
 import {
   createTenantSchema,
   updateTenantSchema,
   setStatusSchema,
   addMemberSchema,
+  createInviteSchema,
+  transferOwnershipSchema,
+  changePlanSchema,
 } from '../validators/tenant.js';
 
 const router = express.Router();
@@ -124,6 +128,100 @@ router.delete(
     res.json(
       await tenantService.removeMember(req.user, Number(req.params.id), Number(userId), req)
     );
+  })
+);
+
+// ── Phase 3: plan & usage, invites, ownership, audit ───────────────────────
+
+/** GET /api/tenants/:id/plan — plan + subscription + live usage (any member). */
+router.get(
+  '/:id/plan',
+  asyncHandler(async (req, res) => {
+    await tenantService.assertTenantAccess(req.user, Number(req.params.id));
+    res.json(await getPlanUsage(Number(req.params.id)));
+  })
+);
+
+/** PATCH /api/tenants/:id/plan — platform-admin plan change. */
+router.patch(
+  '/:id/plan',
+  asyncHandler(async (req, res) => {
+    const { code } = changePlanSchema.parse(req.body);
+    const result = await tenantService.changeTenantPlan(
+      req.user,
+      Number(req.params.id),
+      code,
+      req
+    );
+    res.json(result);
+  })
+);
+
+/** POST /api/tenants/:id/invites — create an expiring invite (returns token once). */
+router.post(
+  '/:id/invites',
+  asyncHandler(async (req, res) => {
+    const result = await tenantService.createInvite(
+      req.user,
+      Number(req.params.id),
+      createInviteSchema.parse(req.body),
+      req
+    );
+    res.status(201).json(result);
+  })
+);
+
+/** GET /api/tenants/:id/invites — list invites (any status). */
+router.get(
+  '/:id/invites',
+  asyncHandler(async (req, res) => {
+    res.json(await tenantService.listInvites(req.user, Number(req.params.id)));
+  })
+);
+
+/** DELETE /api/tenants/:id/invites/:inviteId — revoke a pending invite. */
+router.delete(
+  '/:id/invites/:inviteId',
+  asyncHandler(async (req, res) => {
+    const inviteId = Number(req.params.inviteId);
+    if (!Number.isInteger(inviteId) || inviteId <= 0) {
+      throw new AppError(400, 'VALIDATION_ERROR', 'Invalid invite id');
+    }
+    res.json(
+      await tenantService.revokeInvite(req.user, Number(req.params.id), inviteId, req)
+    );
+  })
+);
+
+/** POST /api/tenants/:id/transfer-ownership — owner hands over the workspace. */
+router.post(
+  '/:id/transfer-ownership',
+  asyncHandler(async (req, res) => {
+    const { userId } = transferOwnershipSchema.parse(req.body);
+    const result = await tenantService.transferOwnership(
+      req.user,
+      Number(req.params.id),
+      userId,
+      req
+    );
+    res.json(result);
+  })
+);
+
+/** GET /api/tenants/:id/audit — tenant-scoped audit trail (who changed what). */
+router.get(
+  '/:id/audit',
+  asyncHandler(async (req, res) => {
+    const result = await tenantService.listTenantAudit(
+      req.user,
+      Number(req.params.id),
+      {
+        limit: req.query.limit,
+        offset: req.query.offset,
+        action: req.query.action,
+      }
+    );
+    res.json(result);
   })
 );
 

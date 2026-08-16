@@ -7,6 +7,7 @@ import { requirePermission } from '../middleware/rbac.js';
 import { resolveTenant, requireTenant } from '../middleware/tenant.js';
 import { processAndStoreImage, removeImageObjects } from '../services/imageService.js';
 import { env } from '../config/env.js';
+import { assertQuota, incrementUsage, LIFETIME_PERIOD } from '../services/planService.js';
 
 /**
  * Image upload endpoints (Phase 4).
@@ -54,12 +55,17 @@ router.post(
     if (!req.file) {
       throw new AppError(400, 'INVALID_IMAGE', 'No image file received (field name: image)');
     }
+    // Plan quota gate (Phase 3) — storage is limited per plan; the check
+    // covers the *resulting* footprint, and only the raw bytes are counted
+    // (the processed WebP + thumb are roughly equal in size).
+    await assertQuota(req.tenant.id, 'storage_bytes', { adding: req.file.size });
     const result = await processAndStoreImage({
       buffer: req.file.buffer,
       originalName: req.file.originalname,
       mimetype: req.file.mimetype,
       tenantId: req.tenant.id,
     });
+    await incrementUsage(req.tenant.id, 'storage_bytes', req.file.size, LIFETIME_PERIOD);
     res.status(201).json({
       url: result.url,
       thumbUrl: result.thumbUrl,

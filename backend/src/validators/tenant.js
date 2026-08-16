@@ -120,3 +120,17 @@ export const addMemberSchema = z.object({
   password: z.string().min(8).max(128).optional(),
   role: z.enum(['owner', 'manager', 'cashier', 'kitchen', 'delivery', 'staff']),
 });
+
+export const createInviteSchema = z.object({
+  email: z.string().trim().email().max(254),
+  role: z.enum(['owner', 'manager', 'cashier', 'kitchen', 'delivery', 'staff']).default('cashier'),
+  days: z.coerce.number().int().min(1).max(30).optional(),
+});
+
+export const transferOwnershipSchema = z.object({
+  userId: z.coerce.number().int().positive(),
+});
+
+export const changePlanSchema = z.object({
+  code: z.enum(['free', 'starter', 'pro', 'growth']),
+});

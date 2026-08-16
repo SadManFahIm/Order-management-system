@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 import { z } from 'zod';
 import sequelize from '../config/db.js';
 import { env } from '../config/env.js';
+import { assertQuota } from './planService.js';
 import Product from '../models/Product.js';
 import MenuCategory from '../models/MenuCategory.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -311,6 +312,11 @@ export async function importProductsRows({ rows, tenantId, duplicates = 'skip' }
     validRows = validRows.filter((r) => !existingByName.has(r.data.name.toLowerCase()));
   }
   // duplicates === 'update': existing rows are updated below instead.
+
+  // Plan quota gate (Phase 3): block the whole import before any write when
+  // the resulting product count would exceed the plan's limit.
+  const inserts = validRows.filter((r) => !existingByName.has(r.data.name.toLowerCase()));
+  await assertQuota(tenantId, 'products', { adding: inserts.length });
 
   // Pass 2 — batched writes in transactions (partial success: failures are
   // reported, not fatal). Existing rows are updated when duplicates='update'.

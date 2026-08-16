@@ -19,6 +19,7 @@ import {
   IMPORT_COLUMNS,
 } from '../services/importService.js';
 import { env } from '../config/env.js';
+import { assertQuota } from '../services/planService.js';
 
 // Rich menu includes (Phase 4).
 const MENU_INCLUDE = [
@@ -74,6 +75,9 @@ router.post(
     if (vat_rate !== undefined && (typeof vat_rate !== 'number' || vat_rate < 0 || vat_rate > 100)) {
       throw new AppError(400, 'VALIDATION_ERROR', 'vat_rate must be between 0 and 100');
     }
+
+    // Plan quota gate (Phase 3) — menu size is limited per plan.
+    await assertQuota(req.tenant.id, 'products');
 
     // The category must belong to the same tenant (fail-closed).
     if (category_id) {

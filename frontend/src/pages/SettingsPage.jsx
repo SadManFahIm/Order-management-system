@@ -15,6 +15,16 @@ const PRESETS = [
 
 const DEFAULT_BRAND = { primaryColor: '#00b3a5', accentColor: '#f5d300', tagline: '', announcement: '' };
 
+// Phase 3: the plan catalogue + inviteable team roles.
+const PLANS = [
+  { code: 'free', label: 'Free' },
+  { code: 'starter', label: 'Starter' },
+  { code: 'pro', label: 'Pro' },
+  { code: 'growth', label: 'Growth' },
+];
+
+const TEAM_ROLES = ['owner', 'manager', 'cashier', 'kitchen', 'delivery', 'staff'];
+
 export default function SettingsPage() {
   const { t } = useI18n();
   const { activeTenantId, tenants, user } = useAuth();
@@ -38,6 +48,17 @@ export default function SettingsPage() {
   const [reports, setReports] = useState({ closeoutEmail: '', autoSend: false, hour: 23 });
   const [reportsSaving, setReportsSaving] = useState(false);
 
+  // ── Phase 3: plan & usage, invites, ownership, workspace activity ──
+  const [planData, setPlanData] = useState(null);
+  const [planBusy, setPlanBusy] = useState(false);
+  const [newPlanCode, setNewPlanCode] = useState('');
+  const [invites, setInvites] = useState(null);
+  const [inviteForm, setInviteForm] = useState({ email: '', role: 'cashier', days: 7 });
+  const [inviting, setInviting] = useState(false);
+  const [tenantAudit, setTenantAudit] = useState(null);
+  const [transferEmail, setTransferEmail] = useState('');
+  const lastCreatedInviteRef = useRef(null);
+
   // ── Phase 2 hardening: security, sessions, audit, team & access ──
   const [pw, setPw] = useState({ current: '', next: '', confirm: '' });
   const [pwSaving, setPwSaving] = useState(false);
@@ -58,6 +79,30 @@ export default function SettingsPage() {
     api.get('/auth/audit').then((res) => mounted.current && setAudit(res.data.events));
   };
 
+  const loadPlan = () => {
+    if (!activeTenantId) return;
+    api
+      .get(`/tenants/${activeTenantId}/plan`)
+      .then((res) => mounted.current && setPlanData(res.data))
+      .catch(() => mounted.current && setPlanData(null));
+  };
+
+  const loadInvites = () => {
+    if (!canManageUsers || !activeTenantId) return;
+    api
+      .get(`/tenants/${activeTenantId}/invites`)
+      .then((res) => mounted.current && setInvites(res.data))
+      .catch(() => mounted.current && setInvites([]));
+  };
+
+  const loadTenantAudit = () => {
+    if (!canManageUsers || !activeTenantId) return;
+    api
+      .get(`/tenants/${activeTenantId}/audit?limit=30`)
+      .then((res) => mounted.current && setTenantAudit(res.data.events))
+      .catch(() => mounted.current && setTenantAudit([]));
+  };
+
   const loadMembers = () => {
     if (!canManageUsers || !activeTenantId) return;
     api
@@ -69,6 +114,9 @@ export default function SettingsPage() {
   useEffect(() => {
     loadSecurity();
     loadMembers();
+    loadPlan();
+    loadInvites();
+    loadTenantAudit();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTenantId]);
 
@@ -154,6 +202,92 @@ export default function SettingsPage() {
       toast.error('Could not save permission flags');
     } finally {
       setMembersBusy(false);
+    }
+  };
+
+  const changePlan = async () => {
+    if (!newPlanCode) return;
+    setPlanBusy(true);
+    try {
+      const res = await api.patch(`/tenants/${activeTenantId}/plan`, { code: newPlanCode });
+      setPlanData(res.data);
+      toast.success(t('settings.planChanged'));
+      loadTenantAudit();
+    } catch (err) {
+      toast.error(err?.response?.data?.error?.message || t('settings.planChangeFailed'));
+    } finally {
+      setPlanBusy(false);
+    }
+  };
+
+  const createInvite = async () => {
+    setInviting(true);
+    try {
+      const res = await api.post(`/tenants/${activeTenantId}/invites`, {
+        email: inviteForm.email.trim(),
+        role: inviteForm.role,
+        days: Number(inviteForm.days) || 7,
+      });
+      const link = `${window.location.origin}/accept-invite/${res.data.token}`;
+      lastCreatedInviteRef.current = { id: res.data.id, token: res.data.token };
+      try {
+        await navigator.clipboard.writeText(link);
+      } catch {
+        // Clipboard may be blocked — the toast still shows the flow.
+      }
+      toast.success(t('settings.inviteCreated'));
+      setInviteForm({ email: '', role: 'cashier', days: 7 });
+      loadInvites();
+      loadPlan();
+      loadTenantAudit();
+    } catch (err) {
+      toast.error(err?.response?.data?.error?.message || 'Could not create the invite');
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  const revokeInvite = async (invite) => {
+    try {
+      await api.delete(`/tenants/${activeTenantId}/invites/${invite.id}`);
+      toast.success(t('settings.inviteRevoked'));
+      loadInvites();
+      loadTenantAudit();
+    } catch {
+      toast.error('Could not revoke the invite');
+    }
+  };
+
+  const copyInviteLink = async (inviteId, token) => {
+    // The raw token is only returned at creation; for pending invites we
+    // re-open the creation result — here we copy from the stored row when
+    // available (the list carries no token, so we rebuild via the API result
+    // captured at create time).
+    const stored = lastCreatedInviteRef.current;
+    if (stored && stored.id === inviteId && stored.token) {
+      try {
+        await navigator.clipboard.writeText(`${window.location.origin}/accept-invite/${stored.token}`);
+        toast.success(t('settings.inviteLinkCopied'));
+        return;
+      } catch {
+        // fall through
+      }
+    }
+    void token;
+    toast.error('Copy the link from the invite creation toast instead');
+  };
+
+  const transferOwnership = async () => {
+    const target = members?.find((m) => m.email === transferEmail);
+    if (!target) return;
+    if (!window.confirm(t('settings.transferConfirm')(target.name || target.email))) return;
+    try {
+      await api.post(`/tenants/${activeTenantId}/transfer-ownership`, { userId: target.userId });
+      toast.success(t('settings.transferDone'));
+      loadMembers();
+      loadTenantAudit();
+    } catch {
+      toast.error(t('settings.transferFailed'));
     }
   };
 
@@ -529,6 +663,58 @@ export default function SettingsPage() {
       </Card>
 
       {/* Security & password (Phase 2 hardening) */}
+      {/* Plan & usage (Phase 3 multi-tenant) */}
+      <Card title={t('settings.planTitle')} subtitle={t('settings.planDesc')} style={{ marginTop: 16 }}>
+        {!planData ? (
+          <Skeleton height={160} />
+        ) : (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 16, fontWeight: 700 }}>{planData.plan?.name || '—'}</span>
+              <Badge tone={planData.subscription?.status === 'trialing' ? 'warning' : 'success'}>
+                {planData.subscription?.status === 'trialing' ? t('settings.planTrialing') : t('settings.planActive')}
+              </Badge>
+              {planData.subscription?.trialEndsAt && (
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  {t('settings.planTrialEnds')}: {new Date(planData.subscription.trialEndsAt).toLocaleDateString()}
+                </span>
+              )}
+              {planData.subscription?.currentPeriodEnd && (
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  {t('settings.planRenews')}: {new Date(planData.subscription.currentPeriodEnd).toLocaleDateString()}
+                </span>
+              )}
+            </div>
+            <div style={{ display: 'grid', gap: 12 }}>
+              <QuotaMeter label={t('settings.planProducts')} used={planData.usage.products} limit={planData.limits.products} />
+              <QuotaMeter label={t('settings.planOrdersToday')} used={planData.usage.ordersToday} limit={planData.limits.ordersPerDay} />
+              <QuotaMeter label={t('settings.planMembers')} used={planData.usage.members} limit={planData.limits.members} />
+              <QuotaMeter label={t('settings.planStorage')} used={planData.usage.storageMb} limit={planData.limits.storageMb} unit="MB" />
+            </div>
+            {user?.platformRole === 'platform_admin' && (
+              <div style={{ display: 'flex', gap: 10, marginTop: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+                <select
+                  value={newPlanCode}
+                  onChange={(e) => setNewPlanCode(e.target.value)}
+                  className="oms-input"
+                  style={{ width: 180, padding: '9px 10px' }}
+                >
+                  <option value="">{t('settings.planChange')}…</option>
+                  {PLANS.map((p) => (
+                    <option key={p.code} value={p.code}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+                <Button variant="outline" size="sm" onClick={changePlan} loading={planBusy} disabled={!newPlanCode}>
+                  {t('settings.planChange')}
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </Card>
+
       <Card title={t('settings.secTitle')} subtitle={t('settings.secDesc')} style={{ marginTop: 16 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <Field label={t('settings.secCurrent')}>
@@ -658,6 +844,118 @@ export default function SettingsPage() {
               ))}
             </div>
           )}
+
+          {/* Invite a teammate (Phase 3 — expiring links) */}
+          <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px dashed var(--border)' }}>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>{t('settings.inviteTitle')}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 170px 120px auto', gap: 10, alignItems: 'end' }}>
+              <Field label={t('settings.inviteEmail')}>
+                <Input
+                  type="email"
+                  value={inviteForm.email}
+                  onChange={(e) => setInviteForm((f) => ({ ...f, email: e.target.value }))}
+                  placeholder="teammate@example.com"
+                />
+              </Field>
+              <Field label={t('settings.inviteRole')}>
+                <select
+                  value={inviteForm.role}
+                  onChange={(e) => setInviteForm((f) => ({ ...f, role: e.target.value }))}
+                  className="oms-input"
+                  style={{ width: '100%', padding: '9px 10px' }}
+                >
+                  {TEAM_ROLES.map((r) => (
+                    <option key={r} value={r}>
+                      {t(`roles.${r}`)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label={t('settings.inviteDays')}>
+                <Input
+                  type="number"
+                  min={1}
+                  max={30}
+                  value={inviteForm.days}
+                  onChange={(e) => setInviteForm((f) => ({ ...f, days: e.target.value }))}
+                />
+              </Field>
+              <Button variant="primary" onClick={createInvite} loading={inviting} disabled={!inviteForm.email.trim()}>
+                {t('settings.inviteCreate')}
+              </Button>
+            </div>
+
+            {invites && invites.filter((i) => i.status === 'pending').length > 0 && (
+              <div style={{ marginTop: 12, display: 'grid', gap: 6 }}>
+                <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--text-muted)' }}>{t('settings.invitePending')}</div>
+                {invites
+                  .filter((i) => i.status === 'pending')
+                  .map((inv) => (
+                    <div key={inv.id} className="oms-card" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px' }}>
+                      <span style={{ fontSize: 13, flex: 1 }}>
+                        {inv.email} · {t(`roles.${inv.role}`)}
+                      </span>
+                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                        {t('settings.expires')}: {new Date(inv.expiresAt).toLocaleDateString()}
+                      </span>
+                      <Button variant="ghost" size="sm" onClick={() => copyInviteLink(inv.id)}>
+                        {t('settings.inviteCopyLink')}
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => revokeInvite(inv)}>
+                        {t('settings.inviteRevoke')}
+                      </Button>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+
+          {/* Transfer ownership (owner only — Phase 3) */}
+          {user?.tenantRole === 'owner' && (
+            <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px dashed var(--border)' }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{t('settings.transferTitle')}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>{t('settings.transferDesc')}</div>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'end' }}>
+                <Field label={t('settings.transferSelect')}>
+                  <select
+                    value={transferEmail}
+                    onChange={(e) => setTransferEmail(e.target.value)}
+                    className="oms-input"
+                    style={{ width: 260, padding: '9px 10px' }}
+                  >
+                    <option value="">—</option>
+                    {members
+                      ?.filter((m) => m.role !== 'owner')
+                      .map((m) => (
+                        <option key={m.userId} value={m.email}>
+                          {m.name || m.email}
+                        </option>
+                      ))}
+                  </select>
+                </Field>
+                <Button variant="danger" size="sm" onClick={transferOwnership} disabled={!transferEmail}>
+                  {t('settings.transferButton')}
+                </Button>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* Workspace activity — tenant-scoped audit trail (Phase 3) */}
+      {canManageUsers && (
+        <Card title={t('settings.tenantAuditTitle')} subtitle={t('settings.tenantAuditDesc')} style={{ marginTop: 16 }}>
+          {!tenantAudit ? (
+            <Skeleton height={120} />
+          ) : tenantAudit.length === 0 ? (
+            <div style={{ color: 'var(--text-muted)', fontSize: 13, padding: '4px 0' }}>{t('settings.tenantAuditEmpty')}</div>
+          ) : (
+            <div style={{ display: 'grid', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
+              {tenantAudit.map((e) => (
+                <TenantAuditRow key={e.id} event={e} />
+              ))}
+            </div>
+          )}
         </Card>
       )}
     </div>
@@ -757,6 +1055,94 @@ const TEAM_FLAGS = [
   { value: 'manage:users', label: 'Users' },
   { value: 'manage:members', label: 'Team' },
 ];
+
+/** One usage bar in the Plan & usage card (Phase 3). */
+function QuotaMeter({ label, used, limit, unit = '' }) {
+  const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+  const near = pct >= 85;
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
+        <span>{label}</span>
+        <span style={{ color: near ? 'var(--danger)' : 'var(--text-muted)', fontWeight: near ? 700 : 400 }}>
+          {used}
+          {unit ? ` ${unit}` : ''} / {limit}
+          {unit ? ` ${unit}` : ''}
+        </span>
+      </div>
+      <div style={{ height: 6, borderRadius: 99, background: 'var(--border)', overflow: 'hidden' }}>
+        <div
+          style={{
+            width: `${pct}%`,
+            height: '100%',
+            borderRadius: 99,
+            background: near ? 'var(--danger)' : 'var(--primary)',
+            transition: 'width .3s ease',
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** One row of the workspace-activity trail (tenant-scoped audit, Phase 3). */
+function TenantAuditRow({ event }) {
+  const icons = {
+    'tenant.created': '🏠',
+    'tenant.updated': '✏️',
+    'tenant.status_changed': '🚦',
+    'tenant.whatsapp_test_sent': '📲',
+    'tenant.member_added': '👤',
+    'tenant.member_updated': '🔄',
+    'tenant.member_removed': '🚪',
+    'tenant.invite_created': '✉️',
+    'tenant.invite_revoked': '🚫',
+    'tenant.invite_accepted': '✅',
+    'tenant.ownership_transferred': '👑',
+    'tenant.plan_changed': '💳',
+  };
+  const label = icons[event.action] || '•';
+  const extra =
+    event.action === 'tenant.invite_created' && event.metadata?.email
+      ? ` (${event.metadata.email})`
+      : event.action === 'tenant.plan_changed' && event.metadata
+        ? ` (${event.metadata.from || '—'} → ${event.metadata.to || '—'})`
+        : event.action === 'tenant.ownership_transferred'
+          ? ''
+          : '';
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, padding: '6px 2px', borderBottom: '1px dashed var(--border)' }}>
+      <span style={{ width: 18, textAlign: 'center' }}>{label}</span>
+      <span style={{ flex: 1 }}>
+        {friendlyTenantAction(event.action)}
+        {extra}
+      </span>
+      <span style={{ color: 'var(--text-muted)', fontSize: 12, whiteSpace: 'nowrap' }}>
+        {event.actor?.name ? `${event.actor.name} · ` : ''}
+        {new Date(event.createdAt).toLocaleString()}
+      </span>
+    </div>
+  );
+}
+
+/** Human label for a tenant-scoped audit action. */
+function friendlyTenantAction(action) {
+  const map = {
+    'tenant.created': 'Workspace created',
+    'tenant.updated': 'Workspace updated',
+    'tenant.status_changed': 'Workspace status changed',
+    'tenant.whatsapp_test_sent': 'Test WhatsApp alert sent',
+    'tenant.member_added': 'Member added',
+    'tenant.member_updated': 'Member role changed',
+    'tenant.member_removed': 'Member removed',
+    'tenant.invite_created': 'Invite sent',
+    'tenant.invite_revoked': 'Invite revoked',
+    'tenant.invite_accepted': 'Invite accepted',
+    'tenant.ownership_transferred': 'Ownership transferred',
+    'tenant.plan_changed': 'Plan changed',
+  };
+  return map[action] || action;
+}
 
 /** One member row: role, tri-state permission flags, account actions. */
 function MemberRow({ member, t, busy, onFlags, onForceReset, onUnlock }) {
