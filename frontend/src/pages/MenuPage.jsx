@@ -10,6 +10,7 @@ import {
   Modal,
   Input,
   Field,
+  EmptyState,
   useToast,
 } from '../components/ui';
 
@@ -89,10 +90,12 @@ export default function MenuPage() {
     await loadAll();
   };
 
-  const addVariant = async (name, priceAdjustment) => {
+  const addVariant = async (name, priceAdjustment, stock, lowStockAt) => {
     await api.post(`/menu/products/${detail.product.id}/variants`, {
       name,
       priceAdjustment,
+      stock: stock === '' || stock === null ? null : Number(stock),
+      lowStockAt: lowStockAt === '' || lowStockAt === null ? null : Number(lowStockAt),
     });
     toast.success('Variant added');
     await openDetail(detail.product);
@@ -118,6 +121,31 @@ export default function MenuPage() {
 
   const byCategory = (id) => (products ?? []).filter((p) => p.category_id === id);
 
+  // ── Category drag-and-drop reorder (Phase 4 follow-up) ──
+  const [dragCatId, setDragCatId] = useState(null);
+  const [overCatId, setOverCatId] = useState(null);
+
+  const onDropCategory = async (targetId) => {
+    if (dragCatId === null || dragCatId === targetId || !categories) return;
+    const from = categories.findIndex((c) => c.id === dragCatId);
+    const to = categories.findIndex((c) => c.id === targetId);
+    if (from < 0 || to < 0) return;
+    const next = [...categories];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setCategories(next);
+    try {
+      await api.post('/menu/categories/sort', { order: next.map((c) => c.id) });
+      toast.success('Category order saved');
+    } catch {
+      toast.error('Could not save category order');
+      await loadAll();
+    } finally {
+      setDragCatId(null);
+      setOverCatId(null);
+    }
+  };
+
   return (
     <div className="oms-page">
       <PageHeader
@@ -140,42 +168,70 @@ export default function MenuPage() {
         <div className="oms-grid oms-grid--2col">
           {/* ── Categories ── */}
           <Card title="Categories" subtitle={`${categories.length} in this workspace`} bodyPadding={false}>
-            <Table
-              columns={[
-                { key: 'name', label: 'Category' },
-                { key: 'items', label: 'Items', align: 'right' },
-                { key: 'actions', label: '', align: 'right' },
-              ]}
-              rows={categories}
-              render={(c, key) => {
-                if (key === 'name') return <span className="oms-table__cell-strong">{c.name}</span>;
-                if (key === 'items') {
-                  const n = byCategory(c.id).length;
-                  return n > 0 ? <Badge tone="accent">{n}</Badge> : <span style={{ color: 'var(--text-muted)' }}>—</span>;
-                }
-                if (key === 'actions')
-                  return (
-                    <div className="oms-table__actions">
-                      <Button variant="ghost" size="sm" onClick={() => setCatModal({ mode: 'edit', category: c })}>
-                        Edit
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        tone="danger"
-                        onClick={() => deleteCategory(c)}
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  );
-                return c[key];
-              }}
-              empty={{
-                title: 'No categories yet',
-                description: 'Create one to group your items, e.g. “Burgers” or “Drinks”.',
-              }}
-            />
+            {categories.length === 0 ? (
+              <EmptyState
+                title="No categories yet"
+                description="Create one to group your items, e.g. “Burgers” or “Drinks”."
+              />
+            ) : (
+              <Table>
+                <thead>
+                  <tr>
+                    <th style={{ width: 30 }} />
+                    <th>Category</th>
+                    <th className="oms-table__num">Items</th>
+                    <th className="oms-table__num">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {categories.map((c) => (
+                    <tr
+                      key={c.id}
+                      draggable
+                      onDragStart={() => setDragCatId(c.id)}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        if (overCatId !== c.id) setOverCatId(c.id);
+                      }}
+                      onDragLeave={() => setOverCatId((o) => (o === c.id ? null : o))}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        onDropCategory(c.id);
+                      }}
+                      style={{
+                        cursor: 'grab',
+                        opacity: dragCatId === c.id ? 0.5 : 1,
+                        outline: overCatId === c.id ? '2px dashed var(--oms-accent, #b45309)' : 'none',
+                      }}
+                    >
+                      <td style={{ color: 'var(--text-muted)' }} title="Drag to reorder">⠿</td>
+                      <td><span className="oms-table__cell-strong">{c.name}</span></td>
+                      <td className="oms-table__num">
+                        {(() => {
+                          const n = byCategory(c.id).length;
+                          return n > 0 ? <Badge tone="accent">{n}</Badge> : <span style={{ color: 'var(--text-muted)' }}>—</span>;
+                        })()}
+                      </td>
+                      <td className="oms-table__num">
+                        <div className="oms-table__actions">
+                          <Button variant="ghost" size="sm" onClick={() => setCatModal({ mode: 'edit', category: c })}>
+                            Edit
+                          </Button>
+                          <Button variant="ghost" size="sm" tone="danger" onClick={() => deleteCategory(c)}>
+                            Delete
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+            {categories.length > 0 && (
+              <div style={{ padding: '10px 16px', fontSize: 12, color: 'var(--text-muted)', borderTop: '1px solid var(--oms-border)' }}>
+                Drag ⠿ to reorder categories — the storefront follows instantly.
+              </div>
+            )}
           </Card>
 
           {/* ── Items grouped by category ── */}
@@ -307,15 +363,19 @@ function CategoryModal({ mode, category, onSave, onClose }) {
 function ItemDetailModal({ detail, loading, onAddVariant, onAddAddon, onRemoveVariant, onRemoveAddon, onClose }) {
   const [vName, setVName] = useState('');
   const [vPrice, setVPrice] = useState(0);
+  const [vStock, setVStock] = useState('');
+  const [vLow, setVLow] = useState('');
   const [aName, setAName] = useState('');
   const [aPrice, setAPrice] = useState(0);
 
   const submitVariant = (e) => {
     e.preventDefault();
     if (!vName.trim()) return;
-    onAddVariant(vName.trim(), Number(vPrice) || 0);
+    onAddVariant(vName.trim(), Number(vPrice) || 0, vStock, vLow);
     setVName('');
     setVPrice(0);
+    setVStock('');
+    setVLow('');
   };
 
   const submitAddon = (e) => {
@@ -350,6 +410,15 @@ function ItemDetailModal({ detail, loading, onAddVariant, onAddAddon, onRemoveVa
                 <span className="oms-item-detail__delta">
                   {v.price_adjustment > 0 ? `+৳ ${v.price_adjustment}` : 'included'}
                 </span>
+                {v.stock !== null && v.stock !== undefined && (
+                  <span className="oms-item-detail__delta">
+                    {Number(v.stock) <= Number(v.low_stock_at ?? 0) && Number(v.low_stock_at ?? 0) > 0 ? (
+                      <Badge tone="danger">{v.stock} left</Badge>
+                    ) : (
+                      `${v.stock} in stock`
+                    )}
+                  </span>
+                )}
                 <button
                   type="button"
                   className="oms-item-detail__remove"
@@ -375,6 +444,24 @@ function ItemDetailModal({ detail, loading, onAddVariant, onAddAddon, onRemoveVa
               value={vPrice}
               onChange={(e) => setVPrice(e.target.value)}
               style={{ width: 76 }}
+            />
+            <Input
+              type="number"
+              min={0}
+              placeholder="Stock"
+              value={vStock}
+              onChange={(e) => setVStock(e.target.value)}
+              style={{ width: 84 }}
+              title="Quantity on hand (blank = unlimited)"
+            />
+            <Input
+              type="number"
+              min={0}
+              placeholder="Low at"
+              value={vLow}
+              onChange={(e) => setVLow(e.target.value)}
+              style={{ width: 84 }}
+              title="Low-stock alert threshold"
             />
             <Button size="sm" type="submit" disabled={!vName.trim()}>Add</Button>
           </form>

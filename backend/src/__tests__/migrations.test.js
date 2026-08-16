@@ -82,6 +82,7 @@ describe('migration runner', () => {
       '018_tenant_saml_configs.js',
       '019_saml_slo_sp_config.js',
       '020_menu_media_enhancements.js',
+      '021_variant_low_stock.js',
     ]);
   });
 
@@ -113,7 +114,7 @@ describe('migration runner', () => {
   it('reports every migration as applied', async () => {
     const status = await migrationStatus(sequelize);
     expect(status.every((row) => row.state === 'applied')).toBe(true);
-    expect(status).toHaveLength(20);
+    expect(status).toHaveLength(21);
   });
 
   it('adds menu_items.vat_rate via migration 009', async () => {
@@ -127,6 +128,10 @@ describe('migration runner', () => {
 
   it('rolls back only the most recent migration, then re-applies', async () => {
     const qi = sequelize.getQueryInterface();
+
+    // Down 021: removes the variant low-stock threshold column.
+    expect(await migrateDown(sequelize)).toBe(1);
+    expect((await qi.describeTable('item_variants')).low_stock_at).toBeUndefined();
 
     // Down 020: removes the menu/media columns (availability schedule,
     // tags, sort order, variant stock).
@@ -207,8 +212,8 @@ describe('migration runner', () => {
     expect(await migrateDown(sequelize)).toBe(1);
     expect((await qi.describeTable('orders')).table_no).toBeUndefined();
 
-    // Re-applying restores all fourteen rolled-back (including 020).
-    expect(await migrateUp(sequelize)).toBe(14);
+    // Re-applying restores all fifteen rolled-back (including 021).
+    expect(await migrateUp(sequelize)).toBe(15);
     expect(await qi.tableExists('tenant_invites')).toBe(true);
     expect((await qi.describeTable('plans')).max_products).toBeDefined();
     expect((await qi.describeTable('plans')).storage_mb).toBeDefined();
@@ -237,6 +242,8 @@ describe('migration runner', () => {
     expect((await qi.describeTable('menu_items')).tags).toBeDefined();
     expect((await qi.describeTable('menu_items')).sort_order).toBeDefined();
     expect((await qi.describeTable('item_variants')).stock).toBeDefined();
+    // 021 restored: variant low-stock threshold.
+    expect((await qi.describeTable('item_variants')).low_stock_at).toBeDefined();
   });
 
   it('refuses to roll back a migration that is not the most recent', async () => {

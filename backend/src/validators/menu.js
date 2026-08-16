@@ -18,6 +18,9 @@ export const variantSchema = z.object({
   sortOrder: z.number().int().min(0).optional(),
   // Per-variant stock (Phase 4) — NULL = unlimited / inherits the product.
   stock: z.number().int().min(0).nullable().optional(),
+  // Per-variant low-stock threshold (Phase 4 follow-up) — dashboard alert
+  // + digest flag when stock <= low_stock_at; NULL = no alert.
+  lowStockAt: z.number().int().min(0).nullable().optional(),
 });
 
 export const addonSchema = z.object({

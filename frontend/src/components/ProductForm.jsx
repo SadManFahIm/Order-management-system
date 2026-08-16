@@ -209,7 +209,19 @@ export default function ProductForm({ initial, onSave }) {
             onChange={(e) => setForm((f) => ({ ...f, available_to: e.target.value || null }))}
             disabled={!hasSchedule}
           />
-          <Button variant={hasSchedule ? 'outline' : 'ghost'} size="sm" type="button" onClick={() => setForm((f) => ({ ...f, available_from: null, available_to: null }))}>
+          <Button
+            variant={hasSchedule ? 'outline' : 'ghost'}
+            size="sm"
+            type="button"
+            onClick={() =>
+              setForm((f) => {
+                if (hasSchedule) return { ...f, available_from: null, available_to: null };
+                // Starting a schedule: open a sensible default window the
+                // merchant can adjust (09:00 → 22:00) and enable the inputs.
+                return { ...f, available_from: f.available_from || '09:00', available_to: f.available_to || '22:00' };
+              })
+            }
+          >
             {hasSchedule ? 'All-day' : 'Schedule…'}
           </Button>
         </div>
@@ -218,6 +230,7 @@ export default function ProductForm({ initial, onSave }) {
             Orderable {form.available_from || '00:00'} – {form.available_to || '23:59'}
           </div>
         )}
+        <AvailabilityWeekStrip availableFrom={form.available_from} availableTo={form.available_to} />
       </Field>
       <Field label="Tags">
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
@@ -270,5 +283,101 @@ export default function ProductForm({ initial, onSave }) {
         </Button>
       </div>
     </form>
+  );
+}
+
+/**
+ * 7-day availability preview (Phase 4 follow-up). The schedule repeats
+ * every day (HH:MM window), so each weekday cell draws the same rail — the
+ * open window filled, the rest dimmed — with today highlighted. Overnight
+ * windows render as two segments. No window → all-day (full rail).
+ */
+function AvailabilityWeekStrip({ availableFrom, availableTo }) {
+  const toMin = (v) => {
+    if (!v) return null;
+    const m = /^(\d{1,2}):(\d{2})$/.exec(String(v).trim());
+    if (!m) return null;
+    return Number(m[1]) * 60 + Number(m[2]);
+  };
+  const from = toMin(availableFrom);
+  const to = toMin(availableTo);
+  const DAY = 24 * 60;
+
+  const segments = [];
+  if (from === null && to === null) {
+    segments.push({ left: 0, width: 100 }); // all-day
+  } else if (from !== null && to !== null) {
+    if (from <= to) {
+      segments.push({ left: (from / DAY) * 100, width: ((to - from) / DAY) * 100 });
+    } else {
+      // Overnight: from → midnight + midnight → to.
+      segments.push({ left: (from / DAY) * 100, width: ((DAY - from) / DAY) * 100 });
+      segments.push({ left: 0, width: (to / DAY) * 100 });
+    }
+  } else if (from !== null) {
+    segments.push({ left: (from / DAY) * 100, width: 100 - (from / DAY) * 100 });
+  } else {
+    segments.push({ left: 0, width: (to / DAY) * 100 });
+  }
+
+  const todayIdx = (new Date().getDay() + 6) % 7; // Mon-first week
+  const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const allDay = from === null && to === null;
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ display: 'flex', gap: 6 }}>
+        {DAYS.map((d, i) => (
+          <div key={d} style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                fontSize: 10,
+                textAlign: 'center',
+                marginBottom: 4,
+                fontWeight: i === todayIdx ? 800 : 500,
+                color: i === todayIdx ? 'var(--oms-accent, #b45309)' : 'var(--text-muted)',
+              }}
+            >
+              {d}
+            </div>
+            <div
+              style={{
+                position: 'relative',
+                height: 10,
+                borderRadius: 5,
+                background: 'var(--oms-border, rgba(120,113,108,.25))',
+                overflow: 'hidden',
+                outline: i === todayIdx ? '1.5px solid var(--oms-accent, #b45309)' : 'none',
+              }}
+              title={
+                allDay
+                  ? 'Available all day'
+                  : `Orderable ${availableFrom || '00:00'} – ${availableTo || '23:59'}`
+              }
+            >
+              {segments.map((s, si) => (
+                <div
+                  key={si}
+                  style={{
+                    position: 'absolute',
+                    left: `${s.left}%`,
+                    width: `${s.width}%`,
+                    top: 0,
+                    bottom: 0,
+                    background: 'var(--oms-accent, #b45309)',
+                    opacity: 0.85,
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 5 }}>
+        {allDay
+          ? 'Open 24 hours — every day.'
+          : `Same window every day · ${availableFrom || '00:00'} → ${availableTo || '23:59'}`}
+      </div>
+    </div>
   );
 }

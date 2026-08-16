@@ -4,6 +4,7 @@ import Order from '../models/Order.js';
 import OrderItem from '../models/OrderItem.js';
 import Payment from '../models/Payment.js';
 import Product from '../models/Product.js';
+import ItemVariant from '../models/ItemVariant.js';
 import InventoryItem from '../models/InventoryItem.js';
 import { PAYMENT_METHODS, METHOD_LABELS } from './paymentsService.js';
 import { sendEmail } from './notifications/email.js';
@@ -445,12 +446,16 @@ export function buildVatCsv(data) {
 export async function buildDigest(tenantId, dateStr) {
   const { start, end } = dayBounds(dateStr);
 
-  const [orders, lowStock] = await Promise.all([
+  const [orders, lowStock, lowVariants] = await Promise.all([
     Order.findAll({
       where: { tenant_id: tenantId, createdAt: { [Op.gte]: start, [Op.lt]: end } },
       attributes: ['id'],
     }),
     InventoryItem.findAll({ where: { tenant_id: tenantId } }),
+    ItemVariant.findAll({
+      where: { tenant_id: tenantId, stock: { [Op.not]: null } },
+      include: [{ model: Product, as: 'product', attributes: ['name'] }],
+    }),
   ]);
 
   const orderIds = orders.map((o) => o.id);
@@ -478,7 +483,7 @@ export async function buildDigest(tenantId, dateStr) {
   }
 
   const low = lowStock
-    .filter((i) => Number(i.stock_qty) <= Number(i.low_stock_at))
+    .filter((i) => Number(i.low_stock_at) > 0 && Number(i.stock_qty) <= Number(i.low_stock_at))
     .sort((a, b) => Number(a.stock_qty) - Number(b.stock_qty))
     .slice(0, 8)
     .map((i) => ({
@@ -487,6 +492,27 @@ export async function buildDigest(tenantId, dateStr) {
       lowStockAt: Number(i.low_stock_at) || 0,
       unit: i.unit || 'pcs',
     }));
+
+  // Variant-level low stock (Phase 4 follow-up): tracked variants below
+  // their own threshold appear in the same digest list, labelled with the
+  // parent product so the merchant can spot size-level stockouts.
+  const lowVariantRows = (lowVariants || [])
+    .filter(
+      (v) =>
+        Number(v.low_stock_at) > 0 &&
+        Number(v.stock) <= Number(v.low_stock_at)
+    )
+    .sort((a, b) => Number(a.stock) - Number(b.stock))
+    .slice(0, 8)
+    .map((v) => ({
+      itemName: `${v.product?.name || 'Item'} — ${v.name}`,
+      stockQty: Number(v.stock) || 0,
+      lowStockAt: Number(v.low_stock_at) || 0,
+      unit: 'pcs',
+    }));
+  if (lowVariantRows.length > 0) {
+    low.push(...lowVariantRows.slice(0, Math.max(0, 8 - low.length)));
+  }
 
   return { date: dateStr, topSellers, lowStock: low };
 }
