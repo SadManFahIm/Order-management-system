@@ -322,6 +322,75 @@ describe('drag-and-drop sort', () => {
   });
 });
 
+describe('category drag-and-drop sort', () => {
+  it('persists category sort_order and validates the payload', async () => {
+    const c1 = await MenuCategory.create({ tenant_id: tenant.id, name: 'A', sort_order: 0 });
+    const c2 = await MenuCategory.create({ tenant_id: tenant.id, name: 'B', sort_order: 1 });
+    const c3 = await MenuCategory.create({ tenant_id: tenant.id, name: 'C', sort_order: 2 });
+
+    const res = await request(app)
+      .post('/api/menu/categories/sort')
+      .set(auth(ownerToken))
+      .send({ order: [c3.id, c1.id, c2.id] });
+    expect(res.status).toBe(200);
+    expect(res.body.updated.map((c) => c.id)).toEqual([c3.id, c1.id, c2.id]);
+    expect(res.body.updated.map((c) => c.sort_order)).toEqual([0, 1, 2]);
+
+    // Empty order → 400.
+    let bad = await request(app).post('/api/menu/categories/sort').set(auth(ownerToken)).send({ order: [] });
+    expect(bad.status).toBe(400);
+    // Unknown ids are ignored, request still succeeds.
+    bad = await request(app).post('/api/menu/categories/sort').set(auth(ownerToken)).send({ order: [999999] });
+    expect(bad.status).toBe(200);
+  });
+});
+
+describe('variant-level low stock', () => {
+  it('persists lowStockAt on variants and flags the dashboard alert', async () => {
+    const p = await createProduct({ name: 'Low-Stock Dish' });
+    const v = await ItemVariant.create({
+      tenant_id: tenant.id,
+      product_id: p.id,
+      name: 'Medium',
+      price_adjustment: 10,
+      stock: 3,
+      low_stock_at: 5,
+    });
+
+    // PUT supports the lowStockAt field.
+    const upd = await request(app)
+      .put(`/api/menu/variants/${v.id}`)
+      .set(auth(ownerToken))
+      .send({ lowStockAt: 4 });
+    expect(upd.status).toBe(200);
+    expect(upd.body.low_stock_at).toBe(4);
+
+    // The dashboard alert lists the variant (stock 3 <= threshold 4).
+    const dash = await request(app).get('/api/dashboard').set(auth(ownerToken));
+    expect(dash.status).toBe(200);
+    const alert = (dash.body.alerts || []).find((a) => a.code === 'LOW_VARIANT_STOCK');
+    expect(alert).toBeDefined();
+    expect(alert.count).toBeGreaterThan(0);
+    expect(alert.items[0].name).toContain('Low-Stock Dish');
+  });
+
+  it('does not alert for variants without a threshold or with NULL stock', async () => {
+    const p = await createProduct({ name: 'Quiet Variants' });
+    // Stocked but no threshold.
+    await ItemVariant.create({ tenant_id: tenant.id, product_id: p.id, name: 'S', price_adjustment: 0, stock: 1, low_stock_at: null });
+    // Above threshold.
+    await ItemVariant.create({ tenant_id: tenant.id, product_id: p.id, name: 'L', price_adjustment: 0, stock: 9, low_stock_at: 2 });
+    // NULL stock (unlimited) with a threshold — never alerted.
+    await ItemVariant.create({ tenant_id: tenant.id, product_id: p.id, name: 'XL', price_adjustment: 0, stock: null, low_stock_at: 3 });
+
+    const dash = await request(app).get('/api/dashboard').set(auth(ownerToken));
+    const alert = (dash.body.alerts || []).find((a) => a.code === 'LOW_VARIANT_STOCK');
+    // If the alert exists it must not include these quiet variants.
+    const names = (alert?.items || []).map((i) => i.name);
+    expect(names.some((n) => n.includes('Quiet Variants'))).toBe(false);
+  });
+});
+
 describe('decrementVariantStock helper', () => {
   it('no-ops with no tracked variants and skips removed variants', async () => {
     const { decrementVariantStock } = await import('../services/menuService.js');

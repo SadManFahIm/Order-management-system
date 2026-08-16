@@ -24,6 +24,9 @@ const ItemVariant = sequelize.define(
     // Per-variant stock (migration 020) — quantity on hand; NULL means
     // unlimited / inherits the product-level inventory.
     stock: { type: DataTypes.INTEGER, allowNull: true },
+    // Per-variant low-stock threshold (migration 021) — dashboard alert +
+    // nightly digest flag when stock <= low_stock_at; NULL = no alert.
+    low_stock_at: { type: DataTypes.INTEGER, allowNull: true },
   },
   {
     tableName: 'item_variants',
@@ -33,6 +36,6 @@ const ItemVariant = sequelize.define(
 );
 
 Product.hasMany(ItemVariant, { foreignKey: 'product_id', as: 'variants' });
-ItemVariant.belongsTo(Product, { foreignKey: 'product_id' });
+ItemVariant.belongsTo(Product, { foreignKey: 'product_id', as: 'product' });
 
 export default ItemVariant;

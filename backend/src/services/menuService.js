@@ -161,6 +161,48 @@ export async function bulkUpdateItems(tenantId, actorUser, body, req) {
 }
 
 /**
+ * Persists a drag-and-drop category order (Phase 4 follow-up): assigns
+ * sequential sort_order values to the given category ids, in array order.
+ * Only categories belonging to the tenant are touched; unknown ids are
+ * ignored. Returns the re-ordered rows.
+ */
+export async function sortCategories(tenantId, actorUser, orderedIds, req) {
+  if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'An ordered list of category ids is required');
+  }
+  if (orderedIds.length > 200) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Sort supports up to 200 categories at once');
+  }
+  const numericIds = [...new Set(orderedIds.map(Number).filter((n) => Number.isFinite(n) && n > 0))];
+  const cats = await MenuCategory.findAll({
+    where: { id: { [Op.in]: numericIds }, tenant_id: tenantId },
+  });
+  const byId = new Map(cats.map((c) => [c.id, c]));
+  let idx = 0;
+  for (const id of numericIds) {
+    const cat = byId.get(id);
+    if (cat && Number(cat.sort_order ?? 0) !== idx) {
+      cat.sort_order = idx;
+      await cat.save();
+    }
+    idx += 1;
+  }
+  await audit({
+    action: 'menu.categories_sorted',
+    actorId: actorUser.id,
+    tenantId,
+    entityType: 'MenuCategory',
+    entityId: numericIds.join(','),
+    metadata: { count: numericIds.length },
+    req,
+  });
+  return MenuCategory.findAll({
+    where: { id: { [Op.in]: numericIds }, tenant_id: tenantId },
+    order: [['sort_order', 'ASC'], ['id', 'ASC']],
+  });
+}
+
+/**
  * Persists a drag-and-drop sort order (Phase 4): assigns sequential
  * sort_order values to the given item ids, in array order. Only items
  * belonging to the tenant are touched; unknown ids are ignored so the

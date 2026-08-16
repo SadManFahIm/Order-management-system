@@ -8,6 +8,7 @@ import Order from '../models/Order.js';
 import OrderItem from '../models/OrderItem.js';
 import Payment from '../models/Payment.js';
 import Product from '../models/Product.js';
+import ItemVariant from '../models/ItemVariant.js';
 import MenuCategory from '../models/MenuCategory.js';
 import InventoryItem from '../models/InventoryItem.js';
 import DailyStat from '../models/DailyStat.js';
@@ -738,6 +739,35 @@ router.get(
         items: lowStock
           .slice(0, 5)
           .map((i) => ({ name: i.name, stock_qty: i.stock_qty, low_stock_at: i.low_stock_at })),
+      });
+    }
+    // Variant-level low stock (Phase 4 follow-up): tracked variants whose
+    // stock has hit their own threshold get their own alert so the merchant
+    // sees size-level stockouts, not just product-level inventory.
+    const lowVariants = await ItemVariant.findAll({
+      where: {
+        tenant_id: req.tenant.id,
+        stock: { [Op.not]: null },
+      },
+      attributes: ['id', 'name', 'stock', 'low_stock_at'],
+      include: [{ model: Product, as: 'product', attributes: ['id', 'name'] }],
+      limit: 200,
+    });
+    const lowVariantRows = lowVariants.filter(
+      (v) =>
+        Number(v.low_stock_at) > 0 &&
+        Number(v.stock) <= Number(v.low_stock_at)
+    );
+    if (lowVariantRows.length > 0) {
+      alerts.push({
+        code: 'LOW_VARIANT_STOCK',
+        severity: 'warning',
+        count: lowVariantRows.length,
+        items: lowVariantRows.slice(0, 5).map((v) => ({
+          name: `${v.product?.name || 'Item'} — ${v.name}`,
+          stock_qty: v.stock,
+          low_stock_at: v.low_stock_at,
+        })),
       });
     }
     const windowTotal = windowOrders.length;

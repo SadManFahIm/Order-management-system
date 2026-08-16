@@ -15,6 +15,7 @@ import {
   variantSchema,
   addonSchema,
 } from '../validators/menu.js';
+import { sortCategories } from '../services/menuService.js';
 
 const router = express.Router();
 router.use(authMiddleware, resolveTenant, requireTenant);
@@ -40,6 +41,30 @@ router.get(
       ],
     });
     res.json(categories);
+  })
+);
+
+/** POST /api/menu/categories/sort — persist a drag-and-drop category
+ * order (Phase 4 follow-up). Placed before /:id so "sort" is not treated
+ * as an id. */
+router.post(
+  '/categories/sort',
+  canManageMenu,
+  asyncHandler(async (req, res) => {
+    const updated = await sortCategories(req.tenant.id, req.user, req.body?.order, req);
+    res.json({ updated });
+  })
+);
+
+/** POST /api/menu/categories/sort — persist a drag-and-drop category
+ * order (Phase 4 follow-up). Placed before /:id so "sort" is not treated
+ * as an id. */
+router.post(
+  '/categories/sort',
+  canManageMenu,
+  asyncHandler(async (req, res) => {
+    const updated = await sortCategories(req.tenant.id, req.user, req.body?.order, req);
+    res.json({ updated });
   })
 );
 
@@ -155,7 +180,7 @@ router.post(
     });
     if (!product) throw new AppError(404, 'NOT_FOUND', 'Product not found');
 
-    const { name, priceAdjustment, sortOrder, stock } = variantSchema.parse(req.body);
+    const { name, priceAdjustment, sortOrder, stock, lowStockAt } = variantSchema.parse(req.body);
     const variant = await ItemVariant.create({
       tenant_id: req.tenant.id,
       product_id: product.id,
@@ -163,6 +188,7 @@ router.post(
       price_adjustment: priceAdjustment ?? 0,
       sort_order: sortOrder ?? 0,
       stock: stock ?? null,
+      low_stock_at: lowStockAt ?? null,
     });
     res.status(201).json(variant);
   })
@@ -178,11 +204,12 @@ router.put(
     });
     if (!variant) throw new AppError(404, 'NOT_FOUND', 'Variant not found');
 
-    const { name, priceAdjustment, sortOrder, stock } = variantSchema.partial().parse(req.body);
+    const { name, priceAdjustment, sortOrder, stock, lowStockAt } = variantSchema.partial().parse(req.body);
     if (name !== undefined) variant.name = name;
     if (priceAdjustment !== undefined) variant.price_adjustment = priceAdjustment;
     if (sortOrder !== undefined) variant.sort_order = sortOrder;
     if (stock !== undefined) variant.stock = stock;
+    if (lowStockAt !== undefined) variant.low_stock_at = lowStockAt;
     await variant.save();
     res.json(variant);
   })
