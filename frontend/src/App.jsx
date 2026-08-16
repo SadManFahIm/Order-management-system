@@ -34,6 +34,7 @@ const ReportsPage = lazy(() => import('./pages/ReportsPage'));
 const TrackOrderPage = lazy(() => import('./pages/TrackOrderPage'));
 const AdminAnalyticsPage = lazy(() => import('./pages/AdminAnalyticsPage'));
 const ChangePasswordPage = lazy(() => import('./pages/ChangePasswordPage'));
+const InviteAcceptPage = lazy(() => import('./pages/InviteAcceptPage'));
 
 function PageLoader() {
   return (
@@ -62,6 +63,7 @@ export default function App() {
             <Route path="/verify-email" element={<VerifyEmailPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/accept-invite/:token" element={<InviteAcceptPage />} />
             {/* Public storefront — no auth; renders from the public API. */}
             <Route path="/m/:slug" element={<PublicMenuPage />} />
             <Route path="/m/:slug/checkout" element={<CheckoutPage />} />

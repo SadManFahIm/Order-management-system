@@ -45,6 +45,7 @@ const EXPECTED_TABLES = [
   'daily_stats',
   'idempotency_keys',
   'order_split_items',
+  'tenant_invites',
 ];
 
 describe('migration runner', () => {
@@ -75,6 +76,7 @@ describe('migration runner', () => {
       '014_customer_email.js',
       '015_hot_query_indexes.js',
       '016_auth_hardening.js',
+      '017_plan_quotas_invites.js',
     ]);
   });
 
@@ -106,7 +108,7 @@ describe('migration runner', () => {
   it('reports every migration as applied', async () => {
     const status = await migrationStatus(sequelize);
     expect(status.every((row) => row.state === 'applied')).toBe(true);
-    expect(status).toHaveLength(16);
+    expect(status).toHaveLength(17);
   });
 
   it('adds menu_items.vat_rate via migration 009', async () => {
@@ -120,6 +122,14 @@ describe('migration runner', () => {
 
   it('rolls back only the most recent migration, then re-applies', async () => {
     const qi = sequelize.getQueryInterface();
+
+    // Down 017: drops tenant_invites + the plan quota columns.
+    expect(await migrateDown(sequelize)).toBe(1);
+    expect(await qi.tableExists('tenant_invites')).toBe(false);
+    expect((await qi.describeTable('plans')).max_products).toBeUndefined();
+    expect((await qi.describeTable('plans')).max_orders_per_day).toBeUndefined();
+    expect((await qi.describeTable('plans')).max_members).toBeUndefined();
+    expect((await qi.describeTable('plans')).storage_mb).toBeUndefined();
 
     // Down 016: removes the auth-hardening columns (lockout / force-change /
     // per-user permission flags).
@@ -174,8 +184,11 @@ describe('migration runner', () => {
     expect(await migrateDown(sequelize)).toBe(1);
     expect((await qi.describeTable('orders')).table_no).toBeUndefined();
 
-    // Re-applying restores all ten rolled-back.
-    expect(await migrateUp(sequelize)).toBe(10);
+    // Re-applying restores all eleven rolled-back (including 017).
+    expect(await migrateUp(sequelize)).toBe(11);
+    expect(await qi.tableExists('tenant_invites')).toBe(true);
+    expect((await qi.describeTable('plans')).max_products).toBeDefined();
+    expect((await qi.describeTable('plans')).storage_mb).toBeDefined();
     expect(await qi.tableExists('order_split_items')).toBe(true);
     expect((await qi.describeTable('payments')).split_method).toBeDefined();
     expect((await qi.describeTable('menu_items')).vat_rate).toBeDefined();

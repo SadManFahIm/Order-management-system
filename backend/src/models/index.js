@@ -13,6 +13,7 @@ import Plan from './Plan.js';
 import Subscription from './Subscription.js';
 import FeatureFlag from './FeatureFlag.js';
 import UsageCounter from './UsageCounter.js';
+import TenantInvite from './TenantInvite.js';
 import MenuCategory from './MenuCategory.js';
 import ItemVariant from './ItemVariant.js';
 import ItemAddon from './ItemAddon.js';
@@ -43,6 +44,7 @@ export {
   Subscription,
   FeatureFlag,
   UsageCounter,
+  TenantInvite,
   MenuCategory,
   ItemVariant,
   ItemAddon,

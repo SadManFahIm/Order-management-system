@@ -10,6 +10,11 @@ const Plan = sequelize.define(
     code: { type: DataTypes.STRING(32), allowNull: false, unique: true },
     price_mo: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0 },
     is_active: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+    // SaaS quota limits (migration 017) — enforced by planService.
+    max_products: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 20 },
+    max_orders_per_day: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 50 },
+    max_members: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 2 },
+    storage_mb: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 100 },
   },
   {
     tableName: 'plans',

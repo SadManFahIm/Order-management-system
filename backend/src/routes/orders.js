@@ -27,6 +27,7 @@ import { DELIVERY_TYPES, validateSchedule, deliveryConfig } from '../services/ch
 import { assertMethodEnabled, createPaymentForOrder, validateSplits } from '../services/paymentsService.js';
 import { createOnlinePayment } from '../services/paymentGateway.js';
 import { RECONCILIATION_TTL_MS } from '../services/paymentReconciliation.js';
+import { assertQuota, incrementUsage } from '../services/planService.js';
 import { buildInvoice, renderInvoiceHtml } from '../services/invoiceService.js';
 import { splitRequestSchema } from '../validators/split.js';
 import {
@@ -549,6 +550,10 @@ async function placeStaffOrder(req, {
       quantity: i.quantity,
     }));
 
+    // Plan quota gate (Phase 3) — daily order volume is limited per plan.
+    // Checked before the order row exists so a rejected order costs nothing.
+    await assertQuota(req.tenant.id, 'orders_daily');
+
     const { items: enriched, subtotal, totalDiscount, grandTotal } =
       applyPromotionsToCart(cartItems, promotions);
 
@@ -609,6 +614,11 @@ async function placeStaffOrder(req, {
       },
       { include: [{ model: OrderItem, as: 'items' }] }
     );
+
+    // Plan usage accounting (Phase 3): this order counts toward the plan's
+    // daily order quota. Runs after the order row exists (idempotent replays
+    // short-circuit above, so a retried order is never double-counted).
+    await incrementUsage(req.tenant.id, 'orders_daily');
 
     // Payment record(s) — cash is paid on the spot, wallets start pending;
     // split orders create one row per part.
