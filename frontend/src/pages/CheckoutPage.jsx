@@ -51,6 +51,16 @@ export default function CheckoutPage() {
   const [searchParams] = useSearchParams();
   const { t } = useI18n();
   const { paperPref, effectiveDark, cyclePaper } = usePaperTheme();
+  // Schedule-from-calendar (Phase 5 follow-up): the menu's Check-times modal
+  // navigates here with ?date=YYYY-MM-DD&time=HH:MM — the wall clock in the
+  // restaurant's timezone — pre-selecting scheduled pickup.
+  const scheduledParam = (() => {
+    const d = searchParams.get('date');
+    const tm = searchParams.get('time');
+    return d && tm && /^\d{4}-\d{2}-\d{2}$/.test(d) && /^\d{1,2}:\d{2}$/.test(tm)
+      ? `${d}T${tm}`
+      : null;
+  })();
 
   const [restaurant, setRestaurant] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -118,6 +128,11 @@ export default function CheckoutPage() {
         setCart(loadCart());
         const cfg = infoRes.data.checkout || {};
         if (cfg.paymentMethods?.length) setPaymentMethod(cfg.paymentMethods[0]);
+        // Pre-fill a scheduled order from the per-dish calendar jump.
+        if (scheduledParam) {
+          setOrderType('scheduled_pickup');
+          setForm((f) => ({ ...f, scheduled_at: scheduledParam }));
+        }
         // Stock snapshot per product — the menu payload carries stock /
         // lowStockAt / variants (each with its own stock) / availability for
         // every item (available=false keeps out-of-window items in the
@@ -155,12 +170,14 @@ export default function CheckoutPage() {
       return;
     }
     let mounted = true;
-    const local = (d) =>
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const hhmm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+    // The typed value IS the wall clock in the restaurant's timezone — send
+    // it as-is so the backend resolves against the tenant's configured tz
+    // (Phase 5 follow-up) instead of the browser's.
+    const wallDate = String(form.scheduled_at).slice(0, 10);
+    const wallTime = String(form.scheduled_at).slice(11, 16);
     setScheduleCheck((prev) => ({ ...(prev || {}), loading: true }));
     axios
-      .get(`/api/public/restaurants/${slug}/availability`, { params: { date: local(at), time: hhmm } })
+      .get(`/api/public/restaurants/${slug}/availability`, { params: { date: wallDate, time: wallTime } })
       .then((res) => {
         if (!mounted) return;
         const data = res.data;
@@ -380,7 +397,7 @@ export default function CheckoutPage() {
         customer_address: (orderType === 'delivery' || orderType === 'scheduled_delivery') ? form.address.trim() : undefined,
         scheduled_at:
           orderType === 'scheduled_pickup' || orderType === 'scheduled_delivery'
-            ? new Date(form.scheduled_at).toISOString()
+            ? scheduledIso()
             : undefined,
         items: cart.map((l) => ({
           product_id: l.product_id,
@@ -451,6 +468,33 @@ export default function CheckoutPage() {
     const next = cart.filter((_, i) => i !== idx);
     setCart(next);
     try { window.localStorage.setItem(CART_KEY(slug), JSON.stringify(next)); } catch { /* noop */ }
+  };
+
+  /**
+   * The customer's chosen wall time as an ISO instant. When the restaurant
+   * configures a timezone (Phase 5 follow-up), the typed value is that tz's
+   * wall clock — convert wall→UTC via the Intl offset (same math as the
+   * backend). Without a timezone, the browser-local interpretation is kept.
+   */
+  const scheduledIso = () => {
+    const wall = String(form.scheduled_at);
+    if (!wall) return undefined;
+    const tz = restaurant?.timezone;
+    if (!tz) return new Date(wall).toISOString();
+    const [y, mo, d, h, mi] = wall.split(/[-T:]/).map(Number);
+    const guess = Date.UTC(y, mo - 1, d, h, mi);
+    const offset = (date) => {
+      const parts = Object.fromEntries(
+        new Intl.DateTimeFormat('en-CA', {
+          timeZone: tz, hour12: false,
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit',
+        }).formatToParts(date).map((p) => [p.type, p.value])
+      );
+      const hour = Number(parts.hour) % 24;
+      return Date.UTC(+parts.year, +parts.month - 1, +parts.day, hour, +parts.minute) - date.getTime();
+    };
+    return new Date(guess - offset(new Date(guess))).toISOString();
   };
 
   if (loading) {

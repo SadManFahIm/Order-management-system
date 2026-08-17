@@ -250,9 +250,11 @@ const slotOpen = (hour, windows) =>
  * Per-dish availability calendar (Phase 5 follow-up): next 7 days as chips,
  * each day's effective open windows as an hourly slot grid — one read-only
  * request per day to the public availability API (windows mode). Customers
- * plan a scheduled pickup/delivery before adding anything to the cart.
+ * plan a scheduled pickup/delivery before adding anything to the cart, and
+ * tap an open slot to jump into checkout with that dish + time pre-filled
+ * (Phase 5 follow-up: "schedule straight from the calendar").
  */
-function AvailabilityModal({ item, slug, t, onClose }) {
+function AvailabilityModal({ item, slug, t, onClose, onPickSlot }) {
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
     d.setDate(d.getDate() + i);
@@ -291,6 +293,10 @@ function AvailabilityModal({ item, slug, t, onClose }) {
 
   const allDay =
     windows?.length === 1 && windows[0].from === '00:00' && windows[0].to === '24:00';
+  // Past slots on today's grid are dead — the checkout rejects <5 min out.
+  const now = new Date();
+  const slotPast = (h) =>
+    days[active].today && h * 60 < now.getHours() * 60 + now.getMinutes();
 
   return (
     <div
@@ -367,22 +373,32 @@ function AvailabilityModal({ item, slug, t, onClose }) {
                       .join(' · ')}
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 6 }}>
-                    {Array.from({ length: 24 }, (_, h) => (
-                      <div
-                        key={h}
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 800,
-                          textAlign: 'center',
-                          padding: '6px 2px',
-                          borderRadius: 8,
-                          color: slotOpen(h, windows) ? '#fff' : 'var(--text-muted, #7d9a95)',
-                          background: slotOpen(h, windows) ? 'var(--brand)' : 'var(--tile, #eef6f4)',
-                        }}
-                      >
-                        {String(h).padStart(2, '0')}:00
-                      </div>
-                    ))}
+                    {Array.from({ length: 24 }, (_, h) => {
+                      const open = slotOpen(h, windows) && !slotPast(h);
+                      return (
+                        <button
+                          key={h}
+                          disabled={!open}
+                          onClick={() => onPickSlot(days[active].date, h)}
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 800,
+                            textAlign: 'center',
+                            padding: '6px 2px',
+                            borderRadius: 8,
+                            border: open ? '1px solid color-mix(in srgb, var(--brand) 55%, transparent)' : '1px solid transparent',
+                            color: open ? '#fff' : 'var(--text-muted, #7d9a95)',
+                            background: open ? 'var(--brand)' : 'var(--tile, #eef6f4)',
+                            cursor: open ? 'pointer' : 'default',
+                          }}
+                        >
+                          {String(h).padStart(2, '0')}:00
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted, #7d9a95)', marginTop: 10 }}>
+                    ✓ {t('store.timesPick')}
                   </div>
                 </>
               )}
@@ -420,6 +436,10 @@ export default function PublicMenuPage() {
   // Per-dish availability calendar (Phase 5 follow-up): opened from the
   // "Check times" button, lets customers plan scheduled orders.
   const [timesItem, setTimesItem] = useState(null);
+  // Schedule-from-calendar intent (Phase 5 follow-up): when the dish has
+  // options, the calendar hands off to the options modal first, then jumps
+  // into checkout with the chosen slot pre-filled.
+  const [scheduleIntent, setScheduleIntent] = useState(null);
   // Print-coupon QR (Phase 5): fetched lazily, only used by @media print —
   // the tear-off "scan to order again" strip under the printed ticket.
   const [couponQr, setCouponQr] = useState(null);
@@ -525,6 +545,37 @@ export default function PublicMenuPage() {
       return;
     }
     addLine(item, { variant_id: null, addon_ids: [], quantity: 1 });
+  };
+
+  /**
+   * Schedule straight from the calendar (Phase 5 follow-up): tapping an open
+   * slot adds the dish to the cart and jumps to checkout with the scheduled
+   * wall time pre-filled (the checkout interprets it in the restaurant's
+   * timezone). Dishes with options route through the options modal first.
+   */
+  const scheduleFromCalendar = (item, date, hour) => {
+    const wall = `${date}T${String(hour).padStart(2, '0')}:00`;
+    const hasOptions = (item.variants?.length || 0) > 0 || (item.addons?.length || 0) > 0;
+    setTimesItem(null);
+    if (hasOptions) {
+      setScheduleIntent(wall);
+      setModalInitial(null);
+      setModalItem(item);
+      return;
+    }
+    addLine(item, { variant_id: null, addon_ids: [], quantity: 1 });
+    navigate(`/m/${slug}/checkout?date=${date}&time=${String(hour).padStart(2, '0')}:00`);
+  };
+
+  /** Confirms the options modal — with a pending calendar schedule, jump to
+   *  checkout with the slot pre-filled instead of just adding to the cart. */
+  const confirmItem = (item, sel) => {
+    addLine(item, sel);
+    if (scheduleIntent) {
+      const [date, time] = scheduleIntent.split('T');
+      setScheduleIntent(null);
+      navigate(`/m/${slug}/checkout?date=${date}&time=${time}`);
+    }
   };
 
   if (state.loading) {
@@ -769,8 +820,11 @@ export default function PublicMenuPage() {
           item={modalItem}
           initial={modalInitial}
           t={t}
-          onClose={() => setModalItem(null)}
-          onConfirm={(sel) => addLine(modalItem, sel)}
+          onClose={() => {
+            setModalItem(null);
+            setScheduleIntent(null); // cancelled — drop the pending schedule
+          }}
+          onConfirm={(sel) => confirmItem(modalItem, sel)}
         />
       )}
 
@@ -781,6 +835,7 @@ export default function PublicMenuPage() {
           slug={slug}
           t={t}
           onClose={() => setTimesItem(null)}
+          onPickSlot={(date, hour) => scheduleFromCalendar(timesItem, date, hour)}
         />
       )}
 

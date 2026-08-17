@@ -27,6 +27,7 @@ import {
   effectiveWindowSegments,
   computeNextOpenAt,
 } from '../services/menuService.js';
+import { wallToUtc } from '../utils/timezone.js';
 
 /**
  * Public, read-only storefront menu API (Phase 4).
@@ -95,6 +96,9 @@ function serializeTenant(tenant) {
     slug: tenant.slug,
     logoUrl: tenant.logo_url,
     status: tenant.status,
+    // IANA timezone (Phase 5 follow-up): availability windows and closure
+    // days resolve against this wall clock when set (null = server local).
+    timezone: tenant.settings?.timezone || null,
     brand: brand
       ? {
           primaryColor: brand.primaryColor || null,
@@ -113,7 +117,7 @@ function serializeTenant(tenant) {
   };
 }
 
-function serializeItem(item, override = null) {
+function serializeItem(item, override = null, timeZone = null) {
   const inv = item.inventory;
   return {
     id: item.id,
@@ -127,8 +131,9 @@ function serializeItem(item, override = null) {
     // follow-up: an override with no bounds closes the item for the day).
     // Restaurant-wide closure days / weekday closures (Phase 5) are exposed
     // separately on the menu payload (`closedToday`) so the storefront can
-    // render a "closed today" state without per-item noise.
-    available: isAvailableNow(item, new Date(), override),
+    // render a "closed today" state without per-item noise. Windows resolve
+    // against the tenant's configured timezone when set (Phase 5 follow-up).
+    available: isAvailableNow(item, new Date(), override, timeZone),
     // Storefront scarcity cue (Phase 4 follow-up): the product-level
     // inventory snapshot (null when untracked) + low-stock threshold, so
     // the storefront can show "Only N left" / "Sold out" honestly.
@@ -169,6 +174,7 @@ router.get(
   '/restaurants/:slug/menu',
   asyncHandler(async (req, res) => {
     const tenant = await findPublicTenant(req.params.slug);
+    const timeZone = tenant.settings?.timezone || null;
 
     const categoryId = req.query.categoryId ? Number(req.query.categoryId) : null;
     const onlyAvailable = req.query.available !== 'false';
@@ -199,7 +205,7 @@ router.get(
       itemWhere.enabled = true;
     }
 
-    const ctx = await buildAvailabilityContext(tenant.id);
+    const ctx = await buildAvailabilityContext(tenant.id, undefined, timeZone);
 
     // X-Total-Count reflects ALL matching items (before pagination) so
     // storefronts can render a "load more" affordance from the header.
@@ -230,7 +236,7 @@ router.get(
     for (const item of visibleItems) {
       const key = item.category_id ?? null;
       if (!itemsByCategory.has(key)) itemsByCategory.set(key, []);
-      itemsByCategory.get(key).push(serializeItem(item, ctx.overrideByItem.get(item.id)));
+      itemsByCategory.get(key).push(serializeItem(item, ctx.overrideByItem.get(item.id), timeZone));
     }
 
     const menu = categories.map((c) => ({
@@ -256,8 +262,9 @@ router.get(
     const closedToday = ctx.restaurantClosed || ctx.restaurantWeekdayClosed;
     // When closed, tell the storefront when it reopens (Phase 5 follow-up)
     // so the banner can say "back open {weekday} at {time}" instead of a
-    // dead-end. Computed only while closed (a 14-day forward scan).
-    const nextOpenAt = closedToday ? await computeNextOpenAt(tenant.id) : null;
+    // dead-end. Computed only while closed (a 14-day forward scan); day
+    // boundaries follow the tenant's timezone when set.
+    const nextOpenAt = closedToday ? await computeNextOpenAt(tenant.id, new Date(), timeZone) : null;
 
     const payload = JSON.stringify({
       restaurant: serializeTenant(tenant),
@@ -293,6 +300,7 @@ router.get(
   '/restaurants/:slug/availability',
   asyncHandler(async (req, res) => {
     const tenant = await findPublicTenant(req.params.slug);
+    const timeZone = tenant.settings?.timezone || null;
 
     let at = new Date();
     let requestedDate = null;
@@ -304,6 +312,9 @@ router.get(
       }
       const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
       requestedDate = { y, mo, d };
+      // Date + time are the tenant's WALL CLOCK (Phase 5 follow-up): convert
+      // to the UTC instant in the configured timezone (server-local when
+      // none is set).
       if (time !== undefined && time !== '') {
         const hhmm = /^(\d{1,2}):(\d{2})$/.exec(String(time));
         const h = hhmm ? Number(hhmm[1]) : 12;
@@ -311,13 +322,14 @@ router.get(
         if (h > 23 || mi > 59) {
           throw new AppError(400, 'VALIDATION_ERROR', 'time must be a valid HH:MM');
         }
-        at = new Date(y, mo - 1, d, h, mi, 0, 0);
+        at = wallToUtc({ year: y, month: mo, day: d, hour: h, minute: mi }, timeZone);
       } else {
-        at = new Date(y, mo - 1, d, 12, 0, 0, 0); // windows mode — noon anchor
+        // windows mode — noon wall-clock anchor.
+        at = wallToUtc({ year: y, month: mo, day: d, hour: 12, minute: 0 }, timeZone);
       }
     }
 
-    const ctx = await buildAvailabilityContext(tenant.id, at);
+    const ctx = await buildAvailabilityContext(tenant.id, at, timeZone);
     const items = await Product.findAll({
       where: { tenant_id: tenant.id, enabled: true },
       order: [['sort_order', 'ASC'], ['id', 'ASC']],
@@ -368,9 +380,21 @@ router.get(
     }
 
     // Instant mode (with time, or defaulting to now): the checkout preview.
+    const wall = timeZone
+      ? (() => {
+          const p = new Intl.DateTimeFormat('en-CA', {
+            timeZone,
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+          }).formatToParts(ctx.at);
+          const get = (t) => Number(p.find((x) => x.type === t).value) % 24;
+          return { h: get('hour'), m: get('minute') };
+        })()
+      : { h: ctx.at.getHours(), m: ctx.at.getMinutes() };
     res.json({
       ...base,
-      time: `${String(ctx.at.getHours()).padStart(2, '0')}:${String(ctx.at.getMinutes()).padStart(2, '0')}`,
+      time: `${String(wall.h).padStart(2, '0')}:${String(wall.m).padStart(2, '0')}`,
       items: items.map((item) => ({
         id: item.id,
         name: item.name,

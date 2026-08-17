@@ -113,6 +113,9 @@ describe('GET /api/public/restaurants/:slug', () => {
       logoUrl: null,
       status: 'active',
       brand: null,
+      // IANA timezone for wall-clock availability (Phase 5 follow-up) —
+      // null until a merchant configures one.
+      timezone: null,
       // Checkout config (Phase 5) — additive, public-safe: only the enabled
       // method list + wallet numbers + delivery availability/fee.
       checkout: {

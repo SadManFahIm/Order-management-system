@@ -107,6 +107,22 @@ export const updateTenantSchema = z.object({
   paymentMethods: paymentMethodsSchema.optional(),
   reports: reportsSettingsSchema.optional(),
   vat: vatSettingsSchema.optional(),
+  // IANA timezone for wall-clock availability resolution (Phase 5 follow-up);
+  // validated against Intl so bogus zones are rejected at the API edge.
+  timezone: z
+    .string()
+    .trim()
+    .max(64)
+    .refine((tz) => {
+      try {
+        new Intl.DateTimeFormat('en-US', { timeZone: tz });
+        return true;
+      } catch {
+        return false;
+      }
+    }, 'Must be a valid IANA timezone')
+    .optional()
+    .nullable(),
   settings: z.record(z.unknown()).optional(),
 });
 

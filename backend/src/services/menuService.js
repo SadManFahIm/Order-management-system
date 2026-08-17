@@ -12,6 +12,12 @@ import {
   AvailabilityWeekdayRule,
 } from '../models/index.js';
 import { audit } from './auditService.js';
+import {
+  dateKeyIn,
+  minutesOfDay,
+  wallClock,
+  wallToUtc,
+} from '../utils/timezone.js';
 
 /**
  * Menu & media helpers (Phase 4):
@@ -57,8 +63,13 @@ export function normalizeTags(tags) {
   return out;
 }
 
-/** Local date → 'YYYY-MM-DD' (the availability-override calendar key). */
-export function dateKey(d = new Date()) {
+/**
+ * Local date → 'YYYY-MM-DD' (the availability-override calendar key).
+ * `timeZone` (IANA, optional) resolves the date in the tenant's wall clock;
+ * omitted → the server's local date (historical default).
+ */
+export function dateKey(d = new Date(), timeZone) {
+  if (timeZone) return dateKeyIn(d, timeZone);
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
@@ -101,12 +112,14 @@ function toMinutes(value) {
  * Is the clock inside a window? `src` is an item or an override/rule row
  * with optional available_from / available_to (HH:MM). Both bounds NULL =
  * any time; from > to wraps midnight; one-sided bounds supported.
+ * `timeZone` (IANA, optional) compares against the tenant's wall clock;
+ * omitted → the server's local clock.
  */
-export function withinWindow(src, at = new Date()) {
+export function withinWindow(src, at = new Date(), timeZone) {
   const from = toMinutes(src.available_from);
   const to = toMinutes(src.available_to);
   if (from === null && to === null) return true; // no window → any time
-  const nowMin = at.getHours() * 60 + at.getMinutes();
+  const nowMin = minutesOfDay(at, timeZone);
   if (from !== null && to !== null) {
     if (from <= to) return nowMin >= from && nowMin < to;
     // Overnight window: from … 23:59 + 00:00 … to.
@@ -129,13 +142,13 @@ export function withinWindow(src, at = new Date()) {
  * Legacy helper — full resolution (restaurant closures + weekday rules +
  * overrides) goes through buildAvailabilityContext + isAvailableAt.
  */
-export function isAvailableNow(item, now = new Date(), override = null) {
+export function isAvailableNow(item, now = new Date(), override = null, timeZone) {
   if (!item) return false;
   if (item.enabled === false) return false;
   if (override && override.available_from === null && override.available_to === null) {
     return false; // explicit per-date override → closed all day
   }
-  return withinWindow(override || item, now);
+  return withinWindow(override || item, now, timeZone);
 }
 
 /**
@@ -144,9 +157,9 @@ export function isAvailableNow(item, now = new Date(), override = null) {
  * overrides, and every weekday rule (filtered to `at`'s weekday). Call ONCE
  * per request (public menu, checkout, availability-check) and reuse.
  */
-export async function buildAvailabilityContext(tenantId, at = new Date()) {
-  const date = dateKey(at);
-  const weekday = at.getDay(); // 0=Sun … 6=Sat
+export async function buildAvailabilityContext(tenantId, at = new Date(), timeZone) {
+  const date = dateKey(at, timeZone);
+  const weekday = wallClock(at, timeZone).weekday; // 0=Sun … 6=Sat
   const [closureRow, overrides, weekdayRules] = await Promise.all([
     TenantClosureDate.findOne({ where: { tenant_id: tenantId, date } }),
     AvailabilityOverride.findAll({ where: { tenant_id: tenantId, date } }),
@@ -171,6 +184,7 @@ export async function buildAvailabilityContext(tenantId, at = new Date()) {
     at,
     date,
     weekday,
+    timeZone: timeZone || null,
     restaurantClosed: !!closureRow,
     restaurantWeekdayClosed,
     overrideByItem,
@@ -190,14 +204,14 @@ export function isAvailableAt(item, ctx) {
   const weekdayRule = ctx.weekdayByItem.get(item.id);
   if (weekdayRule) {
     if (weekdayRule.available_from === null && weekdayRule.available_to === null) return false;
-    return withinWindow(weekdayRule, ctx.at);
+    return withinWindow(weekdayRule, ctx.at, ctx.timeZone);
   }
   const override = ctx.overrideByItem.get(item.id);
   if (override) {
     if (override.available_from === null && override.available_to === null) return false;
-    return withinWindow(override, ctx.at);
+    return withinWindow(override, ctx.at, ctx.timeZone);
   }
-  return withinWindow(item, ctx.at);
+  return withinWindow(item, ctx.at, ctx.timeZone);
 }
 
 /**
@@ -296,6 +310,44 @@ export function effectiveWindowSegments(item, ctx) {
 }
 
 /**
+ * Closure calendar for one month (Phase 5 follow-up): the merchant month
+ * view in Settings. Returns the month's closure dates, the restaurant-wide
+ * weekday closures, and per-date counts of per-item overrides — enough to
+ * render "closed days, closed weekdays and item overrides at a glance"
+ * without shipping every override row.
+ */
+export async function closureCalendar(tenantId, month) {
+  const lo = `${month}-01`;
+  const hi = `${month}-31`; // lexical upper bound — valid for every month
+  const [closures, weekdayRules, overrides] = await Promise.all([
+    TenantClosureDate.findAll({
+      where: { tenant_id: tenantId, date: { [Op.gte]: lo, [Op.lte]: hi } },
+    }),
+    AvailabilityWeekdayRule.findAll({
+      where: { tenant_id: tenantId, menu_item_id: null },
+    }),
+    AvailabilityOverride.findAll({
+      where: { tenant_id: tenantId, date: { [Op.gte]: lo, [Op.lte]: hi } },
+    }),
+  ]);
+
+  const days = {};
+  for (const c of closures) {
+    days[c.date] = { ...(days[c.date] || { closure: false, overrides: 0 }), closure: true };
+  }
+  for (const o of overrides) {
+    const entry = days[o.date] || (days[o.date] = { closure: false, overrides: 0 });
+    entry.overrides += 1;
+  }
+
+  return {
+    month,
+    weekdayClosures: weekdayRules.map((r) => r.weekday),
+    days,
+  };
+}
+
+/**
  * Closure conflict scan (Phase 5 follow-up): when a restaurant-wide closure
  * date or weekday closure overlaps an item that has a WINDOWED override or
  * weekday rule opening it that same day, the two settings contradict each
@@ -369,11 +421,22 @@ export async function closureConflicts(tenantId) {
  * ("back open {weekday} at {time}"). If the restaurant is open right now,
  * returns now. Returns null when nothing opens within the horizon.
  */
-export async function computeNextOpenAt(tenantId, now = new Date()) {
+export async function computeNextOpenAt(tenantId, now = new Date(), timeZone) {
   const MAX_DAYS = 14;
+  const today = wallClock(now, timeZone);
   for (let d = 0; d < MAX_DAYS; d += 1) {
-    const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() + d);
-    const ctx = await buildAvailabilityContext(tenantId, day);
+    // Day boundary at wall-clock midnight in the tenant's timezone.
+    const dayStart = wallToUtc(
+      {
+        year: today.year,
+        month: today.month,
+        day: today.day + d,
+        hour: 0,
+        minute: 0,
+      },
+      timeZone
+    );
+    const ctx = await buildAvailabilityContext(tenantId, dayStart, timeZone);
     if (ctx.restaurantClosed || ctx.restaurantWeekdayClosed) continue;
 
     const items = await Product.findAll({
@@ -390,7 +453,10 @@ export async function computeNextOpenAt(tenantId, now = new Date()) {
     if (earliest === null) continue;
 
     const [h, m] = earliest.split(':').map(Number);
-    const at = new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, m);
+    const at = wallToUtc(
+      { year: today.year, month: today.month, day: today.day + d, hour: h, minute: m },
+      timeZone
+    );
     // d === 0 with an opening earlier than now ⇒ the restaurant is already
     // open — "next open" is right now.
     return at.getTime() > now.getTime() ? at.toISOString() : now.toISOString();
