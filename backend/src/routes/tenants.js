@@ -288,7 +288,7 @@ router.get(
       where: { tenant_id: Number(req.params.id) },
       order: [['date', 'ASC']],
     });
-    res.json(rows.map((r) => ({ id: r.id, date: r.date })));
+    res.json(rows.map((r) => ({ id: r.id, date: r.date, label: r.label || null })));
   })
 );
 
@@ -308,7 +308,7 @@ router.put(
       req.body?.dates,
       req
     );
-    res.json(saved.map((r) => ({ id: r.id, date: r.date })));
+    res.json(saved.map((r) => ({ id: r.id, date: r.date, label: r.label || null })));
   })
 );
 

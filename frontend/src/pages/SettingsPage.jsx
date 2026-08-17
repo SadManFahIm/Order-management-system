@@ -56,6 +56,10 @@ export default function SettingsPage() {
   const [weekdayClosures, setWeekdayClosures] = useState([]);
   const [weekdayClosuresLoaded, setWeekdayClosuresLoaded] = useState(false);
   const [closuresError, setClosuresError] = useState('');
+  // Bulk import (round 7): paste one closure per line as 'YYYY-MM-DD' or
+  // 'YYYY-MM-DD Holiday name' — parsed into { date, label } entries.
+  const [closureImport, setClosureImport] = useState('');
+  const [closureImportMsg, setClosureImportMsg] = useState(null);
   // Closure-conflict scan (Phase 5 follow-up): items whose windowed override
   // / weekday rule opens them on a day the restaurant is closed.
   const [closureConflicts, setClosureConflicts] = useState(null);
@@ -168,7 +172,7 @@ export default function SettingsPage() {
       .get(`/tenants/${activeTenantId}/closures`)
       .then((res) => {
         if (mounted.current) {
-          setClosures(res.data.map((c) => c.date));
+          setClosures(res.data.map((c) => ({ date: c.date, label: c.label || '' })));
           setClosuresLoaded(true);
         }
       })
@@ -193,7 +197,9 @@ export default function SettingsPage() {
     setClosuresSaving(true);
     setClosuresError('');
     try {
-      await api.put(`/tenants/${activeTenantId}/closures`, { dates: closures });
+      await api.put(`/tenants/${activeTenantId}/closures`, {
+        dates: closures.map((c) => ({ date: c.date, label: c.label?.trim() || null })),
+      });
       await api.put(`/tenants/${activeTenantId}/weekday-closures`, { weekdays: weekdayClosures });
       toast.success(t('settings.closuresSaved'));
     } catch (err) {
@@ -213,10 +219,47 @@ export default function SettingsPage() {
     const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
       d.getDate()
     ).padStart(2, '0')}`;
-    setClosures((list) => [...list, today]);
+    setClosures((list) => [...list, { date: today, label: '' }]);
   };
 
   const removeClosureDate = (i) => setClosures((list) => list.filter((_, idx) => idx !== i));
+
+  /**
+   * Bulk closure import (round 7): each non-empty line is 'YYYY-MM-DD' or
+   * 'YYYY-MM-DD Holiday name'. Valid dates merge into the pending list
+   * (deduped, first label wins); malformed lines are reported, never
+   * silently dropped.
+   */
+  const importClosures = () => {
+    const lines = closureImport
+      .split(/[\r\n]+/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (lines.length === 0) {
+      setClosureImportMsg({ ok: false, text: t('settings.closuresImportEmpty') });
+      return;
+    }
+    const added = [];
+    const bad = [];
+    const seen = new Set(closures.map((c) => c.date));
+    for (const line of lines) {
+      const m = /^(\d{4}-\d{2}-\d{2})(?:\s+(.+))?$/.exec(line);
+      if (!m || Number.isNaN(new Date(`${m[1]}T00:00:00`).getTime())) {
+        bad.push(line);
+        continue;
+      }
+      if (seen.has(m[1])) continue;
+      seen.add(m[1]);
+      added.push({ date: m[1], label: (m[2] || '').trim().slice(0, 120) });
+    }
+    if (added.length > 0) {
+      setClosures((list) => [...list, ...added]);
+    }
+    const parts = [];
+    if (added.length > 0) parts.push(`${added.length} ${t('settings.closuresImportAdded')}`);
+    if (bad.length > 0) parts.push(`${bad.length} ${t('settings.closuresImportBad')}: ${bad.join(', ')}`);
+    setClosureImportMsg(parts.length > 0 ? { ok: bad.length === 0, text: parts.join(' · ') } : null);
+  };
 
   const loadMembers = () => {
     if (!canManageUsers || !activeTenantId) return;
@@ -811,18 +854,27 @@ export default function SettingsPage() {
           </Field>
 
           <Field label={t('settings.closuresDates')} hint={t('settings.closuresDatesHint')}>
-            {closures.map((date, i) => (
+            {closures.map((c, i) => (
               <div
-                key={i}
-                style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'center', marginBottom: 8 }}
+                key={`${c.date}-${i}`}
+                style={{ display: 'grid', gridTemplateColumns: '170px 1fr auto', gap: 8, alignItems: 'center', marginBottom: 8 }}
               >
                 <Input
                   type="date"
-                  value={date}
+                  value={c.date}
                   onChange={(e) =>
-                    setClosures((list) => list.map((d, idx) => (idx === i ? e.target.value : d)))
+                    setClosures((list) => list.map((x, idx) => (idx === i ? { ...x, date: e.target.value } : x)))
                   }
                   aria-label={`Closure ${i + 1} date`}
+                />
+                <Input
+                  value={c.label || ''}
+                  maxLength={120}
+                  onChange={(e) =>
+                    setClosures((list) => list.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)))
+                  }
+                  placeholder={t('settings.closuresLabelPlaceholder')}
+                  aria-label={`Closure ${i + 1} label`}
                 />
                 <Button
                   variant="ghost"
@@ -842,6 +894,36 @@ export default function SettingsPage() {
               {!closuresLoaded && (
                 <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading…</span>
               )}
+            </div>
+
+            {/* Bulk import (round 7) — paste a list of dates, optionally with
+                holiday names ('2026-12-25 Christmas Day'). */}
+            <div style={{ marginTop: 4 }}>
+              <Textarea
+                rows={4}
+                value={closureImport}
+                onChange={(e) => setClosureImport(e.target.value)}
+                placeholder={'2026-12-25 Christmas Day\n2026-12-26 Boxing Day\n2026-12-31'}
+                aria-label={t('settings.closuresImport')}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+                <Button variant="outline" size="sm" type="button" onClick={importClosures}>
+                  {t('settings.closuresImport')}
+                </Button>
+                {closureImportMsg && (
+                  <span
+                    style={{
+                      fontSize: 12,
+                      color: closureImportMsg.ok ? 'var(--primary)' : 'var(--danger, #e5484d)',
+                    }}
+                  >
+                    {closureImportMsg.text}
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+                {t('settings.closuresImportHint')}
+              </div>
             </div>
           </Field>
 

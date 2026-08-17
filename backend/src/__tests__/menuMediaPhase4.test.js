@@ -1271,6 +1271,80 @@ describe('timezone-safe scheduling + closure calendar (Phase 5 follow-up)', () =
       .send({ timezone: null });
   });
 
+  it('closure labels: { date, label } entries persist, strings still work, calendar + availability expose them', async () => {
+    const future = dateKey(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000));
+    const other = dateKey(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000));
+
+    // Mixed PUT: one labelled entry + one bare string.
+    let res = await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [{ date: future, label: 'Eid-ul-Fitr' }, other] });
+    expect(res.status).toBe(200);
+
+    // GET returns both with their labels.
+    res = await request(app).get(`/api/tenants/${tenant.id}/closures`).set(auth(ownerToken));
+    const byDate = Object.fromEntries(res.body.map((c) => [c.date, c]));
+    expect(byDate[future].label).toBe('Eid-ul-Fitr');
+    expect(byDate[other].label).toBeNull();
+
+    // The closure calendar carries the label for tooltips.
+    res = await request(app)
+      .get(`/api/tenants/${tenant.id}/closure-calendar?month=${future.slice(0, 7)}`)
+      .set(auth(ownerToken));
+    expect(res.body.days[future]).toMatchObject({ closure: true, label: 'Eid-ul-Fitr' });
+
+    // Labels are presentational — a labelled closure still closes the day.
+    const pub = await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [{ date: dateKey(), label: 'Maintenance' }] });
+    expect(pub.status).toBe(200);
+    const menu = await request(app).get('/api/public/restaurants/p4-diner/menu');
+    expect(menu.body.closedToday).toBe(true);
+
+    // Over-long labels are truncated at the API edge.
+    res = await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [{ date: other, label: 'x'.repeat(300) }] });
+    expect(res.status).toBe(200);
+    expect(res.body.find((c) => c.date === other).label.length).toBe(120);
+
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [] });
+  });
+
+  it('the availability endpoint exposes the restaurant timezone for customer-side display', async () => {
+    const day = dateKey(new Date(Date.now() + 24 * 60 * 60 * 1000));
+    // Server-local (no tz) → null.
+    let res = await request(app).get(
+      `/api/public/restaurants/p4-diner/availability?date=${day}&time=12:00`
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.timezone).toBeNull();
+
+    await request(app)
+      .patch(`/api/tenants/${tenant.id}`)
+      .set(auth(ownerToken))
+      .send({ timezone: 'Asia/Dhaka' });
+
+    // Both windows mode and instant mode carry it.
+    res = await request(app).get(`/api/public/restaurants/p4-diner/availability?date=${day}`);
+    expect(res.body.timezone).toBe('Asia/Dhaka');
+    res = await request(app).get(
+      `/api/public/restaurants/p4-diner/availability?date=${day}&time=12:00`
+    );
+    expect(res.body.timezone).toBe('Asia/Dhaka');
+
+    await request(app)
+      .patch(`/api/tenants/${tenant.id}`)
+      .set(auth(ownerToken))
+      .send({ timezone: null });
+  });
+
   it('GET closure-calendar returns the month grid: closures, weekday rules, override counts', async () => {
     const month = future.slice(0, 7);
     const later = dateKey(new Date(Date.now() + 4 * 24 * 60 * 60 * 1000));

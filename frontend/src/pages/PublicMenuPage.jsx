@@ -4,6 +4,20 @@ import axios from 'axios';
 import { Skeleton } from '../components/ui';
 import { useI18n, LANGUAGES } from '../i18n';
 import { usePaperTheme } from '../hooks/usePaperTheme';
+import {
+  wallClock,
+  wallToUtc,
+  windowsToUtcSegments,
+  browserDaySlots,
+  browserTimeZone,
+} from '../utils/timezone';
+
+/** 'YYYY-MM-DD' shifted by `delta` days (calendar arithmetic). */
+const shiftDay = (date, delta) => {
+  const d = new Date(`${date}T00:00:00`);
+  d.setDate(d.getDate() + delta);
+  return localDate(d);
+};
 
 /**
  * Public storefront menu (Phase 4/5) — consumes the read-only public API
@@ -262,29 +276,63 @@ function AvailabilityModal({ item, slug, t, onClose, onPickSlot }) {
   });
   const [active, setActive] = useState(0);
   const [windows, setWindows] = useState(null);
+  const [restaurantTz, setRestaurantTz] = useState(null);
   const [restaurantClosed, setRestaurantClosed] = useState(false);
   const [loading, setLoading] = useState(true); // first fetch fires on mount
+  // Customer-side timezone display (round 7): when the restaurant runs a
+  // configured IANA zone that differs from the customer's browser zone, the
+  // slot grid is re-labelled in the customer's own hours (the underlying
+  // instants are unchanged — orders still resolve in the restaurant's clock).
+  const [browserSlots, setBrowserSlots] = useState(null);
+  const customerTz = browserTimeZone();
+  const showCustomerTz = Boolean(
+    restaurantTz && customerTz && restaurantTz !== customerTz
+  );
 
   useEffect(() => {
     let mounted = true;
     setLoading(true);
-    axios
-      .get(`/api/public/restaurants/${slug}/availability`, {
-        params: { date: days[active].date },
-      })
-      .then((res) => {
+    setBrowserSlots(null);
+    const fetchDay = (date) =>
+      axios
+        .get(`/api/public/restaurants/${slug}/availability`, { params: { date } })
+        .then((res) => ({
+          closed: !!res.data.restaurantClosed,
+          tz: res.data.timezone || null,
+          windows: (res.data.items || []).find((i) => i.id === item.id)?.windows || [],
+        }));
+    (async () => {
+      try {
+        const day = days[active].date;
+        const main = await fetchDay(day);
         if (!mounted) return;
-        setRestaurantClosed(!!res.data.restaurantClosed);
-        const found = (res.data.items || []).find((i) => i.id === item.id);
-        setWindows(found?.windows || []);
-      })
-      .catch(() => {
-        if (!mounted) return;
-        setWindows([]);
-      })
-      .finally(() => {
+        setRestaurantTz(main.tz);
+        setRestaurantClosed(main.closed);
+        setWindows(main.windows);
+        const cust = browserTimeZone();
+        if (main.tz && cust && main.tz !== cust) {
+          // A customer day can straddle two restaurant days — fetch the
+          // neighbours so the whole browser day is covered, then map the
+          // restaurant-wall segments onto the customer's own hours.
+          const [prev, next] = await Promise.all([
+            fetchDay(shiftDay(day, -1)),
+            fetchDay(shiftDay(day, 1)),
+          ]);
+          if (!mounted) return;
+          const segs = [
+            ...windowsToUtcSegments(day, main.windows, main.tz),
+            ...windowsToUtcSegments(shiftDay(day, -1), prev.windows, main.tz),
+            ...windowsToUtcSegments(shiftDay(day, 1), next.windows, main.tz),
+          ];
+          setBrowserSlots(browserDaySlots(day, segs, cust));
+          setRestaurantClosed(main.closed || prev.closed || next.closed);
+        }
+      } catch {
+        if (mounted) setWindows([]);
+      } finally {
         if (mounted) setLoading(false);
-      });
+      }
+    })();
     return () => {
       mounted = false;
     };
@@ -297,6 +345,17 @@ function AvailabilityModal({ item, slug, t, onClose, onPickSlot }) {
   const now = new Date();
   const slotPast = (h) =>
     days[active].today && h * 60 < now.getHours() * 60 + now.getMinutes();
+  const slotPastBrowser = (h) =>
+    days[active].today && h * 60 < now.getHours() * 60 + now.getMinutes();
+
+  /** Customer-tz slot click → the equivalent restaurant-wall (date, hour). */
+  const pickBrowserSlot = (h) => {
+    const [y, mo, d] = days[active].date.split('-').map(Number);
+    const utc = wallToUtc({ year: y, month: mo, day: d, hour: h, minute: 0 }, customerTz);
+    const w = wallClock(utc, restaurantTz);
+    const date = `${w.year}-${String(w.month).padStart(2, '0')}-${String(w.day).padStart(2, '0')}`;
+    onPickSlot(date, w.hour);
+  };
 
   return (
     <div
@@ -367,19 +426,29 @@ function AvailabilityModal({ item, slug, t, onClose, onPickSlot }) {
                 </div>
               ) : (
                 <>
+                  {showCustomerTz && (
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--brand)', marginBottom: 6 }}>
+                      ⏰ {t('store.timesYourTz')}: {customerTz} · {t('store.timesRestTz')}: {restaurantTz}
+                    </div>
+                  )}
                   <div className="times-legend" style={{ fontSize: 12, color: 'var(--text-muted, #7d9a95)', marginBottom: 8 }}>
                     {windows
                       .map((w) => `${w.from} – ${w.to === '24:00' ? '23:59' : w.to}`)
                       .join(' · ')}
+                    {showCustomerTz ? ` (${restaurantTz})` : ''}
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 6 }}>
                     {Array.from({ length: 24 }, (_, h) => {
-                      const open = slotOpen(h, windows) && !slotPast(h);
+                      const open = showCustomerTz
+                        ? Boolean(browserSlots?.[h]) && !slotPastBrowser(h)
+                        : slotOpen(h, windows) && !slotPast(h);
                       return (
                         <button
                           key={h}
                           disabled={!open}
-                          onClick={() => onPickSlot(days[active].date, h)}
+                          onClick={() =>
+                            showCustomerTz ? pickBrowserSlot(h) : onPickSlot(days[active].date, h)
+                          }
                           style={{
                             fontSize: 11,
                             fontWeight: 800,
@@ -401,6 +470,303 @@ function AvailabilityModal({ item, slug, t, onClose, onPickSlot }) {
                     ✓ {t('store.timesPick')}
                   </div>
                 </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Cart-wide schedule (round 7): pick one date + time when EVERY item in the
+ * cart is orderable, then jump to checkout with the whole cart scheduled.
+ * The slot grid mirrors the per-dish calendar (customer-timezone aware when
+ * the restaurant configures a different zone) but a slot is enabled only
+ * when all lines are open; the chosen instant is server-verified (instant
+ * availability endpoint) before confirming, so a closure or weekday rule
+ * can never surprise a scheduled checkout.
+ */
+function ScheduleCartModal({ cart, slug, t, onClose, onConfirm }) {
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() + i);
+    return { date: localDate(d), day: d.getDay(), dateNo: d.getDate(), today: i === 0 };
+  });
+  const [active, setActive] = useState(0);
+  const [restaurantTz, setRestaurantTz] = useState(null);
+  const [restaurantClosed, setRestaurantClosed] = useState(false);
+  const [slots, setSlots] = useState(null); // boolean[24]: open for ALL lines
+  const [loading, setLoading] = useState(true);
+  const [picked, setPicked] = useState(null); // server-verified {date,time,items,allOk}
+  const [verifying, setVerifying] = useState(false);
+  const customerTz = browserTimeZone();
+  const showCustomerTz = Boolean(
+    restaurantTz && customerTz && restaurantTz !== customerTz
+  );
+  const lineIds = cart.map((l) => l.product_id);
+
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+    setPicked(null);
+    setSlots(null);
+    const fetchDay = (date) =>
+      axios
+        .get(`/api/public/restaurants/${slug}/availability`, { params: { date } })
+        .then((res) => ({
+          closed: !!res.data.restaurantClosed,
+          tz: res.data.timezone || null,
+          byId: new Map((res.data.items || []).map((i) => [i.id, i.windows || []])),
+        }));
+    (async () => {
+      try {
+        const day = days[active].date;
+        const main = await fetchDay(day);
+        if (!mounted) return;
+        setRestaurantTz(main.tz);
+        setRestaurantClosed(main.closed);
+        const cust = browserTimeZone();
+        let grid;
+        if (main.tz && cust && main.tz !== cust) {
+          const [prev, next] = await Promise.all([
+            fetchDay(shiftDay(day, -1)),
+            fetchDay(shiftDay(day, 1)),
+          ]);
+          if (!mounted) return;
+          setRestaurantClosed(main.closed || prev.closed || next.closed);
+          const perLine = lineIds.map((id) =>
+            browserDaySlots(
+              day,
+              [
+                ...windowsToUtcSegments(day, main.byId.get(id), main.tz),
+                ...windowsToUtcSegments(shiftDay(day, -1), prev.byId.get(id), main.tz),
+                ...windowsToUtcSegments(shiftDay(day, 1), next.byId.get(id), main.tz),
+              ],
+              cust
+            )
+          );
+          grid = perLine[0]?.map((_, h) => perLine.every((s) => s[h])) || [];
+        } else {
+          grid = Array.from({ length: 24 }, (_, h) =>
+            lineIds.every((id) => slotOpen(h, main.byId.get(id)))
+          );
+        }
+        setSlots(grid);
+      } catch {
+        if (mounted) setSlots([]);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, slug]);
+
+  const now = new Date();
+  const slotPast = (h) =>
+    days[active].today && h * 60 < now.getHours() * 60 + now.getMinutes();
+
+  /** Customer-tz hour → the equivalent restaurant-wall (date, hour). */
+  const restaurantWallOfBrowser = (h) => {
+    const [y, mo, d] = days[active].date.split('-').map(Number);
+    const utc = wallToUtc({ year: y, month: mo, day: d, hour: h, minute: 0 }, customerTz);
+    const w = wallClock(utc, restaurantTz);
+    return {
+      date: `${w.year}-${String(w.month).padStart(2, '0')}-${String(w.day).padStart(2, '0')}`,
+      hour: w.hour,
+    };
+  };
+
+  /** Slot click → server-verify every cart line at that instant. */
+  const pickSlot = async (h) => {
+    const wall = showCustomerTz
+      ? restaurantWallOfBrowser(h)
+      : { date: days[active].date, hour: h };
+    const time = `${String(wall.hour).padStart(2, '0')}:00`;
+    setVerifying(true);
+    setPicked(null);
+    try {
+      const res = await axios.get(`/api/public/restaurants/${slug}/availability`, {
+        params: { date: wall.date, time },
+      });
+      const byId = new Map((res.data.items || []).map((i) => [i.id, i]));
+      const items = cart.map((l) => ({
+        name: l.name,
+        available: Boolean(byId.get(l.product_id)?.available),
+      }));
+      setPicked({
+        date: wall.date,
+        time,
+        items,
+        allOk: items.every((i) => i.available),
+        restaurantClosed: Boolean(res.data.restaurantClosed),
+      });
+    } catch {
+      setPicked({
+        date: wall.date,
+        time,
+        items: cart.map((l) => ({ name: l.name, available: false })),
+        allOk: false,
+        restaurantClosed: true,
+      });
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 60,
+        background: 'rgba(10,25,23,0.55)', backdropFilter: 'blur(3px)',
+        display: 'grid', placeItems: 'center', padding: 16,
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: '100%', maxWidth: 460, maxHeight: '85vh', overflowY: 'auto',
+          background: 'var(--card, #fdfaf3)', borderRadius: 20, padding: 24,
+          boxShadow: '0 24px 60px rgba(20,16,6,0.28)',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800, fontFamily: "'Bricolage Grotesque', 'Plus Jakarta Sans', sans-serif" }}>
+              📅 {t('store.scheduleCart')}
+            </h3>
+            <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--text-muted, #7d9a95)' }}>
+              {t('store.scheduleCartDesc')}
+            </p>
+          </div>
+          <button onClick={onClose} style={closeBtn}>✕</button>
+        </div>
+
+        <div style={{ display: 'flex', gap: 6, marginTop: 18, flexWrap: 'wrap' }}>
+          {days.map((d, i) => (
+            <button
+              key={d.date}
+              onClick={() => setActive(i)}
+              style={{
+                border: `1.5px solid ${i === active ? 'var(--brand)' : 'var(--border-strong, #b9e0da)'}`,
+                background: i === active ? 'color-mix(in srgb, var(--brand) 8%, var(--card))' : 'var(--card)',
+                borderRadius: 999,
+                padding: '7px 12px',
+                fontSize: 12.5,
+                fontWeight: 800,
+                cursor: 'pointer',
+                color: i === active ? 'var(--brand)' : 'inherit',
+              }}
+            >
+              {t('store.daysShort')[d.day]} {d.today ? `· ${t('store.today')}` : d.dateNo}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          {loading || slots === null ? (
+            <div style={{ fontSize: 13, color: 'var(--text-muted, #7d9a95)' }}>{t('store.loading')}</div>
+          ) : restaurantClosed ? (
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--chilli, #c3272b)', padding: '12px 0' }}>
+              🔒 {t('store.timesRestaurantClosed')}
+            </div>
+          ) : slots.every((s) => !s) ? (
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text-muted, #7d9a95)', padding: '12px 0' }}>
+              {t('store.scheduleNoCommon')}
+            </div>
+          ) : (
+            <>
+              {showCustomerTz && (
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--brand)', marginBottom: 6 }}>
+                  ⏰ {t('store.timesYourTz')}: {customerTz} · {t('store.timesRestTz')}: {restaurantTz}
+                </div>
+              )}
+              <div style={{ fontSize: 12, color: 'var(--text-muted, #7d9a95)', marginBottom: 8 }}>
+                {t('store.scheduleGridHint')}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 6 }}>
+                {Array.from({ length: 24 }, (_, h) => {
+                  const open = Boolean(slots[h]) && !slotPast(h);
+                  return (
+                    <button
+                      key={h}
+                      disabled={!open || verifying}
+                      onClick={() => pickSlot(h)}
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 800,
+                        textAlign: 'center',
+                        padding: '6px 2px',
+                        borderRadius: 8,
+                        border: open ? '1px solid color-mix(in srgb, var(--brand) 55%, transparent)' : '1px solid transparent',
+                        color: open ? '#fff' : 'var(--text-muted, #7d9a95)',
+                        background: open ? 'var(--brand)' : 'var(--tile, #eef6f4)',
+                        cursor: open ? 'pointer' : 'default',
+                      }}
+                    >
+                      {String(h).padStart(2, '0')}:00
+                    </button>
+                  );
+                })}
+              </div>
+
+              {verifying && (
+                <div style={{ fontSize: 13, color: 'var(--text-muted, #7d9a95)', marginTop: 12 }}>
+                  {t('store.loading')}…
+                </div>
+              )}
+              {picked && !verifying && (
+                <div style={{ marginTop: 14, display: 'grid', gap: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800 }}>
+                    {picked.date} · {picked.time}
+                  </div>
+                  <div style={{ display: 'grid', gap: 4 }}>
+                    {picked.items.map((li) => (
+                      <div
+                        key={li.name}
+                        style={{
+                          fontSize: 12.5,
+                          color: li.available ? 'var(--text, #123b36)' : 'var(--chilli, #c3272b)',
+                        }}
+                      >
+                        {li.available ? '✓' : '✗'} {li.name}
+                        {!li.available ? ` — ${t('store.scheduleUnavailable')}` : ''}
+                      </div>
+                    ))}
+                  </div>
+                  {picked.restaurantClosed && !picked.allOk && (
+                    <div style={{ fontSize: 12.5, color: 'var(--chilli, #c3272b)' }}>
+                      {t('store.timesRestaurantClosed')}
+                    </div>
+                  )}
+                  {picked.allOk ? (
+                    <button
+                      onClick={() => onConfirm(picked.date, picked.time)}
+                      style={{
+                        marginTop: 6,
+                        border: 'none',
+                        borderRadius: 999,
+                        padding: '12px 18px',
+                        fontSize: 14,
+                        fontWeight: 800,
+                        color: '#fff',
+                        background: 'var(--brand)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {t('store.scheduleConfirm')} · {cart.length} {t('store.qty')} →
+                    </button>
+                  ) : (
+                    <div style={{ fontSize: 12.5, color: 'var(--chilli, #c3272b)' }}>
+                      {t('store.scheduleBlocked')}
+                    </div>
+                  )}
+                </div>
               )}
             </>
           )}
@@ -440,6 +806,10 @@ export default function PublicMenuPage() {
   // options, the calendar hands off to the options modal first, then jumps
   // into checkout with the chosen slot pre-filled.
   const [scheduleIntent, setScheduleIntent] = useState(null);
+  // Cart-wide schedule (round 7): one date+time that works for EVERY cart
+  // line — opens a ScheduleCartModal from the cart bar, then jumps to
+  // checkout with the whole cart scheduled.
+  const [scheduleCartOpen, setScheduleCartOpen] = useState(false);
   // Print-coupon QR (Phase 5): fetched lazily, only used by @media print —
   // the tear-off "scan to order again" strip under the printed ticket.
   const [couponQr, setCouponQr] = useState(null);
@@ -565,6 +935,12 @@ export default function PublicMenuPage() {
     }
     addLine(item, { variant_id: null, addon_ids: [], quantity: 1 });
     navigate(`/m/${slug}/checkout?date=${date}&time=${String(hour).padStart(2, '0')}:00`);
+  };
+
+  /** Confirms the cart-wide schedule → checkout with date+time pre-filled. */
+  const scheduleCartConfirm = (date, time) => {
+    setScheduleCartOpen(false);
+    navigate(`/m/${slug}/checkout?date=${date}&time=${time}`);
   };
 
   /** Confirms the options modal — with a pending calendar schedule, jump to
@@ -839,12 +1215,29 @@ export default function PublicMenuPage() {
         />
       )}
 
+      {/* Cart-wide schedule modal (round 7) */}
+      {scheduleCartOpen && (
+        <ScheduleCartModal
+          cart={cart}
+          slug={slug}
+          t={t}
+          onClose={() => setScheduleCartOpen(false)}
+          onConfirm={scheduleCartConfirm}
+        />
+      )}
+
       {/* Floating cart bar — pops in like a stamped ticket */}
       {cartCount > 0 && !closedToday && (
         <div className="cartbar">
           <button onClick={() => navigate(`/m/${slug}/checkout`)} className="cartbar__pill">
             🛒 {t('store.cart')} · {cartCount} {t('store.qty')} · {price(cartTotal)}
             <span className="cartbar__go">{t('store.checkout')} →</span>
+          </button>
+          <button
+            onClick={() => setScheduleCartOpen(true)}
+            className="cartbar__pill cartbar__pill--ghost"
+          >
+            📅 {t('store.scheduleCart')}
           </button>
         </div>
       )}

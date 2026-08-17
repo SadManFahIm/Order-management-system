@@ -362,6 +362,10 @@ router.get(
     const base = {
       date: ctx.date,
       restaurantClosed: ctx.restaurantClosed || ctx.restaurantWeekdayClosed,
+      // IANA zone the windows are expressed in (null = server local) — lets
+      // the storefront show availability in the customer's own timezone
+      // (Phase 4 follow-up round 7).
+      timezone: timeZone,
     };
 
     // Windows mode (date-only): the calendar needs the open segments, not a

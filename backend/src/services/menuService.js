@@ -333,7 +333,11 @@ export async function closureCalendar(tenantId, month) {
 
   const days = {};
   for (const c of closures) {
-    days[c.date] = { ...(days[c.date] || { closure: false, overrides: 0 }), closure: true };
+    days[c.date] = {
+      ...(days[c.date] || { closure: false, overrides: 0 }),
+      closure: true,
+      label: c.label || null,
+    };
   }
   for (const o of overrides) {
     const entry = days[o.date] || (days[o.date] = { closure: false, overrides: 0 });
@@ -482,7 +486,11 @@ export async function replaceTenantClosures(tenantId, actorUser, dates, req) {
   const seen = new Set();
   const clean = [];
   for (const raw of dates) {
-    const date = String(raw ?? '').trim();
+    // Round 7: entries may be plain 'YYYY-MM-DD' strings OR { date, label }
+    // objects (bulk import with holiday names). Labels are presentational.
+    const entry =
+      raw && typeof raw === 'object' && typeof raw.date === 'string' ? raw : { date: raw };
+    const date = String(entry.date ?? '').trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(`${date}T00:00:00`).getTime())) {
       throw new AppError(400, 'VALIDATION_ERROR', `"${date}" is not a valid YYYY-MM-DD date`);
     }
@@ -490,14 +498,16 @@ export async function replaceTenantClosures(tenantId, actorUser, dates, req) {
       throw new AppError(400, 'VALIDATION_ERROR', `Duplicate closure for ${date}`);
     }
     seen.add(date);
-    clean.push(date);
+    const label =
+      typeof entry.label === 'string' ? entry.label.trim().slice(0, 120) : null;
+    clean.push({ date, label: label || null });
   }
 
   await sequelize.transaction(async (transaction) => {
     await TenantClosureDate.destroy({ where: { tenant_id: tenantId }, transaction });
     if (clean.length > 0) {
       await TenantClosureDate.bulkCreate(
-        clean.map((date) => ({ tenant_id: tenantId, date })),
+        clean.map(({ date, label }) => ({ tenant_id: tenantId, date, label })),
         { transaction }
       );
     }
@@ -509,7 +519,7 @@ export async function replaceTenantClosures(tenantId, actorUser, dates, req) {
     tenantId,
     entityType: 'Tenant',
     entityId: String(tenantId),
-    metadata: { count: clean.length, dates: clean },
+    metadata: { count: clean.length, dates: clean.map((c) => c.date) },
     req,
   });
 
