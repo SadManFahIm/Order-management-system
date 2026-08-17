@@ -164,6 +164,12 @@ export async function updateTenant(user, tenantId, fields, req) {
       tenant.settings && typeof tenant.settings === 'object' ? tenant.settings : {};
     allowed.settings = { ...current, vat: fields.vat };
   }
+  if (fields.timezone !== undefined) {
+    // Wall-clock availability resolution — merge like brand/whatsapp.
+    const current =
+      tenant.settings && typeof tenant.settings === 'object' ? tenant.settings : {};
+    allowed.settings = { ...current, timezone: fields.timezone };
+  }
   await tenant.update(allowed);
   await audit({
     action: 'tenant.updated',

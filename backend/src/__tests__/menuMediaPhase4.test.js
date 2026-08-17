@@ -22,6 +22,7 @@ import {
   dateKey,
   computeNextOpenAt,
 } from '../services/menuService.js';
+import { wallClock, wallToUtc, dateKeyIn } from '../utils/timezone.js';
 import sharp from 'sharp';
 
 /**
@@ -1178,5 +1179,155 @@ describe('restaurant-wide closures + recurring weekday rules (Phase 5)', () => {
       .put(`/api/tenants/${tenant.id}/closures`)
       .set(auth(ownerToken))
       .send({ dates: [] });
+  });
+});
+
+describe('timezone-safe scheduling + closure calendar (Phase 5 follow-up)', () => {
+  // A future date comfortably inside the 7-day scheduled-order horizon.
+  const future = dateKey(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000));
+
+  it('the timezone util converts wall clocks across UTC boundaries', () => {
+    // 12:00Z is 18:00 in Dhaka (UTC+6, no DST).
+    const wall = wallClock(new Date('2026-08-17T12:00:00Z'), 'Asia/Dhaka');
+    expect(wall.hour).toBe(18);
+    expect(wall.minute).toBe(0);
+    expect(wall.year).toBe(2026);
+    expect(wall.month).toBe(8);
+    expect(wall.day).toBe(17);
+
+    // 20:00Z rolls over to the NEXT Dhaka day.
+    expect(dateKeyIn(new Date('2026-08-17T20:00:00Z'), 'Asia/Dhaka')).toBe('2026-08-18');
+
+    // Round-trip: 18:00 Dhaka = 12:00Z.
+    const utc = wallToUtc({ year: 2026, month: 8, day: 17, hour: 18, minute: 0 }, 'Asia/Dhaka');
+    expect(utc.toISOString()).toBe('2026-08-17T12:00:00.000Z');
+  });
+
+  it('PATCH /tenants/:id persists a validated timezone and the menu payload exposes it', async () => {
+    let res = await request(app)
+      .patch(`/api/tenants/${tenant.id}`)
+      .set(auth(ownerToken))
+      .send({ timezone: 'Asia/Dhaka' });
+    expect(res.status).toBe(200);
+    expect(res.body.settings.timezone).toBe('Asia/Dhaka');
+
+    // The public payload exposes it under the restaurant object.
+    let pub = await request(app).get('/api/public/restaurants/p4-diner/menu');
+    expect(pub.body.restaurant.timezone).toBe('Asia/Dhaka');
+
+    // Bogus zones are rejected at the API edge.
+    res = await request(app)
+      .patch(`/api/tenants/${tenant.id}`)
+      .set(auth(ownerToken))
+      .send({ timezone: 'Mars/Olympus' });
+    expect(res.status).toBe(400);
+
+    // Clearing restores server-local behaviour.
+    res = await request(app)
+      .patch(`/api/tenants/${tenant.id}`)
+      .set(auth(ownerToken))
+      .send({ timezone: null });
+    expect(res.status).toBe(200);
+    expect(res.body.settings.timezone).toBeNull();
+    pub = await request(app).get('/api/public/restaurants/p4-diner/menu');
+    expect(pub.body.restaurant.timezone).toBeNull();
+  });
+
+  it('scheduled checkout resolves the wall time in the tenant timezone', async () => {
+    const p = await createProduct({ name: 'Tz Window Dish', available_from: '17:00', available_to: '19:00' });
+    await request(app)
+      .patch(`/api/tenants/${tenant.id}`)
+      .set(auth(ownerToken))
+      .send({ timezone: 'Asia/Dhaka' });
+
+    // 11:30Z = 17:30 Dhaka → inside the 17:00–19:00 window → accepted.
+    const inside = await request(app)
+      .post('/api/public/restaurants/p4-diner/checkout')
+      .send({
+        order_type: 'scheduled_pickup',
+        scheduled_at: new Date(`${future}T11:30:00Z`).toISOString(),
+        customer_name: 'Buyer',
+        customer_phone: '+8801711111111',
+        items: [{ product_id: p.id, quantity: 1 }],
+      });
+    expect(inside.status).toBe(201);
+
+    // 14:00Z = 20:00 Dhaka → outside the window → rejected.
+    const outside = await request(app)
+      .post('/api/public/restaurants/p4-diner/checkout')
+      .send({
+        order_type: 'scheduled_pickup',
+        scheduled_at: new Date(`${future}T14:00:00Z`).toISOString(),
+        customer_name: 'Buyer',
+        customer_phone: '+8801711111111',
+        items: [{ product_id: p.id, quantity: 1 }],
+      });
+    expect(outside.status).toBe(400);
+    expect(outside.body.error.code).toBe('AVAILABILITY_WINDOW');
+
+    await request(app)
+      .patch(`/api/tenants/${tenant.id}`)
+      .set(auth(ownerToken))
+      .send({ timezone: null });
+  });
+
+  it('GET closure-calendar returns the month grid: closures, weekday rules, override counts', async () => {
+    const month = future.slice(0, 7);
+    const later = dateKey(new Date(Date.now() + 4 * 24 * 60 * 60 * 1000));
+    const laterMonth = later.slice(0, 7);
+    const p = await createProduct({ name: 'Calendar Dish' });
+
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [future] });
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/weekday-closures`)
+      .set(auth(ownerToken))
+      .send({ weekdays: [1] }); // Mondays
+    await request(app)
+      .put(`/api/products/${p.id}/overrides`)
+      .set(auth(ownerToken))
+      .send({ overrides: [{ date: future, available_from: '12:00', available_to: '15:00' }] });
+
+    let res = await request(app)
+      .get(`/api/tenants/${tenant.id}/closure-calendar?month=${month}`)
+      .set(auth(ownerToken));
+    expect(res.status).toBe(200);
+    expect(res.body.month).toBe(month);
+    expect(res.body.weekdayClosures).toEqual([1]);
+    const day = res.body.days[future];
+    expect(day).toBeDefined();
+    expect(day.closure).toBe(true);
+    expect(day.overrides).toBe(1);
+
+    // Today is not a closure (an earlier suite test may leave a benign
+    // override row on today — only closures/closure-state are asserted).
+    expect(res.body.days[dateKey()]?.closure ?? false).toBe(false);
+    if (laterMonth !== month) {
+      res = await request(app)
+        .get(`/api/tenants/${tenant.id}/closure-calendar?month=${laterMonth}`)
+        .set(auth(ownerToken));
+      expect(res.body.days[later]).toBeUndefined();
+    }
+
+    // Validation: month must be YYYY-MM.
+    res = await request(app)
+      .get(`/api/tenants/${tenant.id}/closure-calendar?month=august`)
+      .set(auth(ownerToken));
+    expect(res.status).toBe(400);
+
+    await request(app)
+      .put(`/api/products/${p.id}/overrides`)
+      .set(auth(ownerToken))
+      .send({ overrides: [] });
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [] });
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/weekday-closures`)
+      .set(auth(ownerToken))
+      .send({ weekdays: [] });
   });
 });

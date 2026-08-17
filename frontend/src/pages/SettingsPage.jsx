@@ -59,6 +59,19 @@ export default function SettingsPage() {
   // Closure-conflict scan (Phase 5 follow-up): items whose windowed override
   // / weekday rule opens them on a day the restaurant is closed.
   const [closureConflicts, setClosureConflicts] = useState(null);
+  // Wall-clock timezone (Phase 5 follow-up): availability windows, closure
+  // dates and scheduled-order previews resolve in the tenant's IANA timezone.
+  const [tz, setTz] = useState('');
+  const [tzSaving, setTzSaving] = useState(false);
+  // Merchant closure calendar (Phase 5 follow-up): one month grid with
+  // closure dates, restaurant-wide weekday closures and per-day override
+  // counts — the whole month's availability posture at a glance.
+  const [calMonth, setCalMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [calData, setCalData] = useState(null);
+  const [calError, setCalError] = useState('');
 
   // ── Phase 3: plan & usage, invites, ownership, workspace activity ──
   const [planData, setPlanData] = useState(null);
@@ -113,6 +126,38 @@ export default function SettingsPage() {
       .get(`/tenants/${activeTenantId}/audit?limit=30`)
       .then((res) => mounted.current && setTenantAudit(res.data.events))
       .catch(() => mounted.current && setTenantAudit([]));
+  };
+
+  const loadClosureCalendar = (month) => {
+    if (!activeTenantId) return;
+    setCalError('');
+    api
+      .get(`/tenants/${activeTenantId}/closure-calendar?month=${month}`)
+      .then((res) => mounted.current && setCalData(res.data))
+      .catch(() => {
+        if (mounted.current) {
+          setCalData(null);
+          setCalError(t('settings.calLoadFailed'));
+        }
+      });
+  };
+
+  const shiftCalMonth = (delta) => {
+    const [y, m] = calMonth.split('-').map(Number);
+    const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+    setCalMonth(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+  };
+
+  const saveTimezone = async () => {
+    setTzSaving(true);
+    try {
+      await api.patch(`/tenants/${activeTenantId}`, { timezone: tz.trim() || null });
+      toast.success(t('settings.tzSaved'));
+    } catch (err) {
+      toast.error(err?.response?.data?.error?.message || t('settings.tzSaveFailed'));
+    } finally {
+      setTzSaving(false);
+    }
   };
 
   const loadClosures = () => {
@@ -190,6 +235,11 @@ export default function SettingsPage() {
     loadClosures();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTenantId]);
+
+  useEffect(() => {
+    loadClosureCalendar(calMonth);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [calMonth]);
 
   const savePassword = async () => {
     setPwError('');
@@ -401,6 +451,7 @@ export default function SettingsPage() {
           autoSend: Boolean(savedRp.autoSendCloseout?.enabled),
           hour: savedRp.autoSendCloseout?.hour ?? 23,
         });
+        setTz(res.data.settings?.timezone || '');
         setLoading(false);
       })
       .catch(() => {
@@ -738,6 +789,27 @@ export default function SettingsPage() {
           rejected on those days. */}
       <Card title={t('settings.closuresTitle')} subtitle={t('settings.closuresDesc')} style={{ marginTop: 16 }}>
         <div style={{ display: 'grid', gap: 16 }}>
+          <Field label={t('settings.tzLabel')} hint={t('settings.tzHint')}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'end' }}>
+              <Input
+                list="tz-suggestions"
+                value={tz}
+                onChange={(e) => setTz(e.target.value)}
+                placeholder="Asia/Dhaka"
+                style={{ width: 260 }}
+                aria-label={t('settings.tzLabel')}
+              />
+              <datalist id="tz-suggestions">
+                {['Asia/Dhaka', 'Asia/Kolkata', 'Asia/Karachi', 'Asia/Dubai', 'Asia/Riyadh', 'Asia/Bangkok', 'Asia/Singapore', 'Asia/Hong_Kong', 'Asia/Tokyo', 'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'Australia/Sydney', 'UTC'].map((z) => (
+                  <option key={z} value={z} />
+                ))}
+              </datalist>
+              <Button variant="outline" size="sm" onClick={saveTimezone} loading={tzSaving}>
+                {t('settings.tzSave')}
+              </Button>
+            </div>
+          </Field>
+
           <Field label={t('settings.closuresDates')} hint={t('settings.closuresDatesHint')}>
             {closures.map((date, i) => (
               <div
@@ -867,6 +939,34 @@ export default function SettingsPage() {
               {closuresSaving ? t('common.loading') : t('settings.pmSave')}
             </Button>
           </div>
+        </div>
+      </Card>
+
+      {/* Merchant closure calendar (Phase 5 follow-up): one month of closure
+          dates, restaurant-wide weekday closures and per-day override counts
+          at a glance — the "closure day on the merchant calendar". */}
+      <Card title={t('settings.calTitle')} subtitle={t('settings.calDesc')} style={{ marginTop: 16 }}>
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <Button variant="outline" size="sm" onClick={() => shiftCalMonth(-1)} aria-label="Previous month">
+              ‹
+            </Button>
+            <span style={{ fontWeight: 700, fontSize: 15, minWidth: 120, textAlign: 'center' }}>
+              {calData?.month ? formatMonthLabel(calData.month) : calMonth}
+            </span>
+            <Button variant="outline" size="sm" onClick={() => shiftCalMonth(1)} aria-label="Next month">
+              ›
+            </Button>
+            {!calData && !calError && (
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('common.loading')}…</span>
+            )}
+          </div>
+
+          {calError ? (
+            <div style={{ fontSize: 13, color: 'var(--danger, #e5484d)' }}>{calError}</div>
+          ) : calData ? (
+            <ClosureCalendarGrid data={calData} t={t} />
+          ) : null}
         </div>
       </Card>
 
@@ -1515,6 +1615,136 @@ function StorefrontPreview({ brand, name, logoUrl }) {
       <div className="oms-brand-preview__item">
         <span>🍟 Classic Fries</span>
         <b>৳ 150</b>
+      </div>
+    </div>
+  );
+}
+
+/** 'YYYY-MM' → 'August 2026'-style label. */
+function formatMonthLabel(month) {
+  const [y, m] = month.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString(undefined, {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+/**
+ * Merchant closure calendar — one month grid. Closure dates are red, days
+ * falling on a restaurant-wide weekday closure are tinted with a ⟳ chip, and
+ * days with per-item availability overrides show a count badge. Uses UTC
+ * date math so the grid never shifts with the browser's timezone.
+ */
+function ClosureCalendarGrid({ data, t }) {
+  const [y, m] = data.month.split('-').map(Number);
+  const firstDow = new Date(Date.UTC(y, m - 1, 1)).getUTCDay(); // 0=Sun
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const weekdayClosed = new Set(data.weekdayClosures || []);
+
+  const cells = [];
+  for (let i = 0; i < firstDow; i += 1) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d += 1) {
+    const key = `${data.month}-${String(d).padStart(2, '0')}`;
+    const info = data.days?.[key];
+    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    cells.push({ key, d, dow, closure: Boolean(info?.closure), overrides: info?.overrides || 0, weekdayClosed: weekdayClosed.has(dow) });
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: 10 }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(7, 1fr)',
+          gap: 6,
+        }}
+      >
+        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((name, dow) => (
+          <div
+            key={name}
+            style={{
+              fontSize: 11,
+              fontWeight: 800,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              color: weekdayClosed.has(dow) ? 'var(--danger, #e5484d)' : 'var(--text-muted)',
+              textAlign: 'center',
+            }}
+          >
+            {name}
+          </div>
+        ))}
+        {cells.map((cell, i) =>
+          cell ? (
+            <div
+              key={cell.key}
+              title={
+                cell.closure
+                  ? `${cell.key} — ${t('settings.calClosed')}`
+                  : cell.weekdayClosed
+                    ? `${cell.key} — ${t('settings.calWeekdayClosed')}`
+                    : `${cell.key}${cell.overrides ? ` — ${cell.overrides} ${t('settings.calOverrides')}` : ''}`
+              }
+              style={{
+                minHeight: 44,
+                borderRadius: 10,
+                border: '1px solid var(--border)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 3,
+                fontSize: 13,
+                fontWeight: 700,
+                background: cell.closure
+                  ? 'color-mix(in srgb, var(--danger, #e5484d) 16%, transparent)'
+                  : cell.weekdayClosed
+                    ? 'color-mix(in srgb, var(--danger, #e5484d) 7%, transparent)'
+                    : 'transparent',
+                borderColor: cell.closure
+                  ? 'color-mix(in srgb, var(--danger, #e5484d) 55%, transparent)'
+                  : cell.weekdayClosed
+                    ? 'color-mix(in srgb, var(--danger, #e5484d) 30%, transparent)'
+                    : 'var(--border)',
+                color: cell.closure ? 'var(--danger, #e5484d)' : 'inherit',
+              }}
+            >
+              {cell.d}
+              {cell.closure ? (
+                <span style={{ fontSize: 10, fontWeight: 800 }}>✕</span>
+              ) : cell.weekdayClosed ? (
+                <span style={{ fontSize: 10, fontWeight: 800 }}>⟳</span>
+              ) : cell.overrides > 0 ? (
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 800,
+                    background: 'var(--primary-soft, rgba(0,179,165,.12))',
+                    color: 'var(--primary)',
+                    borderRadius: 999,
+                    padding: '0 6px',
+                  }}
+                >
+                  {cell.overrides}
+                </span>
+              ) : null}
+            </div>
+          ) : (
+            <div key={`empty-${i}`} />
+          )
+        )}
+      </div>
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-muted)' }}>
+        <span>
+          <b style={{ color: 'var(--danger, #e5484d)' }}>✕</b> {t('settings.calClosed')}
+        </span>
+        <span>
+          <b style={{ color: 'var(--danger, #e5484d)' }}>⟳</b> {t('settings.calWeekdayClosed')}
+        </span>
+        <span>
+          <b style={{ color: 'var(--primary)' }}>N</b> {t('settings.calOverrides')}
+        </span>
       </div>
     </div>
   );

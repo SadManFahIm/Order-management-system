@@ -71,7 +71,9 @@ export async function priceCart(tenant, rawItems, at = new Date()) {
   // restaurant-wide weekday closure, a per-item weekday rule, or a
   // "closed that day" override rejects the order even when placed while the
   // base window is open. Fetched once per cart (tenant + date index).
-  const ctx = await buildAvailabilityContext(tenant.id, at);
+  // Windows resolve against the tenant's configured timezone when set
+  // (Phase 5 follow-up) so hours/closures match the restaurant's wall clock.
+  const ctx = await buildAvailabilityContext(tenant.id, at, tenant.settings?.timezone || null);
 
   const ids = [...new Set(rawItems.map((i) => i.product_id))];
   const products = await Product.findAll({

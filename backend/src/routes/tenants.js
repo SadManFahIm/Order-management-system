@@ -17,6 +17,7 @@ import {
   replaceTenantClosures,
   replaceTenantWeekdayClosures,
   closureConflicts,
+  closureCalendar,
 } from '../services/menuService.js';
 import {
   createTenantSchema,
@@ -308,6 +309,23 @@ router.put(
       req
     );
     res.json(saved.map((r) => ({ id: r.id, date: r.date })));
+  })
+);
+
+/**
+ * GET /api/tenants/:id/closure-calendar?month=YYYY-MM — the merchant month
+ * view (Phase 5 follow-up): closure dates, restaurant-wide weekday closures
+ * and per-date per-item override counts.
+ */
+router.get(
+  '/:id/closure-calendar',
+  asyncHandler(async (req, res) => {
+    await tenantService.assertTenantAccess(req.user, Number(req.params.id));
+    const month = String(req.query.month || '').trim();
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      throw new AppError(400, 'VALIDATION_ERROR', 'month must be YYYY-MM');
+    }
+    res.json(await closureCalendar(Number(req.params.id), month));
   })
 );
 
