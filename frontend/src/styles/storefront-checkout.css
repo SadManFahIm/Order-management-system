@@ -395,6 +395,67 @@
   margin-top: 10px;
 }
 
+/* Sold-out / scheduled-unavailable lines — muted, controls disabled. */
+.ticket-line--blocked {
+  opacity: 0.6;
+}
+
+.ticket-line--blocked .ticket-qty__btn {
+  cursor: not-allowed;
+}
+
+/* Scarcity + availability chips on cart lines (Phase 5). */
+.ticket-stock {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 2px 9px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.ticket-stock--low {
+  color: var(--gold);
+  background: color-mix(in srgb, var(--gold) 14%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--gold) 45%, var(--line));
+}
+
+.ticket-stock--out {
+  color: var(--chilli);
+  background: color-mix(in srgb, var(--chilli) 10%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--chilli) 35%, transparent);
+}
+
+/* Closed-today + scheduled-availability notes (Phase 5). */
+.ticket-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border-radius: 12px;
+  padding: 11px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+
+.ticket-note__icon {
+  flex-shrink: 0;
+}
+
+.ticket-note--closed {
+  background: color-mix(in srgb, var(--chilli) 10%, var(--card));
+  color: var(--chilli);
+  border: 1px solid color-mix(in srgb, var(--chilli) 32%, transparent);
+}
+
+.ticket-note--ok {
+  background: color-mix(in srgb, var(--brand) 9%, var(--card));
+  color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--brand) 32%, var(--line));
+}
+
 .ticket-line__main {
   flex: 1;
   min-width: 0;

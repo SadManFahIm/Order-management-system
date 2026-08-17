@@ -82,8 +82,14 @@ async function placeCheckoutOrder(tenant, payload) {
   }
   const scheduledAt = validateSchedule(payload.scheduled_at, payload.order_type);
 
-  // 2. Server-side pricing + availability (never trust the client).
-  const { items: pricedItems, subtotal, totalDiscount } = await priceCart(tenant, payload.items);
+  // 2. Server-side pricing + availability (never trust the client). The
+  //    scheduled date (when present) drives the per-day override check — a
+  //    "closed that day" override rejects a scheduled order too.
+  const { items: pricedItems, subtotal, totalDiscount } = await priceCart(
+    tenant,
+    payload.items,
+    scheduledAt ?? undefined
+  );
 
   const deliveryFee = isDelivery ? delivery.fee : 0;
   const grandTotal = Math.round((subtotal - totalDiscount + deliveryFee) * 100) / 100;

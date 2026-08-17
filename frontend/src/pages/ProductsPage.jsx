@@ -13,7 +13,16 @@ export default function ProductsPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [selected, setSelected] = useState([]);
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [bulk, setBulk] = useState({ price: '', stock: '', enabled: '', tags: [] });
+  const [bulk, setBulk] = useState({
+    price: '',
+    stock: '',
+    enabled: '',
+    tags: [],
+    category: '',
+    availFrom: '',
+    availTo: '',
+  });
+  const [categories, setCategories] = useState([]);
   const [bulkSaving, setBulkSaving] = useState(false);
   const [dragId, setDragId] = useState(null);
   const [overId, setOverId] = useState(null);
@@ -26,6 +35,14 @@ export default function ProductsPage() {
     // cleanup would otherwise leave the ref false forever.
     mounted.current = true;
     load();
+    api
+      .get('/menu/categories')
+      .then((res) => {
+        if (mounted.current) setCategories(res.data || []);
+      })
+      .catch(() => {
+        /* bulk move stays disabled without categories */
+      });
     return () => { mounted.current = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -45,8 +62,20 @@ export default function ProductsPage() {
     }
   };
 
+  const saveOverrides = async (productId, data) => {
+    if (!data || data.overrides === undefined) return;
+    await api.put(`/products/${productId}/overrides`, { overrides: data.overrides });
+  };
+
+  const saveWeekdayRules = async (productId, data) => {
+    if (!data || data.weekdayRules === undefined) return;
+    await api.put(`/products/${productId}/weekday-rules`, { rules: data.weekdayRules });
+  };
+
   const onCreate = async (data) => {
-    await api.post('/products', data);
+    const res = await api.post('/products', data);
+    if (data?.overrides?.length) await saveOverrides(res.data.id, data);
+    if (data?.weekdayRules?.length) await saveWeekdayRules(res.data.id, data);
     toast.success('Product added');
     await load();
   };
@@ -54,6 +83,8 @@ export default function ProductsPage() {
   const onUpdate = async (data) => {
     try {
       await api.put(`/products/${editing.id}`, data);
+      if (data?.overrides !== undefined) await saveOverrides(editing.id, data);
+      if (data?.weekdayRules !== undefined) await saveWeekdayRules(editing.id, data);
       setEditing(null);
       toast.success('Product updated');
       await load();
@@ -93,10 +124,25 @@ export default function ProductsPage() {
       if (bulk.stock !== '') body.inventory = { stock_qty: Number(bulk.stock) };
       if (bulk.enabled !== '') body.enabled = bulk.enabled === 'true';
       if (bulk.tags.length > 0) body.tags = bulk.tags;
+      // Menu bulk organize: move to a category and/or stamp an availability
+      // window in the same audited request.
+      if (bulk.category !== '') {
+        body.category_id = bulk.category === 'none' ? null : Number(bulk.category);
+      }
+      // A bulk window needs both bounds (one-sided windows are fine per
+      // item in the product form; bulk keeps it unambiguous).
+      if ((bulk.availFrom !== '') !== (bulk.availTo !== '')) {
+        toast.error('Set both window times (or leave both empty)');
+        return;
+      }
+      if (bulk.availFrom !== '') {
+        body.available_from = bulk.availFrom;
+        body.available_to = bulk.availTo;
+      }
       await api.post('/products/bulk', body);
       toast.success(`Updated ${selected.length} item${selected.length > 1 ? 's' : ''}`);
       setSelected([]);
-      setBulk({ price: '', stock: '', enabled: '', tags: [] });
+      setBulk({ price: '', stock: '', enabled: '', tags: [], category: '', availFrom: '', availTo: '' });
       setBulkOpen(false);
       await load();
     } catch (err) {
@@ -155,7 +201,7 @@ export default function ProductsPage() {
       />
 
       {bulkOpen && selected.length > 0 && (
-        <Card title="Bulk edit" subtitle={`${selected.length} items selected — price, stock, status and tags in one request.`}>
+        <Card title="Bulk edit & organize" subtitle={`${selected.length} items selected — price, stock, status, tags, category and availability window in one request.`}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 14, alignItems: 'end' }}>
             <Field label="New price (Tk)" hint="Leave empty to keep">
               <Input type="number" min="0" step="0.01" placeholder="e.g. 250" value={bulk.price} onChange={(e) => setBulk((b) => ({ ...b, price: e.target.value }))} />
@@ -174,6 +220,23 @@ export default function ProductsPage() {
               <Button variant="primary" size="sm" loading={bulkSaving} onClick={applyBulk}>Apply</Button>
               <Button variant="ghost" size="sm" onClick={() => setBulkOpen(false)}>Cancel</Button>
             </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
+            <Field label="Move to category" hint="Reorganise the menu — the storefront follows instantly">
+              <Select value={bulk.category} onChange={(e) => setBulk((b) => ({ ...b, category: e.target.value }))}>
+                <option value="">Keep as-is</option>
+                <option value="none">Uncategorised</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Availability window" hint="Leave both empty to keep each item's schedule">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <Input type="time" value={bulk.availFrom} onChange={(e) => setBulk((b) => ({ ...b, availFrom: e.target.value }))} placeholder="from" />
+                <Input type="time" value={bulk.availTo} onChange={(e) => setBulk((b) => ({ ...b, availTo: e.target.value }))} placeholder="to" />
+              </div>
+            </Field>
           </div>
           <Field label="Add tags to all selected">
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>

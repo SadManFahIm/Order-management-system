@@ -1,11 +1,14 @@
 import express from 'express';
 import multer from 'multer';
+import { Op } from 'sequelize';
 import sequelize from '../config/db.js';
 import Product from '../models/Product.js';
 import MenuCategory from '../models/MenuCategory.js';
 import ItemVariant from '../models/ItemVariant.js';
 import ItemAddon from '../models/ItemAddon.js';
 import InventoryItem from '../models/InventoryItem.js';
+import AvailabilityOverride from '../models/AvailabilityOverride.js';
+import AvailabilityWeekdayRule from '../models/AvailabilityWeekdayRule.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -20,7 +23,14 @@ import {
 } from '../services/importService.js';
 import { env } from '../config/env.js';
 import { assertQuota, notifyQuotaIfCrossed } from '../services/planService.js';
-import { normalizeTags, bulkUpdateItems, duplicateCategory, sortItems } from '../services/menuService.js';
+import {
+  normalizeTags,
+  bulkUpdateItems,
+  duplicateCategory,
+  sortItems,
+  replaceAvailabilityOverrides,
+  replaceItemWeekdayRules,
+} from '../services/menuService.js';
 
 // Rich menu includes (Phase 4).
 const MENU_INCLUDE = [
@@ -149,6 +159,137 @@ router.get(
     res.setHeader('Content-Disposition', 'attachment; filename="menu-import-template.csv"');
     res.send(CSV_TEMPLATE);
   }
+);
+
+/**
+ * GET /api/products/:id/overrides?from=&to= — the item's per-day
+ * availability overrides (Phase 4 follow-up), date-ascending. Optional
+ * from/to bound the range (YYYY-MM-DD) so the product form only fetches
+ * the relevant horizon.
+ */
+router.get(
+  '/:id/overrides',
+  requirePermission('view:menu'),
+  asyncHandler(async (req, res) => {
+    const p = await Product.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+    });
+    if (!p) throw new AppError(404, 'NOT_FOUND', 'Product not found');
+
+    const where = { tenant_id: req.tenant.id, menu_item_id: p.id };
+    if (req.query.from || req.query.to) {
+      where.date = {};
+      if (req.query.from) where.date[Op.gte] = String(req.query.from);
+      if (req.query.to) where.date[Op.lte] = String(req.query.to);
+    }
+    const rows = await AvailabilityOverride.findAll({
+      where,
+      order: [['date', 'ASC']],
+    });
+    res.json(
+      rows.map((r) => ({
+        id: r.id,
+        date: r.date,
+        available_from: r.available_from,
+        available_to: r.available_to,
+      }))
+    );
+  })
+);
+
+/**
+ * PUT /api/products/:id/overrides — replace the item's per-day availability
+ * overrides (Phase 4 follow-up). Body: `{ overrides: [{ date,
+ * available_from, available_to }] }`; replace-all semantics (anything not
+ * sent is removed), validated + audited in the service.
+ */
+router.put(
+  '/:id/overrides',
+  canManageMenu,
+  asyncHandler(async (req, res) => {
+    const p = await Product.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+    });
+    if (!p) throw new AppError(404, 'NOT_FOUND', 'Product not found');
+
+    const saved = await replaceAvailabilityOverrides(
+      req.tenant.id,
+      req.user,
+      p.id,
+      req.body?.overrides,
+      req
+    );
+    res.json(
+      saved.map((r) => ({
+        id: r.id,
+        date: r.date,
+        available_from: r.available_from,
+        available_to: r.available_to,
+      }))
+    );
+  })
+);
+
+/**
+ * GET /api/products/:id/weekday-rules — the item's recurring weekday rules
+ * (Phase 5), weekday-ascending (0=Sun … 6=Sat). Missing weekdays simply
+ * fall back to the item's base window.
+ */
+router.get(
+  '/:id/weekday-rules',
+  requirePermission('view:menu'),
+  asyncHandler(async (req, res) => {
+    const p = await Product.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+    });
+    if (!p) throw new AppError(404, 'NOT_FOUND', 'Product not found');
+
+    const rows = await AvailabilityWeekdayRule.findAll({
+      where: { tenant_id: req.tenant.id, menu_item_id: p.id },
+      order: [['weekday', 'ASC']],
+    });
+    res.json(
+      rows.map((r) => ({
+        id: r.id,
+        weekday: r.weekday,
+        available_from: r.available_from,
+        available_to: r.available_to,
+      }))
+    );
+  })
+);
+
+/**
+ * PUT /api/products/:id/weekday-rules — replace the item's recurring
+ * weekday rules (Phase 5). Body: `{ rules: [{ weekday, available_from,
+ * available_to }] }`; replace-all semantics (anything not sent is removed,
+ * falling back to the base window), validated + audited in the service.
+ */
+router.put(
+  '/:id/weekday-rules',
+  canManageMenu,
+  asyncHandler(async (req, res) => {
+    const p = await Product.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+    });
+    if (!p) throw new AppError(404, 'NOT_FOUND', 'Product not found');
+
+    const saved = await replaceItemWeekdayRules(
+      req.tenant.id,
+      req.user,
+      p.id,
+      req.body?.rules,
+      req
+    );
+    res.json(
+      saved.map((r) => ({
+        id: r.id,
+        weekday: r.weekday,
+        available_from: r.available_from,
+        available_to: r.available_to,
+      }))
+    );
+  })
 );
 
 /** POST /api/products/sort — persist a drag-and-drop item order (Phase 4). */

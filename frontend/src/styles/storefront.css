@@ -445,6 +445,82 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ---- Restaurant-wide closure banner (Phase 5) ----
+   Closure dates / recurring weekday closures dark the whole storefront:
+   the banner sits above the category chips and add buttons are gated. */
+.closed-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-radius: 18px;
+  padding: 16px 18px;
+  margin-bottom: 18px;
+  background: color-mix(in srgb, var(--chilli) 9%, var(--card));
+  border: 1px dashed color-mix(in srgb, var(--chilli) 45%, var(--line));
+}
+
+.closed-banner__icon {
+  font-size: 26px;
+  flex-shrink: 0;
+}
+
+.closed-banner__title {
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--chilli);
+}
+
+.closed-banner__desc {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* ---- Storefront scarcity cues (Phase 4 follow-up) ----
+   "Only N left" urgency on low-stock dishes and a muted "Sold out"
+   state that disables the add button — both paper-theme aware. */
+.dish__stock {
+  justify-self: start;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  border-radius: 999px;
+  padding: 3px 10px;
+  width: max-content;
+}
+
+.dish__stock--low {
+  color: var(--gold);
+  background: color-mix(in srgb, var(--gold) 14%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--gold) 45%, var(--line));
+}
+
+.dish__stock--out {
+  color: var(--muted);
+  background: var(--tile);
+  border: 1px solid var(--line);
+}
+
+/* Variant-row stock badges inside the options modal. */
+.vstock {
+  font-size: 11px;
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+.vstock--low {
+  color: var(--gold);
+  background: color-mix(in srgb, var(--gold) 14%, var(--card));
+}
+
+.vstock--out {
+  color: var(--muted);
+  background: var(--tile);
+}
+
 .dish__add {
   border: 1.5px solid var(--brand);
   background: color-mix(in srgb, var(--brand) 8%, var(--card));
@@ -467,6 +543,16 @@
   color: #fff;
   transform: translateY(-1px);
   box-shadow: 0 6px 14px color-mix(in srgb, var(--brand) 40%, transparent);
+}
+
+.dish__add--disabled,
+.dish__add--disabled:hover {
+  background: var(--tile);
+  border-color: var(--line);
+  color: var(--muted);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 .menu__empty {

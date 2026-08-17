@@ -20,6 +20,9 @@ import MenuCategory from './MenuCategory.js';
 import ItemVariant from './ItemVariant.js';
 import ItemAddon from './ItemAddon.js';
 import InventoryItem from './InventoryItem.js';
+import AvailabilityOverride from './AvailabilityOverride.js';
+import TenantClosureDate from './TenantClosureDate.js';
+import AvailabilityWeekdayRule from './AvailabilityWeekdayRule.js';
 import Table from './Table.js';
 import Payment from './Payment.js';
 import DailyStat from './DailyStat.js';
@@ -53,6 +56,9 @@ export {
   ItemVariant,
   ItemAddon,
   InventoryItem,
+  AvailabilityOverride,
+  TenantClosureDate,
+  AvailabilityWeekdayRule,
   Table,
   Payment,
   DailyStat,

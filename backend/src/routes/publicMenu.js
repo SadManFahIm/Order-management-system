@@ -9,6 +9,7 @@ import MenuCategory from '../models/MenuCategory.js';
 import Product from '../models/Product.js';
 import ItemVariant from '../models/ItemVariant.js';
 import ItemAddon from '../models/ItemAddon.js';
+import InventoryItem from '../models/InventoryItem.js';
 import Table from '../models/Table.js';
 import Order from '../models/Order.js';
 import OrderItem from '../models/OrderItem.js';
@@ -19,7 +20,11 @@ import {
   paymentMethodsConfig,
 } from '../services/paymentsService.js';
 import { deliveryConfig } from '../services/checkoutService.js';
-import { isAvailableNow } from '../services/menuService.js';
+import {
+  buildAvailabilityContext,
+  isAvailableAt,
+  isAvailableNow,
+} from '../services/menuService.js';
 
 /**
  * Public, read-only storefront menu API (Phase 4).
@@ -106,7 +111,8 @@ function serializeTenant(tenant) {
   };
 }
 
-function serializeItem(item) {
+function serializeItem(item, override = null) {
+  const inv = item.inventory;
   return {
     id: item.id,
     name: item.name,
@@ -115,7 +121,17 @@ function serializeItem(item) {
     weightGm: item.weight_gm,
     prepMinutes: item.prep_minutes,
     imageUrl: item.image_url,
-    available: isAvailableNow(item), // hard switch + time window
+    // Hard switch + base time window + today's per-day override (Phase 4
+    // follow-up: an override with no bounds closes the item for the day).
+    // Restaurant-wide closure days / weekday closures (Phase 5) are exposed
+    // separately on the menu payload (`closedToday`) so the storefront can
+    // render a "closed today" state without per-item noise.
+    available: isAvailableNow(item, new Date(), override),
+    // Storefront scarcity cue (Phase 4 follow-up): the product-level
+    // inventory snapshot (null when untracked) + low-stock threshold, so
+    // the storefront can show "Only N left" / "Sold out" honestly.
+    stock: inv ? Math.floor(Number(inv.stock_qty) || 0) : null,
+    lowStockAt: inv ? Math.floor(Number(inv.low_stock_at) || 0) : null,
     tags: item.tags || [],
     categoryId: item.category_id,
     variants: (item.variants || []).map((v) => ({
@@ -124,6 +140,7 @@ function serializeItem(item) {
       priceAdjustment: v.price_adjustment,
       sortOrder: v.sort_order,
       stock: v.stock ?? null,
+      lowStockAt: v.low_stock_at ?? null,
     })),
     addons: (item.addons || []).map((a) => ({
       id: a.id,
@@ -168,13 +185,19 @@ router.get(
     const itemWhere = { tenant_id: tenant.id };
     if (categoryId && Number.isInteger(categoryId)) itemWhere.category_id = categoryId;
 
-    // Availability: the hard `enabled` switch AND the time-of-day window.
-    // Window filtering happens in JS (isAvailableNow) because the bounds are
-    // 'HH:MM' strings compared against the server's local clock — the SQL
-    // where-clause only removes hard-disabled items.
+    // Availability: the hard `enabled` switch AND the time-of-day window
+    // AND today's per-day override (Phase 4 follow-up) AND restaurant-wide
+    // closure dates / weekday closures (Phase 5). Window/override filtering
+    // happens in JS (isAvailableAt) because the bounds are 'HH:MM' strings
+    // compared against the server's local clock — the SQL where-clause only
+    // removes hard-disabled items. The full resolution context is fetched
+    // once for the whole workspace (bounded by the tenant + date index) so
+    // a merchant holiday closure hides items instantly.
     if (onlyAvailable) {
       itemWhere.enabled = true;
     }
+
+    const ctx = await buildAvailabilityContext(tenant.id);
 
     // X-Total-Count reflects ALL matching items (before pagination) so
     // storefronts can render a "load more" affordance from the header.
@@ -185,22 +208,27 @@ router.get(
       include: [
         { model: ItemVariant, as: 'variants', order: [['sort_order', 'ASC'], ['id', 'ASC']] },
         { model: ItemAddon, as: 'addons', order: [['sort_order', 'ASC'], ['id', 'ASC']] },
+        { model: InventoryItem, as: 'inventory' },
       ],
       order: [['sort_order', 'ASC'], ['id', 'ASC']],
       limit,
       offset,
     });
 
-    // Time-window filtering (only when the storefront asked for available
-    // items): drop anything currently outside its availability window.
-    // NB: arrow wrapper — Array#filter would pass the index as `now`.
-    const visibleItems = onlyAvailable ? items.filter((i) => isAvailableNow(i)) : items;
+    // Full availability filtering (only when the storefront asked for
+    // available items): drop anything currently outside its effective
+    // availability — restaurant closures, weekday rules, per-day overrides
+    // and the base window. NB: arrow wrapper — Array#filter would pass the
+    // index as `now`.
+    const visibleItems = onlyAvailable
+      ? items.filter((i) => isAvailableAt(i, ctx))
+      : items;
 
     const itemsByCategory = new Map();
     for (const item of visibleItems) {
       const key = item.category_id ?? null;
       if (!itemsByCategory.has(key)) itemsByCategory.set(key, []);
-      itemsByCategory.get(key).push(serializeItem(item));
+      itemsByCategory.get(key).push(serializeItem(item, ctx.overrideByItem.get(item.id)));
     }
 
     const menu = categories.map((c) => ({
@@ -225,11 +253,91 @@ router.get(
 
     const payload = JSON.stringify({
       restaurant: serializeTenant(tenant),
+      // Restaurant-wide closure state at request time (Phase 5): the
+      // storefront shows a "We're closed today" banner and disables ordering
+      // when the workspace is closed by a closure date or weekday closure.
+      closedToday: ctx.restaurantClosed || ctx.restaurantWeekdayClosed,
       categories: menu,
     });
     if (applyPublicCache(req, res, payload)) return;
     res.set('X-Total-Count', String(totalItems));
     res.json(JSON.parse(payload));
+  })
+);
+
+/** GET /api/public/restaurants/:slug/availability?date=&time= — Phase 5.
+ *
+ * Availability preview at an arbitrary instant (defaults to now): whether
+ * the restaurant is closed-wide (closure date / weekday closure) and, for
+ * every enabled item, whether it is orderable at that instant — with the
+ * reason when not. The storefront cart uses it before placing a scheduled
+ * order, and the scheduled-order preview renders a per-item "available /
+ * not available" view for the chosen date. Public + read-only; date is
+ * YYYY-MM-DD, time is HH:MM (both optional, local server clock). */
+router.get(
+  '/restaurants/:slug/availability',
+  asyncHandler(async (req, res) => {
+    const tenant = await findPublicTenant(req.params.slug);
+
+    let at = new Date();
+    const { date, time } = req.query;
+    if (date !== undefined && date !== '') {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(date));
+      if (!m || Number.isNaN(new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`).getTime())) {
+        throw new AppError(400, 'VALIDATION_ERROR', 'date must be a valid YYYY-MM-DD');
+      }
+      const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+      const hhmm = /^(\d{1,2}):(\d{2})$/.exec(String(time ?? '12:00'));
+      const h = hhmm ? Number(hhmm[1]) : 12;
+      const mi = hhmm ? Number(hhmm[2]) : 0;
+      if (h > 23 || mi > 59) {
+        throw new AppError(400, 'VALIDATION_ERROR', 'time must be a valid HH:MM');
+      }
+      at = new Date(y, mo - 1, d, h, mi, 0, 0);
+    }
+
+    const ctx = await buildAvailabilityContext(tenant.id, at);
+    const items = await Product.findAll({
+      where: { tenant_id: tenant.id, enabled: true },
+      order: [['sort_order', 'ASC'], ['id', 'ASC']],
+    });
+
+    const reasons = (item) => {
+      if (item.enabled === false) return 'disabled';
+      if (ctx.restaurantClosed) return 'restaurant_closed';
+      if (ctx.restaurantWeekdayClosed) return 'restaurant_closed';
+      const weekdayRule = ctx.weekdayByItem.get(item.id);
+      if (weekdayRule) {
+        if (weekdayRule.available_from === null && weekdayRule.available_to === null) {
+          return 'weekday_closed';
+        }
+        if (!isAvailableAt(item, ctx)) return 'weekday_window';
+        return 'open';
+      }
+      const override = ctx.overrideByItem.get(item.id);
+      if (override) {
+        if (override.available_from === null && override.available_to === null) {
+          return 'closed_today';
+        }
+        if (!isAvailableAt(item, ctx)) return 'override_window';
+        return 'open';
+      }
+      if (!isAvailableAt(item, ctx)) return 'window';
+      return 'open';
+    };
+
+    res.json({
+      date: ctx.date,
+      time: `${String(ctx.at.getHours()).padStart(2, '0')}:${String(ctx.at.getMinutes()).padStart(2, '0')}`,
+      restaurantClosed: ctx.restaurantClosed || ctx.restaurantWeekdayClosed,
+      items: items.map((item) => ({
+        id: item.id,
+        name: item.name,
+        categoryId: item.category_id,
+        available: isAvailableAt(item, ctx),
+        reason: reasons(item),
+      })),
+    });
   })
 );
 
