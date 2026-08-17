@@ -332,6 +332,65 @@ CREATE TABLE inventory_items (
     updated_at   timestamptz NOT NULL DEFAULT now(),
     UNIQUE (tenant_id, menu_item_id)
 );
+
+-- availability_overrides: per-day windows that override an item's repeating
+-- availability schedule (menu_items.available_from / available_to) for a
+-- single calendar date (migration 022, Phase 4 follow-up).
+-- Both bounds NULL = explicitly closed all day; otherwise the 'HH:MM' bounds
+-- follow the base-window rules (one-sided + overnight included). Enforced on
+-- the storefront (hidden outside the effective window) and at checkout
+-- (AVAILABILITY_WINDOW) — scheduled orders validate against the scheduled
+-- date's override. One override per (tenant, item, date).
+CREATE TABLE availability_overrides (
+    id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    tenant_id      bigint NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    menu_item_id   bigint NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
+    date           date NOT NULL,
+    available_from text,                              -- 'HH:MM' (NULL = from midnight)
+    available_to   text,                              -- 'HH:MM' (NULL = until midnight)
+    created_at     timestamptz NOT NULL DEFAULT now(),
+    updated_at     timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (tenant_id, menu_item_id, date)
+);
+CREATE INDEX ix_availability_overrides_tenant_date ON availability_overrides (tenant_id, date);
+
+-- tenant_closure_dates: restaurant-wide closure days (migration 023,
+-- Phase 4/5 follow-up). One row per tenant + date closes the WHOLE
+-- storefront that day (holidays, private events): the public menu is
+-- hidden and checkout is rejected (AVAILABILITY_WINDOW); scheduled orders
+-- are validated against the scheduled date, so a closure blocks scheduled
+-- orders for that day too.
+CREATE TABLE tenant_closure_dates (
+    id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    tenant_id    bigint NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    date         date NOT NULL,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    updated_at   timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (tenant_id, date)
+);
+
+-- availability_weekday_rules: recurring availability patterns (migration
+-- 023). A row with menu_item_id NULL = restaurant-wide weekday closure
+-- ("closed every Saturday" — both bounds NULL, enforced by the API); a row
+-- with menu_item_id set = a per-item rule that REPLACES the base window for
+-- that weekday (weekend hours, "closed Mondays" — both bounds NULL).
+-- Resolution order at a given date/time (storefront + checkout):
+--   tenant closure date → per-item weekday rule → per-day override → base
+--   window.
+CREATE TABLE availability_weekday_rules (
+    id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    tenant_id      bigint NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    menu_item_id   bigint REFERENCES menu_items(id) ON DELETE CASCADE, -- NULL = restaurant-wide
+    weekday        integer NOT NULL,                     -- 0=Sun … 6=Sat (JS getDay)
+    available_from text,                                  -- 'HH:MM' (NULL = closed/from midnight)
+    available_to   text,                                  -- 'HH:MM' (NULL = closed/until midnight)
+    created_at     timestamptz NOT NULL DEFAULT now(),
+    updated_at     timestamptz NOT NULL DEFAULT now()
+);
+-- One per-item rule per weekday; one restaurant-wide rule per weekday.
+CREATE UNIQUE INDEX uq_weekday_rule_item   ON availability_weekday_rules (tenant_id, menu_item_id, weekday) WHERE menu_item_id IS NOT NULL;
+CREATE UNIQUE INDEX uq_weekday_rule_tenant ON availability_weekday_rules (tenant_id, weekday) WHERE menu_item_id IS NULL;
+CREATE INDEX ix_weekday_rules_tenant_weekday ON availability_weekday_rules (tenant_id, weekday);
 ```
 
 ### 4.4 Customers
@@ -713,6 +772,9 @@ export const down = async (qi, transaction) => {
 | 008 | `coupons`, `coupon_redemptions` | 3/6 |
 | 009 | `payment_providers`, `payments`, `payment_intents` | 6 |
 | 010 | `notifications`, retention jobs | 5/8 |
+| 021 | `item_variants.low_stock_at` (variant-level low-stock alert threshold) | 4 | ✅ shipped |
+| 022 | `availability_overrides` (per-day availability override per item) | 4 | ✅ shipped |
+| 023 | `tenant_closure_dates` + `availability_weekday_rules` (restaurant-wide closure days, recurring weekday rules) | 4/5 | ✅ shipped |
 
 ---
 

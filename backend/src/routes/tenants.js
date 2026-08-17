@@ -7,8 +7,13 @@ import { resolveTenant } from '../middleware/tenant.js';
 import * as tenantService from '../services/tenantService.js';
 import { getPlanUsage } from '../services/planService.js';
 import { getBillingMeter, reportTenantMeter } from '../services/billingService.js';
-import { TenantSamlConfig } from '../models/index.js';
+import {
+  TenantSamlConfig,
+  TenantClosureDate,
+  AvailabilityWeekdayRule,
+} from '../models/index.js';
 import { serializeSamlConfig } from '../services/samlService.js';
+import { replaceTenantClosures, replaceTenantWeekdayClosures } from '../services/menuService.js';
 import {
   createTenantSchema,
   updateTenantSchema,
@@ -261,6 +266,79 @@ router.put(
       req
     );
     res.json(serializeSamlConfig(config));
+  })
+);
+
+/**
+ * GET /api/tenants/:id/closures — the workspace's restaurant-wide closure
+ * dates (Phase 5), date-ascending. One-off closed days (holidays, private
+ * events): the whole storefront is hidden that day and checkout is
+ * rejected with RESTAURANT_CLOSED.
+ */
+router.get(
+  '/:id/closures',
+  asyncHandler(async (req, res) => {
+    await tenantService.assertTenantAccess(req.user, Number(req.params.id));
+    const rows = await TenantClosureDate.findAll({
+      where: { tenant_id: Number(req.params.id) },
+      order: [['date', 'ASC']],
+    });
+    res.json(rows.map((r) => ({ id: r.id, date: r.date })));
+  })
+);
+
+/**
+ * PUT /api/tenants/:id/closures — replace the workspace's restaurant-wide
+ * closure dates (Phase 5). Body: `{ dates: ['YYYY-MM-DD', …] }`;
+ * replace-all semantics (anything not sent is removed), validated + audited
+ * as `menu.tenant_closures` in the service.
+ */
+router.put(
+  '/:id/closures',
+  asyncHandler(async (req, res) => {
+    await tenantService.assertTenantAccess(req.user, Number(req.params.id), 'manage:settings');
+    const saved = await replaceTenantClosures(
+      Number(req.params.id),
+      req.user,
+      req.body?.dates,
+      req
+    );
+    res.json(saved.map((r) => ({ id: r.id, date: r.date })));
+  })
+);
+
+/**
+ * GET /api/tenants/:id/weekday-closures — the weekdays the whole workspace
+ * is closed every week (Phase 5), e.g. [5] = "closed every Saturday".
+ */
+router.get(
+  '/:id/weekday-closures',
+  asyncHandler(async (req, res) => {
+    await tenantService.assertTenantAccess(req.user, Number(req.params.id));
+    const rows = await AvailabilityWeekdayRule.findAll({
+      where: { tenant_id: Number(req.params.id), menu_item_id: null },
+      order: [['weekday', 'ASC']],
+    });
+    res.json(rows.map((r) => ({ id: r.id, weekday: r.weekday })));
+  })
+);
+
+/**
+ * PUT /api/tenants/:id/weekday-closures — replace the workspace's
+ * restaurant-wide weekday closures (Phase 5). Body: `{ weekdays: [0–6] }`;
+ * replace-all semantics, validated + audited in the service.
+ */
+router.put(
+  '/:id/weekday-closures',
+  asyncHandler(async (req, res) => {
+    await tenantService.assertTenantAccess(req.user, Number(req.params.id), 'manage:settings');
+    const saved = await replaceTenantWeekdayClosures(
+      Number(req.params.id),
+      req.user,
+      req.body?.weekdays,
+      req
+    );
+    res.json(saved.map((r) => ({ id: r.id, weekday: r.weekday })));
   })
 );
 

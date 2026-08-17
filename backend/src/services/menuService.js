@@ -1,11 +1,15 @@
 import { Op } from 'sequelize';
 import { AppError } from '../middleware/errorHandler.js';
+import sequelize from '../config/db.js';
 import {
   Product,
   ItemVariant,
   ItemAddon,
   MenuCategory,
   InventoryItem,
+  AvailabilityOverride,
+  TenantClosureDate,
+  AvailabilityWeekdayRule,
 } from '../models/index.js';
 import { audit } from './auditService.js';
 
@@ -13,10 +17,14 @@ import { audit } from './auditService.js';
  * Menu & media helpers (Phase 4):
  *
  *   - isAvailableNow — time-window check for the item-level availability
- *     schedule (HH:MM local clock; NULL bounds mean "any time").
+ *     schedule (HH:MM local clock; NULL bounds mean "any time"), with an
+ *     optional per-day override (Phase 4 follow-up: an override with no
+ *     bounds means "closed all day" for that date).
+ *   - replaceAvailabilityOverrides — persists the per-day override set for
+ *     one item (replace-all, validated + audited).
  *   - tagsIn — validates dietary/merchandising tags against the allowed set.
- *   - bulkUpdateItems — one-request price / stock / enabled / tags edit
- *     across many items (with the same optimistic-lock and quota rules).
+ *   - bulkUpdateItems — one-request price / stock / enabled / tags / window /
+ *     category edit across many items (same optimistic-lock and quota rules).
  *   - duplicateCategory — deep-copies a category with its items, variants
  *     and add-ons (fresh ids, bumped version, " (copy)" suffix).
  */
@@ -49,6 +57,35 @@ export function normalizeTags(tags) {
   return out;
 }
 
+/** Local date → 'YYYY-MM-DD' (the availability-override calendar key). */
+export function dateKey(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Normalizes an 'HH:MM' window bound for storage: trims, pads, and rejects
+ * malformed / out-of-range values with a clear 400. Empty/null → null
+ * ("no bound"). Used for writes (overrides + bulk window edit); reads stay
+ * lenient via toMinutes.
+ */
+export function normalizeWindowTime(value, field = 'time') {
+  if (value === undefined || value === null || value === '') return null;
+  const str = String(value).trim();
+  const m = /^(\d{1,2}):(\d{2})$/.exec(str);
+  if (!m) {
+    throw new AppError(400, 'VALIDATION_ERROR', `${field} must be an HH:MM time (e.g. 09:00)`);
+  }
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) {
+    throw new AppError(400, 'VALIDATION_ERROR', `${field} must be a valid 24h time (00:00–23:59)`);
+  }
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
+
 /** 'HH:MM' (24h) → minutes-since-midnight, or null for malformed/NULL. */
 function toMinutes(value) {
   if (!value || typeof value !== 'string') return null;
@@ -61,17 +98,15 @@ function toMinutes(value) {
 }
 
 /**
- * Is the item orderable right now? `enabled` is a hard switch; the time
- * window (available_from / available_to, HH:MM) further gates it. A window
- * that wraps midnight (from > to) spans into the next day.
+ * Is the clock inside a window? `src` is an item or an override/rule row
+ * with optional available_from / available_to (HH:MM). Both bounds NULL =
+ * any time; from > to wraps midnight; one-sided bounds supported.
  */
-export function isAvailableNow(item, now = new Date()) {
-  if (!item) return false;
-  if (item.enabled === false) return false;
-  const from = toMinutes(item.available_from);
-  const to = toMinutes(item.available_to);
+export function withinWindow(src, at = new Date()) {
+  const from = toMinutes(src.available_from);
+  const to = toMinutes(src.available_to);
   if (from === null && to === null) return true; // no window → any time
-  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const nowMin = at.getHours() * 60 + at.getMinutes();
   if (from !== null && to !== null) {
     if (from <= to) return nowMin >= from && nowMin < to;
     // Overnight window: from … 23:59 + 00:00 … to.
@@ -83,12 +118,348 @@ export function isAvailableNow(item, now = new Date()) {
 }
 
 /**
+ * Is the item orderable at `now`? `enabled` is a hard switch; the time
+ * window (available_from / available_to, HH:MM) further gates it.
+ *
+ * `override` (a per-day AvailabilityOverride row, Phase 4 follow-up)
+ * replaces the repeating window for that date when present: an override
+ * with NO bounds means "closed all day", and a windowed override follows
+ * the same rules as the base schedule (one-sided + overnight included).
+ *
+ * Legacy helper — full resolution (restaurant closures + weekday rules +
+ * overrides) goes through buildAvailabilityContext + isAvailableAt.
+ */
+export function isAvailableNow(item, now = new Date(), override = null) {
+  if (!item) return false;
+  if (item.enabled === false) return false;
+  if (override && override.available_from === null && override.available_to === null) {
+    return false; // explicit per-date override → closed all day
+  }
+  return withinWindow(override || item, now);
+}
+
+/**
+ * Fetches everything needed to resolve availability at a single instant:
+ * the restaurant-wide closure for `at`'s date, that date's per-item
+ * overrides, and every weekday rule (filtered to `at`'s weekday). Call ONCE
+ * per request (public menu, checkout, availability-check) and reuse.
+ */
+export async function buildAvailabilityContext(tenantId, at = new Date()) {
+  const date = dateKey(at);
+  const weekday = at.getDay(); // 0=Sun … 6=Sat
+  const [closureRow, overrides, weekdayRules] = await Promise.all([
+    TenantClosureDate.findOne({ where: { tenant_id: tenantId, date } }),
+    AvailabilityOverride.findAll({ where: { tenant_id: tenantId, date } }),
+    AvailabilityWeekdayRule.findAll({ where: { tenant_id: tenantId } }),
+  ]);
+
+  const overrideByItem = new Map(overrides.map((o) => [o.menu_item_id, o]));
+  const weekdayByItem = new Map();
+  let restaurantWeekdayClosed = false;
+  for (const rule of weekdayRules) {
+    if (rule.weekday !== weekday) continue;
+    if (rule.menu_item_id === null) {
+      if (rule.available_from === null && rule.available_to === null) {
+        restaurantWeekdayClosed = true; // restaurant-wide weekday closure
+      }
+      continue;
+    }
+    weekdayByItem.set(rule.menu_item_id, rule);
+  }
+
+  return {
+    at,
+    date,
+    weekday,
+    restaurantClosed: !!closureRow,
+    restaurantWeekdayClosed,
+    overrideByItem,
+    weekdayByItem,
+  };
+}
+
+/**
+ * Is the item orderable at the context's instant? Full resolution order:
+ *   enabled → restaurant-wide closure date → restaurant-wide weekday
+ *   closure → per-item weekday rule → per-day override → base window.
+ */
+export function isAvailableAt(item, ctx) {
+  if (!item) return false;
+  if (item.enabled === false) return false;
+  if (ctx.restaurantClosed || ctx.restaurantWeekdayClosed) return false;
+  const weekdayRule = ctx.weekdayByItem.get(item.id);
+  if (weekdayRule) {
+    if (weekdayRule.available_from === null && weekdayRule.available_to === null) return false;
+    return withinWindow(weekdayRule, ctx.at);
+  }
+  const override = ctx.overrideByItem.get(item.id);
+  if (override) {
+    if (override.available_from === null && override.available_to === null) return false;
+    return withinWindow(override, ctx.at);
+  }
+  return withinWindow(item, ctx.at);
+}
+
+/**
+ * Replaces the per-day override set for one menu item (Phase 4 follow-up).
+ *
+ * The body is the full list — any stored override for the item that is not
+ * in `overrides` is removed (replace-all semantics keep the UI a simple
+ * list editor). Each entry is validated (real YYYY-MM-DD date, deduped,
+ * normalized HH:MM bounds; both bounds null = closed all day). Audited as
+ * `menu.availability_overrides`. Returns the saved rows, date-ascending.
+ */
+export async function replaceAvailabilityOverrides(tenantId, actorUser, productId, overrides, req) {
+  if (!Array.isArray(overrides)) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'overrides must be an array');
+  }
+  if (overrides.length > 366) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'At most 366 date overrides per item');
+  }
+
+  const seen = new Set();
+  const clean = [];
+  for (const entry of overrides) {
+    if (!entry || typeof entry !== 'object') {
+      throw new AppError(400, 'VALIDATION_ERROR', 'Each override needs a date and optional window');
+    }
+    const date = String(entry.date ?? '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(`${date}T00:00:00`).getTime())) {
+      throw new AppError(400, 'VALIDATION_ERROR', `"${date}" is not a valid YYYY-MM-DD date`);
+    }
+    if (seen.has(date)) {
+      throw new AppError(400, 'VALIDATION_ERROR', `Duplicate override for ${date} — one per item per day`);
+    }
+    seen.add(date);
+    clean.push({
+      date,
+      available_from: normalizeWindowTime(entry.available_from, `available_from (${date})`),
+      available_to: normalizeWindowTime(entry.available_to, `available_to (${date})`),
+    });
+  }
+
+  await sequelize.transaction(async (transaction) => {
+    await AvailabilityOverride.destroy({
+      where: { tenant_id: tenantId, menu_item_id: productId },
+      transaction,
+    });
+    if (clean.length > 0) {
+      await AvailabilityOverride.bulkCreate(
+        clean.map((o) => ({ ...o, tenant_id: tenantId, menu_item_id: productId })),
+        { transaction }
+      );
+    }
+  });
+
+  await audit({
+    action: 'menu.availability_overrides',
+    actorId: actorUser.id,
+    tenantId,
+    entityType: 'Product',
+    entityId: String(productId),
+    metadata: { count: clean.length, dates: clean.map((o) => o.date) },
+    req,
+  });
+
+  return AvailabilityOverride.findAll({
+    where: { tenant_id: tenantId, menu_item_id: productId },
+    order: [['date', 'ASC']],
+  });
+}
+
+/**
+ * Restaurant-wide closure dates (Phase 5): replace-all save of the
+ * workspace's closed days (holidays, private events). `dates` is the full
+ * list of YYYY-MM-DD strings — any stored closure not in the list is
+ * removed. Validated (real dates), deduped, audited as
+ * `menu.tenant_closures`. Returns the saved rows, date-ascending.
+ */
+export async function replaceTenantClosures(tenantId, actorUser, dates, req) {
+  if (!Array.isArray(dates)) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'dates must be an array of YYYY-MM-DD');
+  }
+  if (dates.length > 366) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'At most 366 closure dates per workspace');
+  }
+
+  const seen = new Set();
+  const clean = [];
+  for (const raw of dates) {
+    const date = String(raw ?? '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(`${date}T00:00:00`).getTime())) {
+      throw new AppError(400, 'VALIDATION_ERROR', `"${date}" is not a valid YYYY-MM-DD date`);
+    }
+    if (seen.has(date)) {
+      throw new AppError(400, 'VALIDATION_ERROR', `Duplicate closure for ${date}`);
+    }
+    seen.add(date);
+    clean.push(date);
+  }
+
+  await sequelize.transaction(async (transaction) => {
+    await TenantClosureDate.destroy({ where: { tenant_id: tenantId }, transaction });
+    if (clean.length > 0) {
+      await TenantClosureDate.bulkCreate(
+        clean.map((date) => ({ tenant_id: tenantId, date })),
+        { transaction }
+      );
+    }
+  });
+
+  await audit({
+    action: 'menu.tenant_closures',
+    actorId: actorUser.id,
+    tenantId,
+    entityType: 'Tenant',
+    entityId: String(tenantId),
+    metadata: { count: clean.length, dates: clean },
+    req,
+  });
+
+  return TenantClosureDate.findAll({
+    where: { tenant_id: tenantId },
+    order: [['date', 'ASC']],
+  });
+}
+
+/**
+ * Restaurant-wide weekday closures (Phase 5): replace-all save of the
+ * weekdays the whole workspace is closed every week (e.g. [5] = "closed
+ * every Saturday"). Stored as AvailabilityWeekdayRule rows with NULL
+ * menu_item_id and NULL bounds (enforced here). `weekdays` is the full
+ * list of 0=Sun … 6=Sat. Audited as `menu.weekday_closures`.
+ */
+export async function replaceTenantWeekdayClosures(tenantId, actorUser, weekdays, req) {
+  if (!Array.isArray(weekdays)) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'weekdays must be an array of 0 (Sun) … 6 (Sat)');
+  }
+  if (weekdays.length > 7) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'At most 7 weekday closures');
+  }
+
+  const seen = new Set();
+  const clean = [];
+  for (const raw of weekdays) {
+    const w = Number(raw);
+    if (!Number.isInteger(w) || w < 0 || w > 6) {
+      throw new AppError(400, 'VALIDATION_ERROR', 'weekday must be 0 (Sun) … 6 (Sat)');
+    }
+    if (seen.has(w)) {
+      throw new AppError(400, 'VALIDATION_ERROR', `Duplicate weekday ${w}`);
+    }
+    seen.add(w);
+    clean.push(w);
+  }
+
+  await sequelize.transaction(async (transaction) => {
+    await AvailabilityWeekdayRule.destroy({
+      where: { tenant_id: tenantId, menu_item_id: null },
+      transaction,
+    });
+    if (clean.length > 0) {
+      await AvailabilityWeekdayRule.bulkCreate(
+        clean.map((weekday) => ({
+          tenant_id: tenantId,
+          menu_item_id: null,
+          weekday,
+          available_from: null,
+          available_to: null,
+        })),
+        { transaction }
+      );
+    }
+  });
+
+  await audit({
+    action: 'menu.weekday_closures',
+    actorId: actorUser.id,
+    tenantId,
+    entityType: 'Tenant',
+    entityId: String(tenantId),
+    metadata: { count: clean.length, weekdays: clean },
+    req,
+  });
+
+  return AvailabilityWeekdayRule.findAll({
+    where: { tenant_id: tenantId, menu_item_id: null },
+    order: [['weekday', 'ASC']],
+  });
+}
+
+/**
+ * Per-item weekday rules (Phase 5): replace-all save. `rules` is the full
+ * list of { weekday, available_from?, available_to? } entries for ONE item
+ * (0=Sun … 6=Sat, at most one per weekday) — any stored rule for the item
+ * not in the list is removed; omitting a weekday clears it (falls back to
+ * the base window). Both bounds null = closed every that-weekday. Audited
+ * as `menu.weekday_rules`. Returns the saved rows, weekday-ascending.
+ */
+export async function replaceItemWeekdayRules(tenantId, actorUser, productId, rules, req) {
+  if (!Array.isArray(rules)) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'rules must be an array');
+  }
+  if (rules.length > 7) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'At most one rule per weekday (7 total)');
+  }
+
+  const seen = new Set();
+  const clean = [];
+  for (const entry of rules) {
+    if (!entry || typeof entry !== 'object') {
+      throw new AppError(400, 'VALIDATION_ERROR', 'Each rule needs a weekday and optional window');
+    }
+    const weekday = Number(entry.weekday);
+    if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) {
+      throw new AppError(400, 'VALIDATION_ERROR', 'weekday must be 0 (Sun) … 6 (Sat)');
+    }
+    if (seen.has(weekday)) {
+      throw new AppError(400, 'VALIDATION_ERROR', `Duplicate rule for weekday ${weekday}`);
+    }
+    seen.add(weekday);
+    clean.push({
+      weekday,
+      available_from: normalizeWindowTime(entry.available_from, `available_from (weekday ${weekday})`),
+      available_to: normalizeWindowTime(entry.available_to, `available_to (weekday ${weekday})`),
+    });
+  }
+
+  await sequelize.transaction(async (transaction) => {
+    await AvailabilityWeekdayRule.destroy({
+      where: { tenant_id: tenantId, menu_item_id: productId },
+      transaction,
+    });
+    if (clean.length > 0) {
+      await AvailabilityWeekdayRule.bulkCreate(
+        clean.map((r) => ({ ...r, tenant_id: tenantId, menu_item_id: productId })),
+        { transaction }
+      );
+    }
+  });
+
+  await audit({
+    action: 'menu.weekday_rules',
+    actorId: actorUser.id,
+    tenantId,
+    entityType: 'Product',
+    entityId: String(productId),
+    metadata: { count: clean.length, weekdays: clean.map((r) => r.weekday) },
+    req,
+  });
+
+  return AvailabilityWeekdayRule.findAll({
+    where: { tenant_id: tenantId, menu_item_id: productId },
+    order: [['weekday', 'ASC']],
+  });
+}
+
+/**
  * Bulk menu edit (Phase 4): apply price / enabled / tags / vat_rate and/or
  * inventory stock across the given item ids in one transaction. Returns the
  * updated rows. Price changes bump each item's optimistic-lock version.
  */
 export async function bulkUpdateItems(tenantId, actorUser, body, req) {
-  const { ids, price, enabled, vatRate, tags, inventory } = body;
+  const { ids, price, enabled, vatRate, tags, inventory, category_id, available_from, available_to } =
+    body;
   if (!Array.isArray(ids) || ids.length === 0) {
     throw new AppError(400, 'VALIDATION_ERROR', 'At least one item id is required');
   }
@@ -106,6 +477,22 @@ export async function bulkUpdateItems(tenantId, actorUser, body, req) {
     throw new AppError(400, 'VALIDATION_ERROR', 'tags must be an array');
   }
 
+  // Menu bulk organize (Phase 4 follow-up): move items into a category
+  // (null = uncategorised) and/or stamp an availability window in the same
+  // request. The category must belong to this tenant (fail-closed).
+  if (category_id !== undefined && category_id !== null) {
+    const category = await MenuCategory.findOne({
+      where: { id: category_id, tenant_id: tenantId },
+    });
+    if (!category) {
+      throw new AppError(400, 'INVALID_CATEGORY', 'Category not found in this workspace');
+    }
+  }
+  const bulkFrom =
+    available_from !== undefined ? normalizeWindowTime(available_from, 'available_from') : undefined;
+  const bulkTo =
+    available_to !== undefined ? normalizeWindowTime(available_to, 'available_to') : undefined;
+
   const items = await Product.findAll({
     where: { id: { [Op.in]: ids }, tenant_id: tenantId },
   });
@@ -118,6 +505,9 @@ export async function bulkUpdateItems(tenantId, actorUser, body, req) {
     if (enabled !== undefined) item.enabled = Boolean(enabled);
     if (vatRate !== undefined) item.vat_rate = vatRate;
     if (cleanTags !== undefined) item.tags = cleanTags;
+    if (category_id !== undefined) item.category_id = category_id;
+    if (bulkFrom !== undefined) item.available_from = bulkFrom;
+    if (bulkTo !== undefined) item.available_to = bulkTo;
     if (price !== undefined || vatRate !== undefined) {
       item.version = (item.version ?? 1) + 1;
     }
@@ -151,7 +541,16 @@ export async function bulkUpdateItems(tenantId, actorUser, body, req) {
     tenantId,
     entityType: 'Product',
     entityId: ids.join(','),
-    metadata: { count: items.length, price, enabled, tags: cleanTags, vatRate },
+    metadata: {
+      count: items.length,
+      price,
+      enabled,
+      tags: cleanTags,
+      vatRate,
+      categoryId: category_id ?? undefined,
+      availableFrom: bulkFrom ?? undefined,
+      availableTo: bulkTo ?? undefined,
+    },
     req,
   });
 

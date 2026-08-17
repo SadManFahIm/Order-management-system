@@ -72,6 +72,35 @@ const linePrice = (item, variantId, addonIds) => {
   return price;
 };
 
+/**
+ * Storefront scarcity cue (Phase 4 follow-up). Product-level inventory is
+ * informational (the backend enforces per-variant stock, not the product
+ * snapshot): when a tracked quantity is low we show "Only N left" urgency;
+ * at zero we show "Sold out" and block the add button so a merchant who
+ * zeroed a dish's stock stops taking orders for it in the UI.
+ */
+function ScarcityCue({ stock, lowStockAt, t }) {
+  if (stock === null || stock === undefined) return null;
+  const qty = Number(stock);
+  const low = Number(lowStockAt ?? 0);
+  if (qty <= 0) return <div className="dish__stock dish__stock--out">{t('store.soldOut')}</div>;
+  const scarce = low > 0 ? qty <= low : qty <= 5;
+  if (!scarce) return null;
+  return <div className="dish__stock dish__stock--low">{t('store.onlyLeft', qty)}</div>;
+}
+
+/** Is a variant sold out (tracked stock at zero)? */
+const variantOut = (v) => v?.stock !== null && v?.stock !== undefined && Number(v.stock) <= 0;
+
+/** Is a variant low on stock (tracked, at/below threshold or ≤5)? */
+const variantLow = (v) => {
+  if (v?.stock === null || v?.stock === undefined) return false;
+  const qty = Number(v.stock);
+  if (qty <= 0) return false;
+  const low = Number(v.lowStockAt ?? 0);
+  return low > 0 ? qty <= low : qty <= 5;
+};
+
 /** Item options modal — variant + add-ons + quantity. */
 function ItemModal({ item, initial, onConfirm, onClose, t }) {
   const [variantId, setVariantId] = useState(initial?.variant_id ?? null);
@@ -80,6 +109,9 @@ function ItemModal({ item, initial, onConfirm, onClose, t }) {
 
   const toggleAddon = (id) =>
     setAddonIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+
+  const confirmDisabled =
+    (item.variants?.length > 0 && !variantId) || (variantId ? variantOut(item.variants.find((v) => v.id === variantId)) : false);
 
   return (
     <div
@@ -112,23 +144,33 @@ function ItemModal({ item, initial, onConfirm, onClose, t }) {
           <div style={{ marginTop: 18 }}>
             <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>{t('store.chooseVariant')}</div>
             <div style={{ display: 'grid', gap: 8 }}>
-              {(item.variants || []).map((v) => (
-                <button
-                  key={v.id}
-                  onClick={() => setVariantId(v.id)}
-                  style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    border: `1.5px solid ${variantId === v.id ? 'var(--brand)' : 'var(--border-strong, #b9e0da)'}`,
-                    background: variantId === v.id ? 'color-mix(in srgb, var(--brand) 8%, var(--card))' : 'var(--card)',
-                    borderRadius: 12, padding: '10px 14px', cursor: 'pointer',
-                  }}
-                >
-                  <span style={{ fontWeight: 700, fontSize: 14 }}>{v.name}</span>
-                  <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-muted, #7d9a95)' }}>
-                    {v.priceAdjustment > 0 ? `+${fmtMoney(v.priceAdjustment)}` : '—'}
-                  </span>
-                </button>
-              ))}
+              {(item.variants || []).map((v) => {
+                const out = variantOut(v);
+                const low = variantLow(v);
+                return (
+                  <button
+                    key={v.id}
+                    onClick={() => !out && setVariantId(v.id)}
+                    disabled={out}
+                    style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      border: `1.5px solid ${variantId === v.id ? 'var(--brand)' : 'var(--border-strong, #b9e0da)'}`,
+                      background: variantId === v.id ? 'color-mix(in srgb, var(--brand) 8%, var(--card))' : 'var(--card)',
+                      borderRadius: 12, padding: '10px 14px', cursor: out ? 'not-allowed' : 'pointer',
+                      opacity: out ? 0.55 : 1,
+                    }}
+                  >
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>
+                      {v.name}
+                      {out && <span className="vstock vstock--out"> {t('store.soldOut')}</span>}
+                      {!out && low && <span className="vstock vstock--low"> {t('store.onlyLeft', v.stock)}</span>}
+                    </span>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-muted, #7d9a95)' }}>
+                      {v.priceAdjustment > 0 ? `+${fmtMoney(v.priceAdjustment)}` : '—'}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
@@ -170,10 +212,12 @@ function ItemModal({ item, initial, onConfirm, onClose, t }) {
             <button onClick={() => setQty((q) => Math.min(99, q + 1))} style={{ ...qtyBtn, borderRadius: '0 999px 999px 0' }}>+</button>
           </div>
           <button
-            onClick={() => onConfirm({ variant_id: variantId, addon_ids: addonIds, quantity: qty })}
+            onClick={() => !confirmDisabled && onConfirm({ variant_id: variantId, addon_ids: addonIds, quantity: qty })}
+            disabled={confirmDisabled}
             style={{
               flex: 1, background: 'var(--brand)', color: '#fff', border: 'none',
               borderRadius: 999, padding: '12px 20px', fontSize: 15, fontWeight: 800, cursor: 'pointer',
+              opacity: confirmDisabled ? 0.5 : 1,
             }}
           >
             {t('store.addToCart')} · {fmtMoney(linePrice(item, variantId, addonIds) * qty)}
@@ -346,6 +390,7 @@ export default function PublicMenuPage() {
   }
 
   const { restaurant, categories } = state.data;
+  const closedToday = state.data.closedToday;
   const brand = restaurant.brand || {};
   const primary = brandColor(brand.primaryColor, '#00b3a5');
   const accent = brandColor(brand.accentColor, '#f5d300');
@@ -416,6 +461,20 @@ export default function PublicMenuPage() {
       </header>
 
       <main className="menu__body">
+        {/* Restaurant-wide closed state (Phase 5): closure date or weekday
+            closure — the whole storefront is dark. The menu payload is
+            already filtered, so this banner + the add-button gate are the
+            customer-facing story. */}
+        {closedToday && (
+          <div className="closed-banner">
+            <div className="closed-banner__icon">🔒</div>
+            <div>
+              <div className="closed-banner__title">{t('store.closedToday')}</div>
+              <div className="closed-banner__desc">{t('store.closedTodayDesc')}</div>
+            </div>
+          </div>
+        )}
+
         {/* Category chips — paper tickets, the active one in the tenant brand */}
         <div className="chip-row">
           {categories
@@ -462,11 +521,18 @@ export default function PublicMenuPage() {
                       {t('store.options')}: {item.addons.map((a) => `${a.name} +${price(a.price)}`).join(' · ')}
                     </div>
                   )}
+                  <ScarcityCue stock={item.stock} lowStockAt={item.lowStockAt} t={t} />
                   <div className="dish__price">{price(item.price)}</div>
                 </div>
-                <button onClick={() => quickAdd(item)} className="dish__add">
-                  + {t('store.addToCart')}
-                </button>
+                {closedToday || (item.stock !== null && Number(item.stock) <= 0) ? (
+                  <button disabled className="dish__add dish__add--disabled">
+                    {closedToday ? '—' : t('store.soldOut')}
+                  </button>
+                ) : (
+                  <button onClick={() => quickAdd(item)} className="dish__add">
+                    + {t('store.addToCart')}
+                  </button>
+                )}
               </div>
             ))}
           </section>
@@ -521,7 +587,7 @@ export default function PublicMenuPage() {
       )}
 
       {/* Floating cart bar — pops in like a stamped ticket */}
-      {cartCount > 0 && (
+      {cartCount > 0 && !closedToday && (
         <div className="cartbar">
           <button onClick={() => navigate(`/m/${slug}/checkout`)} className="cartbar__pill">
             🛒 {t('store.cart')} · {cartCount} {t('store.qty')} · {price(cartTotal)}

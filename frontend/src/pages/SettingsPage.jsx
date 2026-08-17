@@ -47,6 +47,15 @@ export default function SettingsPage() {
   const [waManualLink, setWaManualLink] = useState(null);
   const [reports, setReports] = useState({ closeoutEmail: '', autoSend: false, hour: 23 });
   const [reportsSaving, setReportsSaving] = useState(false);
+  // Restaurant-wide closure days + recurring weekday closures (Phase 5):
+  // one-off closed dates (holidays/events) and "closed every <weekday>"
+  // toggles — the whole storefront is hidden + checkout rejected those days.
+  const [closures, setClosures] = useState([]);
+  const [closuresLoaded, setClosuresLoaded] = useState(false);
+  const [closuresSaving, setClosuresSaving] = useState(false);
+  const [weekdayClosures, setWeekdayClosures] = useState([]);
+  const [weekdayClosuresLoaded, setWeekdayClosuresLoaded] = useState(false);
+  const [closuresError, setClosuresError] = useState('');
 
   // ── Phase 3: plan & usage, invites, ownership, workspace activity ──
   const [planData, setPlanData] = useState(null);
@@ -103,6 +112,60 @@ export default function SettingsPage() {
       .catch(() => mounted.current && setTenantAudit([]));
   };
 
+  const loadClosures = () => {
+    if (!activeTenantId) return;
+    setClosuresLoaded(false);
+    setWeekdayClosuresLoaded(false);
+    api
+      .get(`/tenants/${activeTenantId}/closures`)
+      .then((res) => {
+        if (mounted.current) {
+          setClosures(res.data.map((c) => c.date));
+          setClosuresLoaded(true);
+        }
+      })
+      .catch(() => mounted.current && setClosuresLoaded(true));
+    api
+      .get(`/tenants/${activeTenantId}/weekday-closures`)
+      .then((res) => {
+        if (mounted.current) {
+          setWeekdayClosures(res.data.map((c) => c.weekday));
+          setWeekdayClosuresLoaded(true);
+        }
+      })
+      .catch(() => mounted.current && setWeekdayClosuresLoaded(true));
+  };
+
+  const saveClosures = async () => {
+    if (!activeTenantId) return;
+    setClosuresSaving(true);
+    setClosuresError('');
+    try {
+      await api.put(`/tenants/${activeTenantId}/closures`, { dates: closures });
+      await api.put(`/tenants/${activeTenantId}/weekday-closures`, { weekdays: weekdayClosures });
+      toast.success(t('settings.closuresSaved'));
+    } catch (err) {
+      setClosuresError(err?.response?.data?.error?.message || t('settings.closuresSaveFailed'));
+    } finally {
+      setClosuresSaving(false);
+    }
+  };
+
+  const toggleWeekdayClosure = (weekday) =>
+    setWeekdayClosures((list) =>
+      list.includes(weekday) ? list.filter((w) => w !== weekday) : [...list, weekday]
+    );
+
+  const addClosureDate = () => {
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+      d.getDate()
+    ).padStart(2, '0')}`;
+    setClosures((list) => [...list, today]);
+  };
+
+  const removeClosureDate = (i) => setClosures((list) => list.filter((_, idx) => idx !== i));
+
   const loadMembers = () => {
     if (!canManageUsers || !activeTenantId) return;
     api
@@ -117,6 +180,7 @@ export default function SettingsPage() {
     loadPlan();
     loadInvites();
     loadTenantAudit();
+    loadClosures();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTenantId]);
 
@@ -657,6 +721,85 @@ export default function SettingsPage() {
           <div style={{ display: 'flex', gap: 10 }}>
             <Button variant="primary" onClick={saveReports} disabled={reportsSaving}>
               {reportsSaving ? t('common.loading') : t('settings.pmSave')}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      {/* Restaurant-wide closures (Phase 5): one-off closed days + recurring
+          weekday closures — the whole storefront is hidden and checkout is
+          rejected on those days. */}
+      <Card title={t('settings.closuresTitle')} subtitle={t('settings.closuresDesc')} style={{ marginTop: 16 }}>
+        <div style={{ display: 'grid', gap: 16 }}>
+          <Field label={t('settings.closuresDates')} hint={t('settings.closuresDatesHint')}>
+            {closures.map((date, i) => (
+              <div
+                key={i}
+                style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'center', marginBottom: 8 }}
+              >
+                <Input
+                  type="date"
+                  value={date}
+                  onChange={(e) =>
+                    setClosures((list) => list.map((d, idx) => (idx === i ? e.target.value : d)))
+                  }
+                  aria-label={`Closure ${i + 1} date`}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  onClick={() => removeClosureDate(i)}
+                  aria-label="Remove closure date"
+                >
+                  ×
+                </Button>
+              </div>
+            ))}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Button variant="outline" size="sm" type="button" onClick={addClosureDate}>
+                + {t('settings.closuresAdd')}
+              </Button>
+              {!closuresLoaded && (
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading…</span>
+              )}
+            </div>
+          </Field>
+
+          <Field label={t('settings.closuresWeekdays')} hint={t('settings.closuresWeekdaysHint')}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((name, weekday) => (
+                <button
+                  key={weekday}
+                  type="button"
+                  onClick={() => toggleWeekdayClosure(weekday)}
+                  aria-pressed={weekdayClosures.includes(weekday)}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: 999,
+                    border: `1.5px solid ${weekdayClosures.includes(weekday) ? 'var(--danger, #e5484d)' : 'var(--border)'}`,
+                    background: weekdayClosures.includes(weekday) ? 'color-mix(in srgb, var(--danger, #e5484d) 10%, transparent)' : 'transparent',
+                    color: weekdayClosures.includes(weekday) ? 'var(--danger, #e5484d)' : 'inherit',
+                    fontWeight: 700,
+                    fontSize: 13,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {name}
+                </button>
+              ))}
+              {!weekdayClosuresLoaded && (
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', alignSelf: 'center' }}>Loading…</span>
+              )}
+            </div>
+          </Field>
+
+          {closuresError && (
+            <div style={{ fontSize: 13, color: 'var(--danger, #e5484d)' }}>{closuresError}</div>
+          )}
+          <div style={{ display: 'flex', gap: 10 }}>
+            <Button variant="primary" onClick={saveClosures} disabled={closuresSaving}>
+              {closuresSaving ? t('common.loading') : t('settings.pmSave')}
             </Button>
           </div>
         </div>

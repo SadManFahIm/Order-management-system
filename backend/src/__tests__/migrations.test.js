@@ -48,6 +48,9 @@ const EXPECTED_TABLES = [
   'tenant_invites',
   'tenant_saml_configs',
   'saml_sp_config',
+  'availability_overrides',
+  'tenant_closure_dates',
+  'availability_weekday_rules',
 ];
 
 describe('migration runner', () => {
@@ -83,6 +86,8 @@ describe('migration runner', () => {
       '019_saml_slo_sp_config.js',
       '020_menu_media_enhancements.js',
       '021_variant_low_stock.js',
+      '022_availability_overrides.js',
+      '023_restaurant_closures_weekday_rules.js',
     ]);
   });
 
@@ -114,7 +119,7 @@ describe('migration runner', () => {
   it('reports every migration as applied', async () => {
     const status = await migrationStatus(sequelize);
     expect(status.every((row) => row.state === 'applied')).toBe(true);
-    expect(status).toHaveLength(21);
+    expect(status).toHaveLength(23);
   });
 
   it('adds menu_items.vat_rate via migration 009', async () => {
@@ -128,6 +133,16 @@ describe('migration runner', () => {
 
   it('rolls back only the most recent migration, then re-applies', async () => {
     const qi = sequelize.getQueryInterface();
+
+    // Down 023: drops the closure/rule tables (restaurant-wide closures +
+    // recurring weekday rules).
+    expect(await migrateDown(sequelize)).toBe(1);
+    expect(await qi.tableExists('tenant_closure_dates')).toBe(false);
+    expect(await qi.tableExists('availability_weekday_rules')).toBe(false);
+
+    // Down 022: drops the availability_overrides table (per-day overrides).
+    expect(await migrateDown(sequelize)).toBe(1);
+    expect(await qi.tableExists('availability_overrides')).toBe(false);
 
     // Down 021: removes the variant low-stock threshold column.
     expect(await migrateDown(sequelize)).toBe(1);
@@ -212,8 +227,8 @@ describe('migration runner', () => {
     expect(await migrateDown(sequelize)).toBe(1);
     expect((await qi.describeTable('orders')).table_no).toBeUndefined();
 
-    // Re-applying restores all fifteen rolled-back (including 021).
-    expect(await migrateUp(sequelize)).toBe(15);
+    // Re-applying restores all seventeen rolled-back (including 021–023).
+    expect(await migrateUp(sequelize)).toBe(17);
     expect(await qi.tableExists('tenant_invites')).toBe(true);
     expect((await qi.describeTable('plans')).max_products).toBeDefined();
     expect((await qi.describeTable('plans')).storage_mb).toBeDefined();
@@ -244,6 +259,11 @@ describe('migration runner', () => {
     expect((await qi.describeTable('item_variants')).stock).toBeDefined();
     // 021 restored: variant low-stock threshold.
     expect((await qi.describeTable('item_variants')).low_stock_at).toBeDefined();
+    // 022 restored: per-day availability overrides.
+    expect(await qi.tableExists('availability_overrides')).toBe(true);
+    // 023 restored: restaurant-wide closures + recurring weekday rules.
+    expect(await qi.tableExists('tenant_closure_dates')).toBe(true);
+    expect(await qi.tableExists('availability_weekday_rules')).toBe(true);
   });
 
   it('refuses to roll back a migration that is not the most recent', async () => {

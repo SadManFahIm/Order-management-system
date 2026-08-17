@@ -5,7 +5,7 @@ import ItemAddon from '../models/ItemAddon.js';
 import Promotion from '../models/Promotion.js';
 import PromotionSlab from '../models/PromotionSlab.js';
 import { applyPromotionsToCart } from '../utils/promotionEngine.js';
-import { isAvailableNow } from './menuService.js';
+import { buildAvailabilityContext, isAvailableAt } from './menuService.js';
 
 /**
  * Storefront checkout core (Phase 5) — shared by the public checkout route.
@@ -61,10 +61,17 @@ export function deliveryConfig(tenant) {
  * addons, unitPrice (incl. uplift), baseTotal, discount, lineTotal,
  * totalWeightGm, itemName }.
  */
-export async function priceCart(tenant, rawItems) {
+export async function priceCart(tenant, rawItems, at = new Date()) {
   if (!Array.isArray(rawItems) || rawItems.length === 0) {
     throw new AppError(400, 'VALIDATION_ERROR', 'Order must contain at least one item');
   }
+
+  // Availability at the effective instant (Phase 5): for scheduled orders
+  // `at` is the scheduled date, so a restaurant-wide closure day, a
+  // restaurant-wide weekday closure, a per-item weekday rule, or a
+  // "closed that day" override rejects the order even when placed while the
+  // base window is open. Fetched once per cart (tenant + date index).
+  const ctx = await buildAvailabilityContext(tenant.id, at);
 
   const ids = [...new Set(rawItems.map((i) => i.product_id))];
   const products = await Product.findAll({
@@ -81,9 +88,10 @@ export async function priceCart(tenant, rawItems) {
     if (!product) {
       throw new AppError(400, 'PRODUCT_UNAVAILABLE', `Product ${raw.product_id} is unavailable`);
     }
-    // Item-level availability window (Phase 4): a scheduled item outside
-    // its orderable window is treated exactly like a disabled product.
-    if (!isAvailableNow(product)) {
+    // Full availability resolution (restaurant closures, weekday rules,
+    // per-day overrides, base window) — an item outside its effective
+    // window is treated exactly like a disabled product.
+    if (!isAvailableAt(product, ctx)) {
       throw new AppError(
         400,
         'AVAILABILITY_WINDOW',

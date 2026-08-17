@@ -13,7 +13,14 @@ import {
   ItemVariant,
   InventoryItem,
 } from '../models/index.js';
-import { isAvailableNow, normalizeTags, ITEM_TAGS } from '../services/menuService.js';
+import {
+  isAvailableNow,
+  isAvailableAt,
+  buildAvailabilityContext,
+  normalizeTags,
+  ITEM_TAGS,
+  dateKey,
+} from '../services/menuService.js';
 import sharp from 'sharp';
 
 /**
@@ -410,6 +417,281 @@ describe('decrementVariantStock helper', () => {
   });
 });
 
+describe('per-day availability overrides', () => {
+  const tomorrow = () => dateKey(new Date(Date.now() + 24 * 60 * 60 * 1000));
+  const today = () => dateKey();
+
+  it('isAvailableNow honors an override: closed all day, windowed, and none', () => {
+    const item = { enabled: true, available_from: null, available_to: null };
+    // No override → all-day.
+    expect(isAvailableNow(item, new Date('2026-08-17T12:00:00'))).toBe(true);
+    // Override with no bounds → closed all day.
+    const closed = { available_from: null, available_to: null };
+    expect(isAvailableNow(item, new Date('2026-08-17T12:00:00'), closed)).toBe(false);
+    // Windowed override replaces the base schedule.
+    const morning = { available_from: '08:00', available_to: '10:00' };
+    expect(isAvailableNow(item, new Date('2026-08-17T09:00:00'), morning)).toBe(true);
+    expect(isAvailableNow(item, new Date('2026-08-17T12:00:00'), morning)).toBe(false);
+    // A base-closed item opens under a windowed override.
+    const baseClosed = { enabled: true, available_from: '09:00', available_to: '09:00' };
+    expect(isAvailableNow(baseClosed, new Date('2026-08-17T09:00:00'))).toBe(false);
+    expect(isAvailableNow(baseClosed, new Date('2026-08-17T09:00:00'), { available_from: '00:00', available_to: '23:59' })).toBe(true);
+    // The enabled switch still wins even with an override.
+    expect(isAvailableNow({ ...item, enabled: false }, new Date(), morning)).toBe(false);
+  });
+
+  it('PUT replaces the override set, GET lists it, and validation rejects bad input', async () => {
+    const p = await createProduct({ name: 'Override Item' });
+    const later = dateKey(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000));
+
+    // Replace-all: two overrides.
+    let res = await request(app)
+      .put(`/api/products/${p.id}/overrides`)
+      .set(auth(ownerToken))
+      .send({
+        overrides: [
+          { date: tomorrow(), available_from: null, available_to: null },
+          { date: later, available_from: '10:00', available_to: '22:00' },
+        ],
+      });
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(2);
+    expect(res.body[0].date).toBe(tomorrow());
+    expect(res.body[0].available_from).toBeNull();
+    expect(res.body[1].available_from).toBe('10:00');
+
+    // GET returns them date-ascending.
+    res = await request(app).get(`/api/products/${p.id}/overrides`).set(auth(ownerToken));
+    expect(res.status).toBe(200);
+    expect(res.body.map((o) => o.date)).toEqual([tomorrow(), later]);
+
+    // Replace with a single entry drops the other.
+    res = await request(app)
+      .put(`/api/products/${p.id}/overrides`)
+      .set(auth(ownerToken))
+      .send({ overrides: [{ date: later, available_from: null, available_to: null }] });
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].date).toBe(later);
+
+    // Empty list clears everything.
+    res = await request(app)
+      .put(`/api/products/${p.id}/overrides`)
+      .set(auth(ownerToken))
+      .send({ overrides: [] });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+
+    // Validation: bad date.
+    res = await request(app)
+      .put(`/api/products/${p.id}/overrides`)
+      .set(auth(ownerToken))
+      .send({ overrides: [{ date: '2026-13-40', available_from: null, available_to: null }] });
+    expect(res.status).toBe(400);
+    // Validation: malformed time.
+    res = await request(app)
+      .put(`/api/products/${p.id}/overrides`)
+      .set(auth(ownerToken))
+      .send({ overrides: [{ date: tomorrow(), available_from: '9am', available_to: null }] });
+    expect(res.status).toBe(400);
+    // Validation: duplicate date.
+    res = await request(app)
+      .put(`/api/products/${p.id}/overrides`)
+      .set(auth(ownerToken))
+      .send({
+        overrides: [
+          { date: tomorrow(), available_from: null, available_to: null },
+          { date: tomorrow(), available_from: '10:00', available_to: '12:00' },
+        ],
+      });
+    expect(res.status).toBe(400);
+    // Unknown product → 404.
+    res = await request(app)
+      .put('/api/products/999999/overrides')
+      .set(auth(ownerToken))
+      .send({ overrides: [] });
+    expect(res.status).toBe(404);
+  });
+
+  it('hides an item closed for today from the storefront and rejects checkout', async () => {
+    const p = await createProduct({ name: 'Holiday-Closed Dish' });
+    await request(app)
+      .put(`/api/products/${p.id}/overrides`)
+      .set(auth(ownerToken))
+      .send({ overrides: [{ date: today(), available_from: null, available_to: null }] });
+
+    const pub = await request(app).get('/api/public/restaurants/p4-diner/menu');
+    const items = pub.body.categories.flatMap((c) => c.items);
+    expect(items.find((i) => i.id === p.id)).toBeUndefined();
+
+    // available=false shows it flagged unavailable.
+    const all = await request(app).get('/api/public/restaurants/p4-diner/menu?available=false');
+    const shown = all.body.categories.flatMap((c) => c.items).find((i) => i.id === p.id);
+    expect(shown.available).toBe(false);
+
+    // Checkout rejects the closed-for-today item.
+    const attempt = await request(app)
+      .post('/api/public/restaurants/p4-diner/checkout')
+      .send({
+        order_type: 'delivery',
+        customer_name: 'Buyer',
+        customer_phone: '+8801711111111',
+        customer_address: '12 Dhanmondi',
+        items: [{ product_id: p.id, quantity: 1 }],
+      });
+    expect(attempt.status).toBe(400);
+    expect(attempt.body.error.code).toBe('AVAILABILITY_WINDOW');
+
+    // Clearing the override restores it.
+    await request(app)
+      .put(`/api/products/${p.id}/overrides`)
+      .set(auth(ownerToken))
+      .send({ overrides: [] });
+    const again = await request(app).get('/api/public/restaurants/p4-diner/menu');
+    const restored = again.body.categories.flatMap((c) => c.items).find((i) => i.id === p.id);
+    expect(restored).toBeDefined();
+    expect(restored.available).toBe(true);
+  });
+
+  it('a windowed override can open an item that is base-closed', async () => {
+    const p = await createProduct({ name: 'Event Night Dish', available_from: '09:00', available_to: '09:00' });
+    await request(app)
+      .put(`/api/products/${p.id}/overrides`)
+      .set(auth(ownerToken))
+      .send({ overrides: [{ date: today(), available_from: '00:00', available_to: '23:59' }] });
+
+    const pub = await request(app).get('/api/public/restaurants/p4-diner/menu');
+    const items = pub.body.categories.flatMap((c) => c.items);
+    expect(items.find((i) => i.id === p.id).available).toBe(true);
+  });
+
+  it('a scheduled order is validated against the scheduled date override', async () => {
+    const p = await createProduct({ name: 'Scheduled-Closed Dish' });
+    // Closed tomorrow.
+    await request(app)
+      .put(`/api/products/${p.id}/overrides`)
+      .set(auth(ownerToken))
+      .send({ overrides: [{ date: tomorrow(), available_from: null, available_to: null }] });
+
+    // Immediate order (today) is fine.
+    const now = await request(app)
+      .post('/api/public/restaurants/p4-diner/checkout')
+      .send({
+        order_type: 'delivery',
+        customer_name: 'Buyer',
+        customer_phone: '+8801711111111',
+        customer_address: '12 Dhanmondi',
+        items: [{ product_id: p.id, quantity: 1 }],
+      });
+    expect(now.status).toBe(201);
+
+    // Scheduled for tomorrow 12:00 → rejected (override closes that day).
+    const at = new Date();
+    at.setDate(at.getDate() + 1);
+    at.setHours(12, 0, 0, 0);
+    const attempt = await request(app)
+      .post('/api/public/restaurants/p4-diner/checkout')
+      .send({
+        order_type: 'scheduled_pickup',
+        customer_name: 'Buyer',
+        customer_phone: '+8801711111111',
+        scheduled_at: at.toISOString(),
+        items: [{ product_id: p.id, quantity: 1 }],
+      });
+    expect(attempt.status).toBe(400);
+    expect(attempt.body.error.code).toBe('AVAILABILITY_WINDOW');
+  });
+});
+
+describe('storefront scarcity cue', () => {
+  it('serializes product + variant stock and low-stock thresholds publicly', async () => {
+    const tracked = await createProduct({ name: 'Low Stock Dish' });
+    await request(app)
+      .patch(`/api/products/${tracked.id}/inventory`)
+      .set(auth(ownerToken))
+      .send({ stock_qty: 3, low_stock_at: 5, unit: 'pcs' });
+    await ItemVariant.create({
+      tenant_id: tenant.id,
+      product_id: tracked.id,
+      name: 'Regular',
+      price_adjustment: 0,
+      stock: 2,
+      low_stock_at: 4,
+    });
+
+    const untracked = await createProduct({ name: 'Untracked Dish' });
+
+    const pub = await request(app).get('/api/public/restaurants/p4-diner/menu?available=false');
+    const items = pub.body.categories.flatMap((c) => c.items);
+    const a = items.find((i) => i.id === tracked.id);
+    const b = items.find((i) => i.id === untracked.id);
+
+    expect(a.stock).toBe(3);
+    expect(a.lowStockAt).toBe(5);
+    expect(a.variants[0].stock).toBe(2);
+    expect(a.variants[0].lowStockAt).toBe(4);
+    // Untracked items stay null — the storefront shows no cue.
+    expect(b.stock).toBeNull();
+    expect(b.lowStockAt).toBeNull();
+    expect(b.variants).toEqual([]);
+  });
+});
+
+describe('menu bulk organize', () => {
+  it('moves items to a category and stamps an availability window in one call', async () => {
+    const cat = await MenuCategory.create({ tenant_id: tenant.id, name: 'Bulk Zone', sort_order: 5 });
+    const a = await createProduct({ name: 'Organize A' });
+    const b = await createProduct({ name: 'Organize B' });
+
+    const res = await request(app)
+      .post('/api/products/bulk')
+      .set(auth(ownerToken))
+      .send({
+        ids: [a.id, b.id],
+        category_id: cat.id,
+        available_from: '09:00',
+        available_to: '22:00',
+      });
+    expect(res.status).toBe(200);
+    for (const row of res.body.updated) {
+      expect(row.category_id).toBe(cat.id);
+      expect(row.available_from).toBe('09:00');
+      expect(row.available_to).toBe('22:00');
+    }
+
+    // category_id: null uncategorises.
+    const moved = await request(app)
+      .post('/api/products/bulk')
+      .set(auth(ownerToken))
+      .send({ ids: [a.id], category_id: null });
+    expect(moved.body.updated[0].category_id).toBeNull();
+
+    // A category from another tenant is rejected (fail-closed).
+    const other = await Tenant.create({ name: 'Other Co', slug: 'other-bulk-co', plan_id: tenant.plan_id });
+    const foreign = await MenuCategory.create({ tenant_id: other.id, name: 'Foreign', sort_order: 1 });
+    const bad = await request(app)
+      .post('/api/products/bulk')
+      .set(auth(ownerToken))
+      .send({ ids: [b.id], category_id: foreign.id });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error.code).toBe('INVALID_CATEGORY');
+
+    // Malformed window time → 400.
+    const badTime = await request(app)
+      .post('/api/products/bulk')
+      .set(auth(ownerToken))
+      .send({ ids: [b.id], available_from: '25:00', available_to: '22:00' });
+    expect(badTime.status).toBe(400);
+
+    // Clearing a window is possible with null bounds.
+    const cleared = await request(app)
+      .post('/api/products/bulk')
+      .set(auth(ownerToken))
+      .send({ ids: [b.id], available_from: null, available_to: null });
+    expect(cleared.body.updated[0].available_from).toBeNull();
+    expect(cleared.body.updated[0].available_to).toBeNull();
+  });
+});
+
 describe('image optimization (crop / compress + CDN invalidation)', () => {
   it('rejects optimizing a non-existent image', async () => {
     const res = await request(app)
@@ -463,5 +745,268 @@ describe('image optimization (crop / compress + CDN invalidation)', () => {
       .set(auth(ownerToken))
       .send({ quality: 5 });
     expect(clamped.status).toBe(200);
+  });
+});
+
+describe('restaurant-wide closures + recurring weekday rules (Phase 5)', () => {
+  const tomorrow = () => dateKey(new Date(Date.now() + 24 * 60 * 60 * 1000));
+  const today = () => dateKey();
+
+  // A fixed Monday (2026-08-17 is a Monday) for weekday-rule resolution.
+  const MON = '2026-08-17';
+  const monNoon = new Date(`${MON}T12:00:00`);
+
+  it('PUT/GET tenant closures: replace-all, validation, weekday closures', async () => {
+    // Replace-all closure dates.
+    let res = await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [tomorrow(), today()] });
+    expect(res.status).toBe(200);
+    expect(res.body.map((c) => c.date).sort()).toEqual([today(), tomorrow()]);
+
+    // Replace with one drops the other; empty clears.
+    res = await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [tomorrow()] });
+    expect(res.body).toHaveLength(1);
+    res = await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [] });
+    expect(res.body).toEqual([]);
+
+    // Validation: bad date + duplicate.
+    res = await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: ['not-a-date'] });
+    expect(res.status).toBe(400);
+    res = await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [tomorrow(), tomorrow()] });
+    expect(res.status).toBe(400);
+
+    // Weekday closures (0=Sun … 6=Sat): replace-all + validation.
+    res = await request(app)
+      .put(`/api/tenants/${tenant.id}/weekday-closures`)
+      .set(auth(ownerToken))
+      .send({ weekdays: [1, 5] }); // Mondays + Saturdays
+    expect(res.status).toBe(200);
+    expect(res.body.map((r) => r.weekday).sort()).toEqual([1, 5]);
+
+    res = await request(app).get(`/api/tenants/${tenant.id}/weekday-closures`).set(auth(ownerToken));
+    expect(res.status).toBe(200);
+    expect(res.body.map((r) => r.weekday).sort()).toEqual([1, 5]);
+
+    res = await request(app)
+      .put(`/api/tenants/${tenant.id}/weekday-closures`)
+      .set(auth(ownerToken))
+      .send({ weekdays: [9] });
+    expect(res.status).toBe(400);
+
+    // Clear both so later tests start from a clean slate.
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [] });
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/weekday-closures`)
+      .set(auth(ownerToken))
+      .send({ weekdays: [] });
+  });
+
+  it('a restaurant-wide closure date darkens the menu and rejects checkout', async () => {
+    const p = await createProduct({ name: 'Closure-Day Dish' });
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [today()] });
+
+    // Menu: closedToday flag + the item is filtered out entirely.
+    const pub = await request(app).get('/api/public/restaurants/p4-diner/menu');
+    expect(pub.body.closedToday).toBe(true);
+    expect(pub.body.categories.flatMap((c) => c.items).find((i) => i.id === p.id)).toBeUndefined();
+
+    // Immediate checkout is rejected while closed.
+    const attempt = await request(app)
+      .post('/api/public/restaurants/p4-diner/checkout')
+      .send({
+        order_type: 'pickup',
+        customer_name: 'Buyer',
+        customer_phone: '+8801711111111',
+        items: [{ product_id: p.id, quantity: 1 }],
+      });
+    expect(attempt.status).toBe(400);
+    expect(attempt.body.error.code).toBe('AVAILABILITY_WINDOW');
+
+    // A scheduled order for the closure date is rejected even though it is
+    // placed while the closure is in effect for a different day (tomorrow).
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [tomorrow()] });
+    const scheduled = await request(app)
+      .post('/api/public/restaurants/p4-diner/checkout')
+      .send({
+        order_type: 'scheduled_pickup',
+        scheduled_at: new Date(`${tomorrow()}T12:00:00`).toISOString(),
+        customer_name: 'Buyer',
+        customer_phone: '+8801711111111',
+        items: [{ product_id: p.id, quantity: 1 }],
+      });
+    expect(scheduled.status).toBe(400);
+    expect(scheduled.body.error.code).toBe('AVAILABILITY_WINDOW');
+
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [] });
+  });
+
+  it('a restaurant-wide weekday closure hides everything on that weekday', async () => {
+    const p = await createProduct({ name: 'Weekday-Closure Dish' });
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/weekday-closures`)
+      .set(auth(ownerToken))
+      .send({ weekdays: [monNoon.getDay()] }); // the weekday of the check date
+
+    const ctx = await buildAvailabilityContext(tenant.id, monNoon);
+    expect(ctx.restaurantWeekdayClosed).toBe(true);
+    expect(isAvailableAt({ id: p.id, enabled: true }, ctx)).toBe(false);
+
+    // The public menu flags closedToday for that weekday (server clock is
+    // 'now', so this only asserts the resolution helper — the menu payload
+    // itself uses the real today).
+    const ctxNow = await buildAvailabilityContext(tenant.id);
+    expect(ctxNow.restaurantWeekdayClosed).toBe(
+      ctxNow.weekday === monNoon.getDay()
+    );
+
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/weekday-closures`)
+      .set(auth(ownerToken))
+      .send({ weekdays: [] });
+  });
+
+  it('per-item weekday rules replace the base window and can close a weekday', async () => {
+    const p = await createProduct({ name: 'Weekday-Rule Dish' });
+
+    // PUT: closed Mondays + weekend-only hours.
+    let res = await request(app)
+      .put(`/api/products/${p.id}/weekday-rules`)
+      .set(auth(ownerToken))
+      .send({
+        rules: [
+          { weekday: 1, available_from: null, available_to: null },
+          { weekday: 6, available_from: '10:00', available_to: '18:00' },
+        ],
+      });
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(2);
+
+    // GET lists them weekday-ascending.
+    res = await request(app).get(`/api/products/${p.id}/weekday-rules`).set(auth(ownerToken));
+    expect(res.body.map((r) => r.weekday)).toEqual([1, 6]);
+
+    // Validation: bad weekday, duplicate, malformed time.
+    res = await request(app)
+      .put(`/api/products/${p.id}/weekday-rules`)
+      .set(auth(ownerToken))
+      .send({ rules: [{ weekday: 7 }] });
+    expect(res.status).toBe(400);
+    res = await request(app)
+      .put(`/api/products/${p.id}/weekday-rules`)
+      .set(auth(ownerToken))
+      .send({ rules: [{ weekday: 1 }, { weekday: 1 }] });
+    expect(res.status).toBe(400);
+    res = await request(app)
+      .put(`/api/products/${p.id}/weekday-rules`)
+      .set(auth(ownerToken))
+      .send({ rules: [{ weekday: 1, available_from: '9am' }] });
+    expect(res.status).toBe(400);
+
+    // Resolution: closed on Monday (weekday 1), weekend window applies.
+    // `p` is the createProduct JSON response (a plain object), so it is
+    // spread directly — no toJSON needed.
+    const monday = new Date('2026-08-17T12:00:00'); // a Monday
+    const saturday = new Date('2026-08-22T12:00:00'); // a Saturday
+    const ctxMon = await buildAvailabilityContext(tenant.id, monday);
+    expect(isAvailableAt({ ...p, enabled: true }, ctxMon)).toBe(false);
+    const ctxSat = await buildAvailabilityContext(tenant.id, saturday);
+    expect(isAvailableAt({ ...p, enabled: true }, ctxSat)).toBe(true);
+    // Outside the Saturday window.
+    const ctxSatLate = await buildAvailabilityContext(tenant.id, new Date('2026-08-22T20:00:00'));
+    expect(isAvailableAt({ ...p, enabled: true }, ctxSatLate)).toBe(false);
+    // A weekday without a rule falls back to the base window (all-day here).
+    const ctxTue = await buildAvailabilityContext(tenant.id, new Date('2026-08-18T12:00:00'));
+    expect(isAvailableAt({ ...p, enabled: true }, ctxTue)).toBe(true);
+
+    // Clearing the rules restores the base schedule.
+    res = await request(app)
+      .put(`/api/products/${p.id}/weekday-rules`)
+      .set(auth(ownerToken))
+      .send({ rules: [] });
+    expect(res.body).toEqual([]);
+    const ctxMonAfter = await buildAvailabilityContext(tenant.id, monday);
+    expect(isAvailableAt({ ...p, enabled: true }, ctxMonAfter)).toBe(true);
+  });
+
+  it('the public availability endpoint previews per-item availability with reasons', async () => {
+    const p = await createProduct({ name: 'Availability Preview Dish' });
+
+    // Base item: all-day → open at the requested instant.
+    let res = await request(app).get(
+      `/api/public/restaurants/p4-diner/availability?date=${MON}&time=12:00`
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.date).toBe(MON);
+    expect(res.body.restaurantClosed).toBe(false);
+    const item = res.body.items.find((i) => i.id === p.id);
+    expect(item.available).toBe(true);
+    expect(item.reason).toBe('open');
+
+    // A Monday closure for the item → reason 'weekday_closed'.
+    await request(app)
+      .put(`/api/products/${p.id}/weekday-rules`)
+      .set(auth(ownerToken))
+      .send({ rules: [{ weekday: 1, available_from: null, available_to: null }] });
+    res = await request(app).get(
+      `/api/public/restaurants/p4-diner/availability?date=${MON}&time=12:00`
+    );
+    expect(res.body.items.find((i) => i.id === p.id).reason).toBe('weekday_closed');
+    expect(res.body.items.find((i) => i.id === p.id).available).toBe(false);
+
+    // Restaurant-wide closure date → restaurantClosed + all items unavailable.
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [MON] });
+    res = await request(app).get(
+      `/api/public/restaurants/p4-diner/availability?date=${MON}&time=12:00`
+    );
+    expect(res.body.restaurantClosed).toBe(true);
+    expect(res.body.items.every((i) => i.available === false)).toBe(true);
+    expect(res.body.items.find((i) => i.id === p.id).reason).toBe('restaurant_closed');
+
+    // Validation: bad date / time.
+    res = await request(app).get('/api/public/restaurants/p4-diner/availability?date=bad');
+    expect(res.status).toBe(400);
+    res = await request(app).get(
+      `/api/public/restaurants/p4-diner/availability?date=${MON}&time=25:00`
+    );
+    expect(res.status).toBe(400);
+
+    // Clean up so other suites are unaffected.
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [] });
+    await request(app)
+      .put(`/api/products/${p.id}/weekday-rules`)
+      .set(auth(ownerToken))
+      .send({ rules: [] });
   });
 });

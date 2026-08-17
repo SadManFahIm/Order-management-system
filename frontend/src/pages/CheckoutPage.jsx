@@ -55,6 +55,14 @@ export default function CheckoutPage() {
   const [restaurant, setRestaurant] = useState(null);
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState([]);
+  // Product snapshot (stock / low-stock / availability) for scarcity cues +
+  // the restaurant-wide closed flag — from the public menu payload (Phase 5).
+  const [menuMap, setMenuMap] = useState(new Map());
+  const [closedToday, setClosedToday] = useState(false);
+  // Scheduled-order availability preview: per-item availability at the
+  // chosen datetime (Phase 5), fetched from the public availability API.
+  const [scheduleCheck, setScheduleCheck] = useState(null); // null | { loading, restaurantClosed, unavailableIds }
+  const [scheduleCheckError, setScheduleCheckError] = useState(false);
   const [orderType, setOrderType] = useState('pickup');
   const [form, setForm] = useState({ name: '', phone: '', email: '', address: '', scheduled_at: '' });
   const [paymentMethod, setPaymentMethod] = useState('cash');
@@ -101,14 +109,26 @@ export default function CheckoutPage() {
     let mounted = true;
     (async () => {
       try {
-        const [infoRes] = await Promise.all([
+        const [infoRes, menuRes] = await Promise.all([
           axios.get(`/api/public/restaurants/${slug}`),
+          axios.get(`/api/public/restaurants/${slug}/menu?available=false&limit=200`),
         ]);
         if (!mounted) return;
         setRestaurant(infoRes.data);
         setCart(loadCart());
         const cfg = infoRes.data.checkout || {};
         if (cfg.paymentMethods?.length) setPaymentMethod(cfg.paymentMethods[0]);
+        // Stock snapshot per product — the menu payload carries stock /
+        // lowStockAt / availability for every item (available=false keeps
+        // out-of-window items in the response for scheduled previews).
+        const map = new Map();
+        for (const cat of menuRes.data.categories || []) {
+          for (const item of cat.items || []) {
+            map.set(item.id, { stock: item.stock, lowStockAt: item.lowStockAt, available: item.available });
+          }
+        }
+        setMenuMap(map);
+        setClosedToday(!!menuRes.data.closedToday);
       } catch (err) {
         if (mounted) setError(err?.response?.status === 404 ? 'notFound' : 'load');
       } finally {
@@ -118,6 +138,51 @@ export default function CheckoutPage() {
     return () => { mounted = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
+
+  // Scheduled-order availability preview: whenever a scheduled order type is
+  // selected and a valid future datetime is set, ask the public availability
+  // API whether the restaurant + each cart item are orderable at that instant.
+  const isScheduled = orderType === 'scheduled_pickup' || orderType === 'scheduled_delivery';
+  useEffect(() => {
+    if (!isScheduled) {
+      setScheduleCheck(null);
+      return;
+    }
+    const at = new Date(form.scheduled_at);
+    if (!form.scheduled_at || Number.isNaN(at.getTime()) || at.getTime() < Date.now() + 5 * 60 * 1000) {
+      setScheduleCheck(null);
+      return;
+    }
+    let mounted = true;
+    const local = (d) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const hhmm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+    setScheduleCheck((prev) => ({ ...(prev || {}), loading: true }));
+    axios
+      .get(`/api/public/restaurants/${slug}/availability`, { params: { date: local(at), time: hhmm } })
+      .then((res) => {
+        if (!mounted) return;
+        const data = res.data;
+        const byId = new Map((data.items || []).map((i) => [i.id, i.available]));
+        setScheduleCheck({
+          loading: false,
+          restaurantClosed: !!data.restaurantClosed,
+          unavailableIds: new Set(
+            cart
+              .map((l) => l.product_id)
+              .filter((pid) => byId.get(pid) === false)
+          ),
+        });
+        setScheduleCheckError(false);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setScheduleCheckError(true);
+        setScheduleCheck((prev) => (prev ? { ...prev, loading: false } : { loading: false, restaurantClosed: false, unavailableIds: new Set() }));
+      });
+    return () => { mounted = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isScheduled, form.scheduled_at, slug]);
 
   const loadCart = () => {
     try {
@@ -151,6 +216,28 @@ export default function CheckoutPage() {
     [cart]
   );
   const total = Math.round((subtotal + deliveryFee) * 100) / 100;
+
+  // Per-line stock snapshot (Phase 5 scarcity cues): the menu payload's
+  // inventory per product — null when untracked. Sold-out lines are flagged
+  // and block the order; low-stock lines get an "Only N left" hint.
+  const lineInfo = (line) => menuMap.get(line.product_id) || { stock: null, lowStockAt: null, available: true };
+  const soldOutIds = new Set(
+    cart
+      .filter((l) => {
+        const s = lineInfo(l).stock;
+        return s !== null && s !== undefined && Number(s) <= 0;
+      })
+      .map((l) => l.product_id)
+  );
+  const anySoldOut = soldOutIds.size > 0;
+  // Scheduled-order preview gate: once the availability check has answered,
+  // unavailable items block placement (the server would reject anyway).
+  const scheduledBlocked =
+    isScheduled &&
+    !!scheduleCheck &&
+    !scheduleCheck.loading &&
+    !scheduleCheck.restaurantClosed &&
+    scheduleCheck.unavailableIds.size > 0;
 
   const splitTotal = Object.values(splitParts).reduce((s, v) => s + (Number(v) || 0), 0);
   const splitRemaining = Math.round((total - splitTotal) * 100) / 100;
@@ -258,6 +345,9 @@ export default function CheckoutPage() {
         return t('store.invalidSchedule');
       }
     }
+    if (closedToday) return t('store.closedTodayDesc');
+    if (anySoldOut) return t('store.itemSoldOut');
+    if (scheduledBlocked) return t('store.scheduleBlocked');
     if (useSplit && splitMode === 'diner' && !dinerSplitValid) return t('store.dinerSplitMismatch');
     if (useSplit && splitMode === 'amount' && !splitValid) return t('store.splitMismatch');
     return null;
@@ -798,19 +888,77 @@ export default function CheckoutPage() {
         {/* 4. Summary + submit */}
         <section className="ticket-card">
           <h2 className="ticket-card__title">{t('store.cart')}</h2>
-          {cart.map((line, idx) => (
-            <div key={`${line.product_id}-${line.variant_id}-${line.addon_ids?.join(',')}`} className="ticket-line">
+
+          {/* Restaurant-wide closure (Phase 5): the whole storefront is dark —
+              no ordering until the closure passes. */}
+          {closedToday && (
+            <div className="ticket-note ticket-note--closed">
+              <span className="ticket-note__icon">🔒</span>
+              <span>{t('store.closedTodayDesc')}</span>
+            </div>
+          )}
+
+          {/* Scheduled-order availability preview (Phase 5): per-item check at
+              the chosen datetime, so the customer never hits a surprise
+              "unavailable" rejection after filling the whole form. */}
+          {isScheduled && scheduleCheck && scheduleCheck.loading && (
+            <div className="ticket-hint">
+              {t('store.schedulePreviewTitle')}…
+            </div>
+          )}
+          {isScheduled && scheduleCheck && !scheduleCheck.loading && (
+            <div
+              className={`ticket-note${scheduleCheck.restaurantClosed || scheduleCheck.unavailableIds.size > 0 ? ' ticket-note--closed' : ' ticket-note--ok'}`}
+            >
+              <span className="ticket-note__icon">
+                {scheduleCheck.restaurantClosed || scheduleCheck.unavailableIds.size > 0 ? '⚠️' : '✓'}
+              </span>
+              <span>
+                {scheduleCheck.restaurantClosed
+                  ? t('store.scheduleRestaurantClosed')
+                  : scheduleCheck.unavailableIds.size > 0
+                    ? cart
+                        .filter((l) => scheduleCheck.unavailableIds.has(l.product_id))
+                        .map((l) => l.name)
+                        .join(', ')
+                    : t('store.schedulePreviewDesc')}
+              </span>
+            </div>
+          )}
+          {isScheduled && scheduleCheckError && (
+            <div className="ticket-hint">{t('store.orderFailed')} — {t('store.schedulePreviewTitle')}</div>
+          )}
+
+          {cart.map((line, idx) => {
+            const info = lineInfo(line);
+            const soldOut = soldOutIds.has(line.product_id);
+            const scheduledOut = !!scheduleCheck && !scheduleCheck.loading && scheduleCheck.unavailableIds.has(line.product_id);
+            const low = (() => {
+              const s = info.stock;
+              if (s === null || s === undefined || Number(s) <= 0) return null;
+              const lowAt = Number(info.lowStockAt ?? 0);
+              return lowAt > 0 ? Number(s) <= lowAt : Number(s) <= 5;
+            })();
+            return (
+            <div key={`${line.product_id}-${line.variant_id}-${line.addon_ids?.join(',')}`} className={`ticket-line${soldOut || scheduledOut ? ' ticket-line--blocked' : ''}`}>
               <div className="ticket-line__main">
-                <div className="ticket-line__name">{line.name}</div>
+                <div className="ticket-line__name">
+                  {line.name}
+                  {soldOut && <span className="ticket-stock ticket-stock--out">{t('store.soldOut')}</span>}
+                  {!soldOut && low && <span className="ticket-stock ticket-stock--low">{t('store.onlyLeft', Number(info.stock))}</span>}
+                  {scheduledOut && !soldOut && (
+                    <span className="ticket-stock ticket-stock--out">{t('store.scheduleUnavailableLine', line.name)}</span>
+                  )}
+                </div>
                 {line.options?.length > 0 && (
                   <div className="ticket-line__sub">{line.options.join(' + ')}</div>
                 )}
                 <div className="ticket-line__sub">{fmtMoney(line.unit_price)} each</div>
               </div>
               <div className="ticket-qty">
-                <button onClick={() => updateQty(idx, -1)} className="ticket-qty__btn">−</button>
+                <button onClick={() => updateQty(idx, -1)} disabled={soldOut} className="ticket-qty__btn">−</button>
                 <span className="ticket-qty__n">{line.quantity}</span>
-                <button onClick={() => updateQty(idx, 1)} className="ticket-qty__btn">+</button>
+                <button onClick={() => updateQty(idx, 1)} disabled={soldOut} className="ticket-qty__btn">+</button>
               </div>
               <span className="ticket-line__amount">{fmtMoney(line.unit_price * line.quantity)}</span>
               {useSplit && splitMode === 'diner' && (
@@ -829,7 +977,8 @@ export default function CheckoutPage() {
               )}
               <button onClick={() => removeLine(idx)} className="ticket-remove">✕</button>
             </div>
-          ))}
+            );
+          })}
           <div className="ticket-summary">
             <div className="ticket-row">
               <span className="ticket-row__label">{t('store.subtotal')}</span>
