@@ -228,6 +228,172 @@ function ItemModal({ item, initial, onConfirm, onClose, t }) {
   );
 }
 
+/** Local date 'YYYY-MM-DD' for a Date (offset-safe). */
+const localDate = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+const toMin = (hhmm) => {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm || '');
+  if (!m) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+};
+
+/** Is the hour slot (0–23) inside any of the item's open segments? */
+const slotOpen = (hour, windows) =>
+  (windows || []).some((w) => {
+    const from = toMin(w.from);
+    const to = toMin(w.to) ?? 24 * 60;
+    return from !== null && hour * 60 >= from && hour * 60 < to;
+  });
+
+/**
+ * Per-dish availability calendar (Phase 5 follow-up): next 7 days as chips,
+ * each day's effective open windows as an hourly slot grid — one read-only
+ * request per day to the public availability API (windows mode). Customers
+ * plan a scheduled pickup/delivery before adding anything to the cart.
+ */
+function AvailabilityModal({ item, slug, t, onClose }) {
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() + i);
+    return { date: localDate(d), day: d.getDay(), dateNo: d.getDate(), today: i === 0 };
+  });
+  const [active, setActive] = useState(0);
+  const [windows, setWindows] = useState(null);
+  const [restaurantClosed, setRestaurantClosed] = useState(false);
+  const [loading, setLoading] = useState(true); // first fetch fires on mount
+
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+    axios
+      .get(`/api/public/restaurants/${slug}/availability`, {
+        params: { date: days[active].date },
+      })
+      .then((res) => {
+        if (!mounted) return;
+        setRestaurantClosed(!!res.data.restaurantClosed);
+        const found = (res.data.items || []).find((i) => i.id === item.id);
+        setWindows(found?.windows || []);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setWindows([]);
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, slug]);
+
+  const allDay =
+    windows?.length === 1 && windows[0].from === '00:00' && windows[0].to === '24:00';
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 60,
+        background: 'rgba(10,25,23,0.55)', backdropFilter: 'blur(3px)',
+        display: 'grid', placeItems: 'center', padding: 16,
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: '100%', maxWidth: 460, maxHeight: '85vh', overflowY: 'auto',
+          background: 'var(--card, #fdfaf3)', borderRadius: 20, padding: 24,
+          boxShadow: '0 24px 60px rgba(20,16,6,0.28)',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800, fontFamily: "'Bricolage Grotesque', 'Plus Jakarta Sans', sans-serif" }}>
+              📅 {t('store.timesTitle')}
+            </h3>
+            <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--text-muted, #7d9a95)' }}>
+              {item.name} · {t('store.timesDesc')}
+            </p>
+          </div>
+          <button onClick={onClose} style={closeBtn}>✕</button>
+        </div>
+
+        <div style={{ display: 'flex', gap: 6, marginTop: 18, flexWrap: 'wrap' }}>
+          {days.map((d, i) => (
+            <button
+              key={d.date}
+              onClick={() => setActive(i)}
+              style={{
+                border: `1.5px solid ${i === active ? 'var(--brand)' : 'var(--border-strong, #b9e0da)'}`,
+                background: i === active ? 'color-mix(in srgb, var(--brand) 8%, var(--card))' : 'var(--card)',
+                borderRadius: 999,
+                padding: '7px 12px',
+                fontSize: 12.5,
+                fontWeight: 800,
+                cursor: 'pointer',
+                color: i === active ? 'var(--brand)' : 'inherit',
+              }}
+            >
+              {t('store.daysShort')[d.day]} {d.today ? `· ${t('store.today')}` : d.dateNo}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          {loading || windows === null ? (
+            <div style={{ fontSize: 13, color: 'var(--text-muted, #7d9a95)' }}>{t('store.loading')}</div>
+          ) : restaurantClosed ? (
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--chilli, #c3272b)', padding: '12px 0' }}>
+              🔒 {t('store.timesRestaurantClosed')}
+            </div>
+          ) : windows.length === 0 ? (
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text-muted, #7d9a95)', padding: '12px 0' }}>
+              {t('store.timesNoWindows')}
+            </div>
+          ) : (
+            <>
+              {allDay ? (
+                <div style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--brand)', padding: '12px 0' }}>
+                  ✓ {t('store.timesAllDay')}
+                </div>
+              ) : (
+                <>
+                  <div className="times-legend" style={{ fontSize: 12, color: 'var(--text-muted, #7d9a95)', marginBottom: 8 }}>
+                    {windows
+                      .map((w) => `${w.from} – ${w.to === '24:00' ? '23:59' : w.to}`)
+                      .join(' · ')}
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 6 }}>
+                    {Array.from({ length: 24 }, (_, h) => (
+                      <div
+                        key={h}
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 800,
+                          textAlign: 'center',
+                          padding: '6px 2px',
+                          borderRadius: 8,
+                          color: slotOpen(h, windows) ? '#fff' : 'var(--text-muted, #7d9a95)',
+                          background: slotOpen(h, windows) ? 'var(--brand)' : 'var(--tile, #eef6f4)',
+                        }}
+                      >
+                        {String(h).padStart(2, '0')}:00
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const closeBtn = {
   background: 'var(--surface-3, #e2f5f2)', border: 'none', width: 30, height: 30,
   borderRadius: '50%', cursor: 'pointer', fontSize: 13, flexShrink: 0,
@@ -251,6 +417,9 @@ export default function PublicMenuPage() {
   const [cart, setCart] = useState(() => loadCart(slug));
   const [modalItem, setModalItem] = useState(null);
   const [modalInitial, setModalInitial] = useState(null);
+  // Per-dish availability calendar (Phase 5 follow-up): opened from the
+  // "Check times" button, lets customers plan scheduled orders.
+  const [timesItem, setTimesItem] = useState(null);
   // Print-coupon QR (Phase 5): fetched lazily, only used by @media print —
   // the tear-off "scan to order again" strip under the printed ticket.
   const [couponQr, setCouponQr] = useState(null);
@@ -391,6 +560,7 @@ export default function PublicMenuPage() {
 
   const { restaurant, categories } = state.data;
   const closedToday = state.data.closedToday;
+  const nextOpenAt = state.data.nextOpenAt;
   const brand = restaurant.brand || {};
   const primary = brandColor(brand.primaryColor, '#00b3a5');
   const accent = brandColor(brand.accentColor, '#f5d300');
@@ -471,6 +641,16 @@ export default function PublicMenuPage() {
             <div>
               <div className="closed-banner__title">{t('store.closedToday')}</div>
               <div className="closed-banner__desc">{t('store.closedTodayDesc')}</div>
+              {nextOpenAt && (
+                <div className="closed-banner__next">
+                  {(() => {
+                    const d = new Date(nextOpenAt);
+                    const hh = String(d.getHours()).padStart(2, '0');
+                    const mm = String(d.getMinutes()).padStart(2, '0');
+                    return `🕐 ${t('store.backOpen', t('store.daysShort')[d.getDay()], `${hh}:${mm}`)}`;
+                  })()}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -514,6 +694,14 @@ export default function PublicMenuPage() {
                     {item.prepMinutes && (
                       <span className="dish__prep">⏱ {item.prepMinutes} min</span>
                     )}
+                    <button
+                      onClick={() => setTimesItem(item)}
+                      className="dish__times"
+                      aria-label={`${t('store.checkTimes')} · ${item.name}`}
+                      title={t('store.checkTimes')}
+                    >
+                      📅 {t('store.checkTimes')}
+                    </button>
                   </div>
                   {item.description && <div className="dish__desc">{item.description}</div>}
                   {item.addons.length > 0 && (
@@ -583,6 +771,16 @@ export default function PublicMenuPage() {
           t={t}
           onClose={() => setModalItem(null)}
           onConfirm={(sel) => addLine(modalItem, sel)}
+        />
+      )}
+
+      {/* Per-dish availability calendar modal */}
+      {timesItem && (
+        <AvailabilityModal
+          item={timesItem}
+          slug={slug}
+          t={t}
+          onClose={() => setTimesItem(null)}
         />
       )}
 

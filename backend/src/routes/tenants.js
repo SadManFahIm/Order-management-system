@@ -13,7 +13,11 @@ import {
   AvailabilityWeekdayRule,
 } from '../models/index.js';
 import { serializeSamlConfig } from '../services/samlService.js';
-import { replaceTenantClosures, replaceTenantWeekdayClosures } from '../services/menuService.js';
+import {
+  replaceTenantClosures,
+  replaceTenantWeekdayClosures,
+  closureConflicts,
+} from '../services/menuService.js';
 import {
   createTenantSchema,
   updateTenantSchema,
@@ -304,6 +308,20 @@ router.put(
       req
     );
     res.json(saved.map((r) => ({ id: r.id, date: r.date })));
+  })
+);
+
+/**
+ * GET /api/tenants/:id/closure-conflicts — items whose windowed override /
+ * weekday rule opens them on a day/weekday the restaurant is closed
+ * (Phase 5 follow-up). Read-only; the Settings closure card renders the
+ * warnings so the merchant sees the contradiction before saving.
+ */
+router.get(
+  '/:id/closure-conflicts',
+  asyncHandler(async (req, res) => {
+    await tenantService.assertTenantAccess(req.user, Number(req.params.id));
+    res.json(await closureConflicts(Number(req.params.id)));
   })
 );
 

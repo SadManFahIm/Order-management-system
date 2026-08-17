@@ -56,6 +56,9 @@ export default function SettingsPage() {
   const [weekdayClosures, setWeekdayClosures] = useState([]);
   const [weekdayClosuresLoaded, setWeekdayClosuresLoaded] = useState(false);
   const [closuresError, setClosuresError] = useState('');
+  // Closure-conflict scan (Phase 5 follow-up): items whose windowed override
+  // / weekday rule opens them on a day the restaurant is closed.
+  const [closureConflicts, setClosureConflicts] = useState(null);
 
   // ── Phase 3: plan & usage, invites, ownership, workspace activity ──
   const [planData, setPlanData] = useState(null);
@@ -134,6 +137,10 @@ export default function SettingsPage() {
         }
       })
       .catch(() => mounted.current && setWeekdayClosuresLoaded(true));
+    api
+      .get(`/tenants/${activeTenantId}/closure-conflicts`)
+      .then((res) => mounted.current && setClosureConflicts(res.data))
+      .catch(() => mounted.current && setClosureConflicts(null));
   };
 
   const saveClosures = async () => {
@@ -797,6 +804,64 @@ export default function SettingsPage() {
           {closuresError && (
             <div style={{ fontSize: 13, color: 'var(--danger, #e5484d)' }}>{closuresError}</div>
           )}
+
+          {/* Closure-conflict warnings (Phase 5 follow-up): windowed
+              overrides / weekday rules that open an item on a closed day
+              contradict the closure — show them before the merchant saves. */}
+          {closureConflicts &&
+            (closureConflicts.dates.length > 0 || closureConflicts.weekdays.length > 0) && (
+              <div style={{ display: 'grid', gap: 10 }}>
+                {closureConflicts.dates.map(({ date, conflicts }) => (
+                  <div
+                    key={`d-${date}`}
+                    style={{
+                      fontSize: 13,
+                      borderRadius: 10,
+                      padding: '10px 12px',
+                      background: 'color-mix(in srgb, var(--danger, #e5484d) 8%, transparent)',
+                      border: '1px solid color-mix(in srgb, var(--danger, #e5484d) 30%, transparent)',
+                    }}
+                  >
+                    <strong>{t('settings.closuresConflictDate')}: {date}</strong>
+                    <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>
+                      {conflicts
+                        .map(
+                          (c) =>
+                            `${c.itemName || `#${c.itemId}`} (${c.availableFrom || '00:00'}–${c.availableTo || '23:59'})`
+                        )
+                        .join(' · ')}
+                    </div>
+                  </div>
+                ))}
+                {closureConflicts.weekdays.map(({ weekday, conflicts }) => (
+                  <div
+                    key={`w-${weekday}`}
+                    style={{
+                      fontSize: 13,
+                      borderRadius: 10,
+                      padding: '10px 12px',
+                      background: 'color-mix(in srgb, var(--danger, #e5484d) 8%, transparent)',
+                      border: '1px solid color-mix(in srgb, var(--danger, #e5484d) 30%, transparent)',
+                    }}
+                  >
+                    <strong>
+                      {t('settings.closuresConflictWeekday')}: {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][weekday]}
+                    </strong>
+                    <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>
+                      {conflicts
+                        .map(
+                          (c) =>
+                            `${c.itemName || `#${c.itemId}`} (${c.availableFrom || '00:00'}–${c.availableTo || '23:59'})`
+                        )
+                        .join(' · ')}
+                    </div>
+                  </div>
+                ))}
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  {t('settings.closuresConflictHint')}
+                </div>
+              </div>
+            )}
           <div style={{ display: 'flex', gap: 10 }}>
             <Button variant="primary" onClick={saveClosures} disabled={closuresSaving}>
               {closuresSaving ? t('common.loading') : t('settings.pmSave')}
