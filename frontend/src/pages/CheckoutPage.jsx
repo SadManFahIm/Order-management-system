@@ -119,12 +119,13 @@ export default function CheckoutPage() {
         const cfg = infoRes.data.checkout || {};
         if (cfg.paymentMethods?.length) setPaymentMethod(cfg.paymentMethods[0]);
         // Stock snapshot per product — the menu payload carries stock /
-        // lowStockAt / availability for every item (available=false keeps
-        // out-of-window items in the response for scheduled previews).
+        // lowStockAt / variants (each with its own stock) / availability for
+        // every item (available=false keeps out-of-window items in the
+        // response for scheduled previews).
         const map = new Map();
         for (const cat of menuRes.data.categories || []) {
           for (const item of cat.items || []) {
-            map.set(item.id, { stock: item.stock, lowStockAt: item.lowStockAt, available: item.available });
+            map.set(item.id, item);
           }
         }
         setMenuMap(map);
@@ -218,18 +219,27 @@ export default function CheckoutPage() {
   const total = Math.round((subtotal + deliveryFee) * 100) / 100;
 
   // Per-line stock snapshot (Phase 5 scarcity cues): the menu payload's
-  // inventory per product — null when untracked. Sold-out lines are flagged
-  // and block the order; low-stock lines get an "Only N left" hint.
-  const lineInfo = (line) => menuMap.get(line.product_id) || { stock: null, lowStockAt: null, available: true };
-  const soldOutIds = new Set(
-    cart
-      .filter((l) => {
-        const s = lineInfo(l).stock;
-        return s !== null && s !== undefined && Number(s) <= 0;
-      })
-      .map((l) => l.product_id)
-  );
-  const anySoldOut = soldOutIds.size > 0;
+  // inventory per product (stock null when untracked) + variant stock. The
+  // BACKEND enforces per-VARIANT stock (VARIANT_OUT_OF_STOCK) — product
+  // inventory is informational only — so the hard block mirrors exactly
+  // that boundary: a line is blocking only when its chosen variant is out
+  // of stock. Product-level stock 0 keeps its informational cue but never
+  // blocks placement (the API happily prices it).
+  const lineInfo = (line) =>
+    menuMap.get(line.product_id) || { stock: null, lowStockAt: null, variants: [], available: true };
+  const lineVariant = (line) =>
+    (lineInfo(line).variants || []).find((v) => v.id === line.variant_id) || null;
+  const lineVariantOut = (line) => {
+    if (!line.variant_id) return false;
+    const v = lineVariant(line);
+    if (!v || v.stock === null || v.stock === undefined) return false;
+    return Number(v.stock) <= 0 || line.quantity > Number(v.stock);
+  };
+  const productOut = (line) => {
+    const s = lineInfo(line).stock;
+    return s !== null && s !== undefined && Number(s) <= 0;
+  };
+  const anyVariantOut = cart.some(lineVariantOut);
   // Scheduled-order preview gate: once the availability check has answered,
   // unavailable items block placement (the server would reject anyway).
   const scheduledBlocked =
@@ -346,7 +356,7 @@ export default function CheckoutPage() {
       }
     }
     if (closedToday) return t('store.closedTodayDesc');
-    if (anySoldOut) return t('store.itemSoldOut');
+    if (anyVariantOut) return t('store.itemSoldOut');
     if (scheduledBlocked) return t('store.scheduleBlocked');
     if (useSplit && splitMode === 'diner' && !dinerSplitValid) return t('store.dinerSplitMismatch');
     if (useSplit && splitMode === 'amount' && !splitValid) return t('store.splitMismatch');
@@ -931,7 +941,8 @@ export default function CheckoutPage() {
 
           {cart.map((line, idx) => {
             const info = lineInfo(line);
-            const soldOut = soldOutIds.has(line.product_id);
+            const variantOut = lineVariantOut(line);
+            const soldOut = variantOut || productOut(line);
             const scheduledOut = !!scheduleCheck && !scheduleCheck.loading && scheduleCheck.unavailableIds.has(line.product_id);
             const low = (() => {
               const s = info.stock;
@@ -939,8 +950,9 @@ export default function CheckoutPage() {
               const lowAt = Number(info.lowStockAt ?? 0);
               return lowAt > 0 ? Number(s) <= lowAt : Number(s) <= 5;
             })();
+            const blocked = variantOut || scheduledOut;
             return (
-            <div key={`${line.product_id}-${line.variant_id}-${line.addon_ids?.join(',')}`} className={`ticket-line${soldOut || scheduledOut ? ' ticket-line--blocked' : ''}`}>
+            <div key={`${line.product_id}-${line.variant_id}-${line.addon_ids?.join(',')}`} className={`ticket-line${blocked ? ' ticket-line--blocked' : ''}`}>
               <div className="ticket-line__main">
                 <div className="ticket-line__name">
                   {line.name}
@@ -956,9 +968,9 @@ export default function CheckoutPage() {
                 <div className="ticket-line__sub">{fmtMoney(line.unit_price)} each</div>
               </div>
               <div className="ticket-qty">
-                <button onClick={() => updateQty(idx, -1)} disabled={soldOut} className="ticket-qty__btn">−</button>
+                <button onClick={() => updateQty(idx, -1)} disabled={variantOut} className="ticket-qty__btn">−</button>
                 <span className="ticket-qty__n">{line.quantity}</span>
-                <button onClick={() => updateQty(idx, 1)} disabled={soldOut} className="ticket-qty__btn">+</button>
+                <button onClick={() => updateQty(idx, 1)} disabled={variantOut} className="ticket-qty__btn">+</button>
               </div>
               <span className="ticket-line__amount">{fmtMoney(line.unit_price * line.quantity)}</span>
               {useSplit && splitMode === 'diner' && (
