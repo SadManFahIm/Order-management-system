@@ -24,6 +24,8 @@ import {
   buildAvailabilityContext,
   isAvailableAt,
   isAvailableNow,
+  effectiveWindowSegments,
+  computeNextOpenAt,
 } from '../services/menuService.js';
 
 /**
@@ -251,12 +253,19 @@ router.get(
       });
     }
 
+    const closedToday = ctx.restaurantClosed || ctx.restaurantWeekdayClosed;
+    // When closed, tell the storefront when it reopens (Phase 5 follow-up)
+    // so the banner can say "back open {weekday} at {time}" instead of a
+    // dead-end. Computed only while closed (a 14-day forward scan).
+    const nextOpenAt = closedToday ? await computeNextOpenAt(tenant.id) : null;
+
     const payload = JSON.stringify({
       restaurant: serializeTenant(tenant),
       // Restaurant-wide closure state at request time (Phase 5): the
       // storefront shows a "We're closed today" banner and disables ordering
       // when the workspace is closed by a closure date or weekday closure.
-      closedToday: ctx.restaurantClosed || ctx.restaurantWeekdayClosed,
+      closedToday,
+      nextOpenAt,
       categories: menu,
     });
     if (applyPublicCache(req, res, payload)) return;
@@ -267,19 +276,26 @@ router.get(
 
 /** GET /api/public/restaurants/:slug/availability?date=&time= — Phase 5.
  *
- * Availability preview at an arbitrary instant (defaults to now): whether
- * the restaurant is closed-wide (closure date / weekday closure) and, for
- * every enabled item, whether it is orderable at that instant — with the
- * reason when not. The storefront cart uses it before placing a scheduled
- * order, and the scheduled-order preview renders a per-item "available /
- * not available" view for the chosen date. Public + read-only; date is
- * YYYY-MM-DD, time is HH:MM (both optional, local server clock). */
+ * Availability preview for a date (or instant): whether the restaurant is
+ * closed-wide (closure date / weekday closure) and, for every enabled item,
+ * its orderable state.
+ *
+ *   ?date=YYYY-MM-DD&time=HH:MM  → instant check: per-item `available` +
+ *     `reason` (checkout's scheduled-order preview).
+ *   ?date=YYYY-MM-DD            → windows mode: per-item `windows` — the
+ *     effective open segments that day (overnight windows split; all-day =
+ *     [{00:00,24:00}]; [] = closed) — powering the storefront's per-dish
+ *     availability calendar.
+ *
+ * Public + read-only; local server clock when `time` is omitted.
+ */
 router.get(
   '/restaurants/:slug/availability',
   asyncHandler(async (req, res) => {
     const tenant = await findPublicTenant(req.params.slug);
 
     let at = new Date();
+    let requestedDate = null;
     const { date, time } = req.query;
     if (date !== undefined && date !== '') {
       const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(date));
@@ -287,13 +303,18 @@ router.get(
         throw new AppError(400, 'VALIDATION_ERROR', 'date must be a valid YYYY-MM-DD');
       }
       const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
-      const hhmm = /^(\d{1,2}):(\d{2})$/.exec(String(time ?? '12:00'));
-      const h = hhmm ? Number(hhmm[1]) : 12;
-      const mi = hhmm ? Number(hhmm[2]) : 0;
-      if (h > 23 || mi > 59) {
-        throw new AppError(400, 'VALIDATION_ERROR', 'time must be a valid HH:MM');
+      requestedDate = { y, mo, d };
+      if (time !== undefined && time !== '') {
+        const hhmm = /^(\d{1,2}):(\d{2})$/.exec(String(time));
+        const h = hhmm ? Number(hhmm[1]) : 12;
+        const mi = hhmm ? Number(hhmm[2]) : 0;
+        if (h > 23 || mi > 59) {
+          throw new AppError(400, 'VALIDATION_ERROR', 'time must be a valid HH:MM');
+        }
+        at = new Date(y, mo - 1, d, h, mi, 0, 0);
+      } else {
+        at = new Date(y, mo - 1, d, 12, 0, 0, 0); // windows mode — noon anchor
       }
-      at = new Date(y, mo - 1, d, h, mi, 0, 0);
     }
 
     const ctx = await buildAvailabilityContext(tenant.id, at);
@@ -326,10 +347,30 @@ router.get(
       return 'open';
     };
 
-    res.json({
+    const base = {
       date: ctx.date,
-      time: `${String(ctx.at.getHours()).padStart(2, '0')}:${String(ctx.at.getMinutes()).padStart(2, '0')}`,
       restaurantClosed: ctx.restaurantClosed || ctx.restaurantWeekdayClosed,
+    };
+
+    // Windows mode (date-only): the calendar needs the open segments, not a
+    // single instant. No `time` in the response — the segments carry it.
+    if (requestedDate && (time === undefined || time === '')) {
+      res.json({
+        ...base,
+        items: items.map((item) => ({
+          id: item.id,
+          name: item.name,
+          categoryId: item.category_id,
+          windows: effectiveWindowSegments(item, ctx),
+        })),
+      });
+      return;
+    }
+
+    // Instant mode (with time, or defaulting to now): the checkout preview.
+    res.json({
+      ...base,
+      time: `${String(ctx.at.getHours()).padStart(2, '0')}:${String(ctx.at.getMinutes()).padStart(2, '0')}`,
       items: items.map((item) => ({
         id: item.id,
         name: item.name,

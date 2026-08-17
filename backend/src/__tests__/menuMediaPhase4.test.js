@@ -20,6 +20,7 @@ import {
   normalizeTags,
   ITEM_TAGS,
   dateKey,
+  computeNextOpenAt,
 } from '../services/menuService.js';
 import sharp from 'sharp';
 
@@ -1008,5 +1009,174 @@ describe('restaurant-wide closures + recurring weekday rules (Phase 5)', () => {
       .put(`/api/products/${p.id}/weekday-rules`)
       .set(auth(ownerToken))
       .send({ rules: [] });
+  });
+
+  it('reports closure conflicts: windowed overrides/rules on closed days', async () => {
+    const p = await createProduct({ name: 'Conflict Dish' });
+    const later = dateKey(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000));
+
+    // Closure date + a WINDOWED override on it → conflict.
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [later] });
+    await request(app)
+      .put(`/api/products/${p.id}/overrides`)
+      .set(auth(ownerToken))
+      .send({ overrides: [{ date: later, available_from: '10:00', available_to: '18:00' }] });
+
+    let res = await request(app)
+      .get(`/api/tenants/${tenant.id}/closure-conflicts`)
+      .set(auth(ownerToken));
+    expect(res.status).toBe(200);
+    const dateConflict = res.body.dates.find((d) => d.date === later);
+    expect(dateConflict).toBeDefined();
+    expect(dateConflict.conflicts[0].itemId).toBe(p.id);
+    expect(dateConflict.conflicts[0].availableFrom).toBe('10:00');
+
+    // A closed override (both bounds NULL) is consistent → no conflict.
+    await request(app)
+      .put(`/api/products/${p.id}/overrides`)
+      .set(auth(ownerToken))
+      .send({ overrides: [{ date: later, available_from: null, available_to: null }] });
+    res = await request(app)
+      .get(`/api/tenants/${tenant.id}/closure-conflicts`)
+      .set(auth(ownerToken));
+    expect(res.body.dates.find((d) => d.date === later)?.conflicts ?? []).toEqual([]);
+    await request(app)
+      .put(`/api/products/${p.id}/overrides`)
+      .set(auth(ownerToken))
+      .send({ overrides: [] });
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [] });
+
+    // Weekday closure + a WINDOWED per-item rule on it → conflict.
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/weekday-closures`)
+      .set(auth(ownerToken))
+      .send({ weekdays: [2] }); // Wednesdays
+    await request(app)
+      .put(`/api/products/${p.id}/weekday-rules`)
+      .set(auth(ownerToken))
+      .send({ rules: [{ weekday: 2, available_from: '12:00', available_to: '20:00' }] });
+    res = await request(app)
+      .get(`/api/tenants/${tenant.id}/closure-conflicts`)
+      .set(auth(ownerToken));
+    const weekdayConflict = res.body.weekdays.find((w) => w.weekday === 2);
+    expect(weekdayConflict).toBeDefined();
+    expect(weekdayConflict.conflicts[0].itemId).toBe(p.id);
+
+    await request(app)
+      .put(`/api/products/${p.id}/weekday-rules`)
+      .set(auth(ownerToken))
+      .send({ rules: [] });
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/weekday-closures`)
+      .set(auth(ownerToken))
+      .send({ weekdays: [] });
+  });
+
+  it('computes nextOpenAt: skips closed days, returns the earliest opening', async () => {
+    const later = dateKey(new Date(Date.now() + 24 * 60 * 60 * 1000));
+    await createProduct({ name: 'Next-Open Dish', available_from: '11:00', available_to: '22:00' });
+
+    // Closed today → next open is tomorrow (the earliest item opening across
+    // the shared suite DB — all-day items start at 00:00, the 11:00 window
+    // included, so only the DAY is asserted).
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [dateKey()] });
+    const nextOpen = await computeNextOpenAt(tenant.id);
+    expect(nextOpen).not.toBeNull();
+    const d = new Date(nextOpen);
+    expect(d.getDate()).toBe(new Date(later + 'T00:00:00').getDate());
+
+    // Tomorrow closed too → the day after.
+    const dayAfter = dateKey(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000));
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [dateKey(), later] });
+    const nextOpen2 = new Date(await computeNextOpenAt(tenant.id));
+    expect(nextOpen2.getDate()).toBe(new Date(dayAfter + 'T00:00:00').getDate());
+
+    // Restaurant open now → returns now.
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [] });
+    const open = await computeNextOpenAt(tenant.id);
+    expect(Math.abs(new Date(open).getTime() - Date.now())).toBeLessThan(60_000);
+  });
+
+  it('the availability endpoint answers windows mode (date-only) vs instant mode', async () => {
+    const p = await createProduct({ name: 'Windows Dish', available_from: '09:00', available_to: '18:00' });
+
+    // Windows mode: date-only → per-item open segments.
+    let res = await request(app).get(
+      `/api/public/restaurants/p4-diner/availability?date=${MON}`
+    );
+    expect(res.status).toBe(200);
+    const item = res.body.items.find((i) => i.id === p.id);
+    expect(item.windows).toEqual([{ from: '09:00', to: '18:00' }]);
+    expect(item.available).toBeUndefined(); // no instant check in windows mode
+
+    // All-day item → [{00:00,24:00}]; overnight → two segments.
+    const allDay = await createProduct({ name: 'Windows All-Day' });
+    res = await request(app).get(`/api/public/restaurants/p4-diner/availability?date=${MON}`);
+    expect(res.body.items.find((i) => i.id === allDay.id).windows).toEqual([
+      { from: '00:00', to: '24:00' },
+    ]);
+
+    const overnight = await createProduct({ name: 'Windows Overnight', available_from: '22:00', available_to: '04:00' });
+    res = await request(app).get(`/api/public/restaurants/p4-diner/availability?date=${MON}`);
+    expect(res.body.items.find((i) => i.id === overnight.id).windows).toEqual([
+      { from: '22:00', to: '24:00' },
+      { from: '00:00', to: '04:00' },
+    ]);
+
+    // Restaurant closed that day → every item's windows empty.
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [MON] });
+    res = await request(app).get(`/api/public/restaurants/p4-diner/availability?date=${MON}`);
+    expect(res.body.restaurantClosed).toBe(true);
+    expect(res.body.items.every((i) => i.windows.length === 0)).toBe(true);
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [] });
+
+    // Instant mode (with time) still returns available + reason.
+    res = await request(app).get(
+      `/api/public/restaurants/p4-diner/availability?date=${MON}&time=12:00`
+    );
+    const instant = res.body.items.find((i) => i.id === p.id);
+    expect(instant.available).toBe(true);
+    expect(instant.reason).toBe('open');
+    expect(instant.windows).toBeUndefined();
+  });
+
+  it('the public menu payload carries nextOpenAt while closed', async () => {
+    const pub = await request(app).get('/api/public/restaurants/p4-diner/menu');
+    expect(pub.body.closedToday).toBe(false);
+    expect(pub.body.nextOpenAt).toBeNull();
+
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [dateKey()] });
+    const closed = await request(app).get('/api/public/restaurants/p4-diner/menu');
+    expect(closed.body.closedToday).toBe(true);
+    expect(typeof closed.body.nextOpenAt).toBe('string');
+
+    await request(app)
+      .put(`/api/tenants/${tenant.id}/closures`)
+      .set(auth(ownerToken))
+      .send({ dates: [] });
   });
 });

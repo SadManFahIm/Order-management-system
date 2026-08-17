@@ -476,6 +476,38 @@
   margin-top: 2px;
 }
 
+.closed-banner__next {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--chilli);
+  background: color-mix(in srgb, var(--chilli) 8%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--chilli) 30%, var(--line));
+  border-radius: 999px;
+  padding: 5px 13px;
+  width: max-content;
+}
+
+/* Per-dish "Check times" — opens the availability calendar modal. */
+.dish__times {
+  margin-left: 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--tile);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  vertical-align: middle;
+  transition: border-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
+}
+
+.dish__times:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
 /* ---- Storefront scarcity cues (Phase 4 follow-up) ----
    "Only N left" urgency on low-stock dishes and a muted "Sold out"
    state that disables the add button — both paper-theme aware. */

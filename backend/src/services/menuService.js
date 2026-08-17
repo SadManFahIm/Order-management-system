@@ -268,6 +268,137 @@ export async function replaceAvailabilityOverrides(tenantId, actorUser, productI
 }
 
 /**
+ * Computes the orderable time segments of one item on the context's date,
+ * after the full resolution (closure → weekday rule → override → base
+ * window). Returns 'HH:MM' pairs; overnight windows split into two
+ * segments (e.g. 22:00→24:00 + 00:00→04:00); all-day = [{00:00,24:00}].
+ * Empty array = not orderable that day.
+ */
+export function effectiveWindowSegments(item, ctx) {
+  if (!item || item.enabled === false) return [];
+  if (ctx.restaurantClosed || ctx.restaurantWeekdayClosed) return [];
+  const rule = ctx.weekdayByItem.get(item.id);
+  const override = ctx.overrideByItem.get(item.id);
+  const src = rule || override || item;
+  const from = toMinutes(src.available_from);
+  const to = toMinutes(src.available_to);
+  if (from === null && to === null) return [{ from: '00:00', to: '24:00' }];
+  if (from !== null && to !== null) {
+    if (from <= to) return [{ from: src.available_from, to: src.available_to }];
+    // Overnight window: wraps past midnight.
+    return [
+      { from: src.available_from, to: '24:00' },
+      { from: '00:00', to: src.available_to },
+    ];
+  }
+  if (from !== null) return [{ from: src.available_from, to: '24:00' }];
+  return [{ from: '00:00', to: src.available_to }];
+}
+
+/**
+ * Closure conflict scan (Phase 5 follow-up): when a restaurant-wide closure
+ * date or weekday closure overlaps an item that has a WINDOWED override or
+ * weekday rule opening it that same day, the two settings contradict each
+ * other (the item would be open while the restaurant is closed). Returns
+ * the conflicting items per closure date / weekday so the merchant UI can
+ * warn before saving. Items closed by their own override/rule (both bounds
+ * NULL) are consistent and never reported.
+ */
+export async function closureConflicts(tenantId) {
+  const [closures, weekdayRules] = await Promise.all([
+    TenantClosureDate.findAll({
+      where: { tenant_id: tenantId },
+      order: [['date', 'ASC']],
+    }),
+    AvailabilityWeekdayRule.findAll({ where: { tenant_id: tenantId } }),
+  ]);
+
+  const names = await Product.findAll({
+    where: { tenant_id: tenantId },
+    attributes: ['id', 'name'],
+  });
+  const nameById = new Map(names.map((n) => [n.id, n.name]));
+
+  // Date conflicts: a windowed override on a closed day.
+  const overrides = closures.length
+    ? await AvailabilityOverride.findAll({
+        where: { tenant_id: tenantId, date: { [Op.in]: closures.map((c) => c.date) } },
+      })
+    : [];
+  const byDate = new Map();
+  for (const o of overrides) {
+    if (o.available_from === null && o.available_to === null) continue; // consistent with the closure
+    if (!byDate.has(o.date)) byDate.set(o.date, []);
+    byDate.get(o.date).push({
+      itemId: o.menu_item_id,
+      itemName: nameById.get(o.menu_item_id),
+      availableFrom: o.available_from,
+      availableTo: o.available_to,
+    });
+  }
+
+  // Weekday conflicts: a windowed per-item rule on a closed weekday.
+  const closedWeekdays = new Set(
+    weekdayRules.filter((r) => r.menu_item_id === null).map((r) => r.weekday)
+  );
+  const byWeekday = new Map();
+  for (const r of weekdayRules) {
+    if (r.menu_item_id === null) continue;
+    if (!closedWeekdays.has(r.weekday)) continue;
+    if (r.available_from === null && r.available_to === null) continue;
+    if (!byWeekday.has(r.weekday)) byWeekday.set(r.weekday, []);
+    byWeekday.get(r.weekday).push({
+      itemId: r.menu_item_id,
+      itemName: nameById.get(r.menu_item_id),
+      availableFrom: r.available_from,
+      availableTo: r.available_to,
+    });
+  }
+
+  return {
+    dates: [...byDate.entries()].map(([date, conflicts]) => ({ date, conflicts })),
+    weekdays: [...byWeekday.entries()].map(([weekday, conflicts]) => ({ weekday, conflicts })),
+  };
+}
+
+/**
+ * Next instant the restaurant is open (Phase 5 follow-up): scans up to 14
+ * days forward from `now`, skipping restaurant-closed days (closure dates +
+ * weekday closures), and returns the ISO timestamp of the earliest moment
+ * any enabled item is orderable — used by the storefront's closed banner
+ * ("back open {weekday} at {time}"). If the restaurant is open right now,
+ * returns now. Returns null when nothing opens within the horizon.
+ */
+export async function computeNextOpenAt(tenantId, now = new Date()) {
+  const MAX_DAYS = 14;
+  for (let d = 0; d < MAX_DAYS; d += 1) {
+    const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() + d);
+    const ctx = await buildAvailabilityContext(tenantId, day);
+    if (ctx.restaurantClosed || ctx.restaurantWeekdayClosed) continue;
+
+    const items = await Product.findAll({
+      where: { tenant_id: tenantId, enabled: true },
+      attributes: ['id', 'available_from', 'available_to'],
+    });
+    let earliest = null;
+    for (const item of items) {
+      const segments = effectiveWindowSegments(item, ctx);
+      if (segments.length === 0) continue;
+      const from = segments[0].from; // segments are ascending
+      if (earliest === null || from < earliest) earliest = from;
+    }
+    if (earliest === null) continue;
+
+    const [h, m] = earliest.split(':').map(Number);
+    const at = new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, m);
+    // d === 0 with an opening earlier than now ⇒ the restaurant is already
+    // open — "next open" is right now.
+    return at.getTime() > now.getTime() ? at.toISOString() : now.toISOString();
+  }
+  return null;
+}
+
+/**
  * Restaurant-wide closure dates (Phase 5): replace-all save of the
  * workspace's closed days (holidays, private events). `dates` is the full
  * list of YYYY-MM-DD strings — any stored closure not in the list is
