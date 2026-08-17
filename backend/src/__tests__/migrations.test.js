@@ -88,6 +88,7 @@ describe('migration runner', () => {
       '021_variant_low_stock.js',
       '022_availability_overrides.js',
       '023_restaurant_closures_weekday_rules.js',
+      '024_closure_labels.js',
     ]);
   });
 
@@ -119,7 +120,7 @@ describe('migration runner', () => {
   it('reports every migration as applied', async () => {
     const status = await migrationStatus(sequelize);
     expect(status.every((row) => row.state === 'applied')).toBe(true);
-    expect(status).toHaveLength(23);
+    expect(status).toHaveLength(24);
   });
 
   it('adds menu_items.vat_rate via migration 009', async () => {
@@ -133,6 +134,10 @@ describe('migration runner', () => {
 
   it('rolls back only the most recent migration, then re-applies', async () => {
     const qi = sequelize.getQueryInterface();
+
+    // Down 024: removes the closure label column (holiday names).
+    expect(await migrateDown(sequelize)).toBe(1);
+    expect((await qi.describeTable('tenant_closure_dates')).label).toBeUndefined();
 
     // Down 023: drops the closure/rule tables (restaurant-wide closures +
     // recurring weekday rules).
@@ -227,8 +232,8 @@ describe('migration runner', () => {
     expect(await migrateDown(sequelize)).toBe(1);
     expect((await qi.describeTable('orders')).table_no).toBeUndefined();
 
-    // Re-applying restores all seventeen rolled-back (including 021–023).
-    expect(await migrateUp(sequelize)).toBe(17);
+    // Re-applying restores all eighteen rolled-back (including 021–024).
+    expect(await migrateUp(sequelize)).toBe(18);
     expect(await qi.tableExists('tenant_invites')).toBe(true);
     expect((await qi.describeTable('plans')).max_products).toBeDefined();
     expect((await qi.describeTable('plans')).storage_mb).toBeDefined();
@@ -264,6 +269,8 @@ describe('migration runner', () => {
     // 023 restored: restaurant-wide closures + recurring weekday rules.
     expect(await qi.tableExists('tenant_closure_dates')).toBe(true);
     expect(await qi.tableExists('availability_weekday_rules')).toBe(true);
+    // 024 restored: closure labels.
+    expect((await qi.describeTable('tenant_closure_dates')).label).toBeDefined();
   });
 
   it('refuses to roll back a migration that is not the most recent', async () => {

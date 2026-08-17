@@ -646,8 +646,17 @@
   padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
   display: flex;
   justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
   pointer-events: none;
   background: linear-gradient(180deg, transparent, rgba(246, 241, 229, 0.92) 45%);
+}
+
+.cartbar__pill--ghost {
+  background: color-mix(in srgb, var(--brand) 12%, var(--card));
+  color: var(--brand);
+  border: 1.5px solid color-mix(in srgb, var(--brand) 45%, transparent);
+  box-shadow: none;
 }
 
 .cartbar__pill {
