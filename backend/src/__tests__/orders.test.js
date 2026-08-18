@@ -269,7 +269,7 @@ describe('PATCH /api/orders/:id/status (fulfillment lifecycle)', () => {
     const canceled = await request(app)
       .patch(`/api/orders/${placed.body.id}/status`)
       .set('Authorization', `Bearer ${managerToken}`)
-      .send({ status: 'canceled' });
+      .send({ status: 'canceled', reason: 'test' });
     expect(canceled.status).toBe(200);
     expect(canceled.body.status).toBe('canceled');
 
@@ -277,7 +277,7 @@ describe('PATCH /api/orders/:id/status (fulfillment lifecycle)', () => {
     const again = await request(app)
       .patch(`/api/orders/${placed.body.id}/status`)
       .set('Authorization', `Bearer ${managerToken}`)
-      .send({ status: 'canceled' });
+      .send({ status: 'canceled', reason: 'test' });
     expect(again.status).toBe(409);
 
     // A ready order cannot be canceled.
@@ -293,7 +293,7 @@ describe('PATCH /api/orders/:id/status (fulfillment lifecycle)', () => {
     const lateCancel = await request(app)
       .patch(`/api/orders/${ready.body.id}/status`)
       .set('Authorization', `Bearer ${managerToken}`)
-      .send({ status: 'canceled' });
+      .send({ status: 'canceled', reason: 'test' });
     expect(lateCancel.status).toBe(409);
   });
 
@@ -335,7 +335,7 @@ describe('PATCH /api/orders/:id/status (fulfillment lifecycle)', () => {
     const res = await request(app)
       .patch(`/api/orders/${placed.body.id}/status`)
       .set('Authorization', `Bearer ${otherToken}`)
-      .send({ status: 'canceled' });
+      .send({ status: 'canceled', reason: 'test' });
     expect(res.status).toBe(404);
   });
 });
@@ -408,7 +408,7 @@ describe('GET /api/orders — filters (kitchen/delivery view)', () => {
     await request(app)
       .patch(`/api/orders/${placed.body.id}/status`)
       .set('Authorization', `Bearer ${managerToken}`)
-      .send({ status: 'canceled' });
+      .send({ status: 'canceled', reason: 'test' });
 
     const res = await request(app)
       .get('/api/orders?status=placed')

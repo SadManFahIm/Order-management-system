@@ -23,6 +23,10 @@ const UserTenant = sequelize.define(
     // the role's base matrix — e.g. ['refund:orders', '-manage:menu'].
     // A leading '-' denies a permission the role would otherwise grant.
     permissions: { type: DataTypes.JSONB, allowNull: true },
+    // Delivery zone coverage (migration 025): JSON array of zone names a
+    // delivery member covers. NULL/empty = covers every zone. Used by
+    // delivery auto-assignment to pick an in-zone, least-loaded rider.
+    delivery_zones: { type: DataTypes.JSONB, allowNull: true },
   },
   {
     tableName: 'user_tenants',

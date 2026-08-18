@@ -371,7 +371,7 @@ describe('payment reconciliation + guards', () => {
     const cancel = await request(app)
       .patch(`/api/orders/${c.body.id}/status`)
       .set('Authorization', `Bearer ${managerToken}`)
-      .send({ status: 'canceled' });
+      .send({ status: 'canceled', reason: 'test' });
     expect(cancel.status).toBe(200);
 
     const res = await splitOrder(cashierToken, c.body.id, {

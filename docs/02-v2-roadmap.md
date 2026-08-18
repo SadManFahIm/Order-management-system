@@ -243,6 +243,13 @@ Core tables for V2 (migrations land phase by phase):
 
 **Acceptance criteria:** full happy path (browse → cart → checkout → kitchen accepts → status updates → delivery) works e2e; duplicate-submit creates exactly one order; scheduled order fires on time; kitchen sees live queue updates; invoice PDF generated per order.
 
+**Phase 5 follow-ups — ordering & fulfillment round 2 (migration 025)**
+- **Order editing with an approval flow** — `order_edit_requests`: staff/customer request item changes on a still-live `placed`/`accepted`/`preparing` order; the live order stays immutable until a manager **approves** (server-side re-price → rewrite `order_items` → recompute `payment_status`/stock → realtime publish) or **rejects**; one pending request per order (`409 EDIT_REQUEST_PENDING`); public request path via order-no + phone-tail auth
+- **Delivery auto-assignment** — `delivery_zones` catalogue + `user_tenants.delivery_zones` rider coverage; least-loaded in-zone rider auto-assigned at `ready`, never overwriting manual assignments; `POST /orders/auto-assign` tenant sweep; `order.assigned` realtime
+- **KDS bump bar / prep timer / overdue** — `prep_started_at` on `preparing`, idempotent `POST /orders/:id/bump` → `ready`; live-ticking prep timer + ⚠ OVERDUE highlight in the Orders list
+- **Cancellation reasons** — `orders.cancel_reason` + `canceled_by`, required on every cancel and surfaced in the list + audit
+- **Offline submit queue** — storefront checkout parks failed submissions in `localStorage` (`oms.pending.<slug>`) with per-entry Idempotency-Keys and auto-replays them on `online`, never double-creating
+
 ---
 
 ### Phase 6 — Payments

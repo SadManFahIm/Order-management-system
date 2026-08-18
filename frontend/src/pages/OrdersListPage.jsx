@@ -5,6 +5,7 @@ import { useI18n } from '../i18n';
 import { useRealtimeOrders } from '../hooks/useRealtimeOrders';
 import { PageHeader, Card, Table, Button, Badge, Select, Skeleton, useToast } from '../components/ui';
 import SplitBillModal from '../components/SplitBillModal';
+import OrderEditModal from '../components/OrderEditModal';
 
 const fmt = (n) => `৳ ${Number(n).toFixed(2)}`;
 
@@ -32,6 +33,11 @@ const STATUS_ORDER = [
 
 const DELIVERY_TYPES = ['delivery', 'scheduled_delivery'];
 
+// KDS prep timer (Phase 5 follow-up): an order is "overdue" once it has been
+// preparing for longer than this window — it gets the danger highlight + a
+// badge so the kitchen can see at a glance what needs attention.
+const PREP_WINDOW_MS = 10 * 60 * 1000;
+
 // Next step in the happy path, or null when terminal/canceled.
 // ready → out_for_delivery for delivery orders, delivered for pickup.
 const NEXT_STATUS = (order) => {
@@ -40,6 +46,14 @@ const NEXT_STATUS = (order) => {
   if (order.status === 'accepted') return 'preparing';
   if (order.status === 'out_for_delivery') return 'delivered';
   return null;
+};
+
+/** Elapsed (ms) the order has been in its current prep-facing state. */
+const prepElapsedMs = (order, now) => {
+  const start = order.prep_started_at || order.created_at || order.updated_at;
+  if (!start) return 0;
+  const t = new Date(start).getTime();
+  return Number.isFinite(t) ? Math.max(0, now - t) : 0;
 };
 
 const statusLabel = (t, status) => t(`orders.${status}`);
@@ -67,6 +81,9 @@ export default function OrdersListPage() {
   const [tables, setTables] = useState([]);
   const [members, setMembers] = useState([]);
   const [filters, setFilters] = useState({ status: '', tableNo: '', sort: 'open', assignedToMe: false });
+  const [editFor, setEditFor] = useState(null); // { order } — order-edit-request modal
+  // KDS prep timer tick — re-renders the elapsed-time cells every 15s.
+  const [now, setNow] = useState(() => Date.now());
   const toast = useToast();
   const { t } = useI18n();
   const { tenants, activeTenantId } = useAuth();
@@ -161,6 +178,24 @@ export default function OrdersListPage() {
     }
   };
 
+  // KDS live timer refresh (Phase 5 follow-up).
+  useEffect(() => {
+    const iv = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(iv);
+  }, []);
+
+  // KDS "bump" — pushes a preparing order into the pickup bar (ready). The
+  // backend is idempotent, so the kitchen can tap it again harmlessly.
+  const bumpOrder = async (o) => {
+    try {
+      await api.post(`/orders/${o.id}/bump`);
+      toast.success(`Order #${o.id} → ${statusLabel(t, 'ready')}`);
+      await load();
+    } catch {
+      toast.error(t('orders.couldNotUpdate'));
+    }
+  };
+
   const markPaid = async (o) => {
     const payment = (o.payments || [])[0];
     if (!payment) return;
@@ -229,8 +264,16 @@ export default function OrdersListPage() {
   };
 
   const onCancel = (o) => {
+    // Cancellation reasons are mandatory (Phase 5 follow-up): prompt first so
+    // the backend always receives one and it lands in the audit trail.
+    const reason = window.prompt(t('orders.cancelReasonPrompt'));
+    if (reason === null) return;
+    if (!reason.trim()) {
+      toast.error(t('orders.cancelReasonRequired'));
+      return;
+    }
     if (!window.confirm(t('orders.cancelConfirm', o.id))) return;
-    setStatus(o, 'canceled');
+    setStatus(o, 'canceled', { reason: reason.trim() });
   };
 
   return (
@@ -434,15 +477,41 @@ export default function OrdersListPage() {
                 );
               }
               if (key === 'items') return o.items?.length ?? 0;
-              if (key === 'status')
+              if (key === 'status') {
+                // KDS prep timer + overdue highlight (Phase 5 follow-up).
+                const inPrep = ['accepted', 'preparing'].includes(o.status);
+                const elapsed = inPrep ? prepElapsedMs(o, now) : 0;
+                const overdue = inPrep && elapsed > PREP_WINDOW_MS;
+                const mins = Math.floor(elapsed / 60000);
+                const tone = overdue ? 'danger' : STATUS_TONE[o.status] || 'neutral';
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
-                    <Badge tone={STATUS_TONE[o.status] || 'neutral'}>
+                    <Badge tone={tone}>
                       {statusLabel(t, o.status) || o.status}
+                      {overdue && (
+                        <span style={{ fontWeight: 800 }}> · ⚠ {t('orders.overdue')}</span>
+                      )}
                     </Badge>
+                    {inPrep && (
+                      <span
+                        style={{
+                          fontSize: 11.5,
+                          fontWeight: 700,
+                          color: overdue ? 'var(--danger, #c62828)' : 'var(--text-muted)',
+                        }}
+                        title={t('orders.prepTimerHint')}
+                      >
+                        {overdue ? '⏰' : '🕒'} {t('orders.prepTimer', mins)}
+                      </span>
+                    )}
                     {o.status === 'rejected' && o.rejected_reason && (
                       <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }} title={o.rejected_reason}>
                         {o.rejected_reason.slice(0, 40)}{o.rejected_reason.length > 40 ? '…' : ''}
+                      </span>
+                    )}
+                    {o.status === 'canceled' && o.cancel_reason && (
+                      <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }} title={o.cancel_reason}>
+                        {o.cancel_reason.slice(0, 40)}{o.cancel_reason.length > 40 ? '…' : ''}
                       </span>
                     )}
                     {o.scheduled_at && (
@@ -452,6 +521,7 @@ export default function OrdersListPage() {
                     )}
                   </div>
                 );
+              }
               if (key === 'actions') {
                 const next = NEXT_STATUS(o);
                 const waLink = whatsappLinkFor(waNumber, o);
@@ -459,6 +529,11 @@ export default function OrdersListPage() {
                 const assignable = canManage && isDelivery && !['delivered', 'canceled', 'rejected'].includes(o.status);
                 const canAcceptOrder = canFulfill && o.status === 'placed';
                 const canRejectOrder = canFulfill && ['placed', 'accepted'].includes(o.status);
+                // KDS bump bar: a preparing order is bumped into the pickup bar.
+                const canBump = canFulfill && o.status === 'preparing';
+                // Order editing (approval flow): staff can request an edit on a
+                // still-live order; a manager later approves/rejects it.
+                const canEdit = canPlace && ['placed', 'accepted', 'preparing'].includes(o.status);
                 // Dine-in orders on a physical table can be split at the counter.
                 const canSplit = canPlace && !!o.table_no && !['canceled', 'rejected'].includes(o.status);
                 return (
@@ -521,6 +596,16 @@ export default function OrdersListPage() {
                         ✕ {t('orders.reject')}
                       </Button>
                     )}
+                    {canBump && (
+                      <Button size="sm" variant="primary" onClick={() => bumpOrder(o)} title={t('orders.bumpHint')}>
+                        ⇧ {t('orders.bump')}
+                      </Button>
+                    )}
+                    {canEdit && (
+                      <Button size="sm" variant="ghost" onClick={() => setEditFor({ order: o })} title={t('orders.editRequest')}>
+                        ✎ {t('orders.edit')}
+                      </Button>
+                    )}
                     {next && (next === 'delivered' || next === 'out_for_delivery' ? canDeliver : canFulfill) && (
                       <Button size="sm" variant="primary" onClick={() => onAdvance(o)}>
                         {statusLabel(t, next)}
@@ -568,6 +653,14 @@ export default function OrdersListPage() {
         order={splitFor?.order}
         presetDiners={splitFor?.presetDiners}
         onClose={() => setSplitFor(null)}
+        onSaved={() => load()}
+      />
+
+      <OrderEditModal
+        open={!!editFor}
+        order={editFor?.order}
+        canManage={canManage}
+        onClose={() => setEditFor(null)}
         onSaved={() => load()}
       />
     </div>

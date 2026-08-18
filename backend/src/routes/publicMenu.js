@@ -28,6 +28,8 @@ import {
   computeNextOpenAt,
 } from '../services/menuService.js';
 import { wallToUtc } from '../utils/timezone.js';
+import { createEditRequest } from '../services/editRequestService.js';
+import { orderItemSchema } from '../validators/order.js';
 
 /**
  * Public, read-only storefront menu API (Phase 4).
@@ -459,6 +461,49 @@ router.get(
         lineTotal: Math.round(Number(i.line_total || 0) * 100) / 100,
       })),
     });
+  })
+);
+
+/**
+ * POST /api/public/restaurants/orders/:orderNo/edit-request — customer asks
+ * to change a placed order (approval flow).
+ *
+ * Privacy-safe like /track: authenticated by order-no + phone (last 10 digits
+ * must match; a mismatch 404s identically — no existence oracle). Creates a
+ * PENDING edit request that a manager approves/rejects via the merchant UI.
+ * The live order is untouched until approval.
+ */
+router.post(
+  '/orders/:orderNo/edit-request',
+  asyncHandler(async (req, res) => {
+    const { orderNo } = req.params;
+    const { phone } = req.body;
+    if (!orderNo || !phone) {
+      throw new AppError(400, 'VALIDATION_ERROR', 'orderNo and phone are required');
+    }
+    const digits = (v) => String(v || '').replace(/\D/g, '');
+    const phoneTail = digits(phone).slice(-10);
+    if (phoneTail.length < 10) {
+      throw new AppError(400, 'VALIDATION_ERROR', 'phone must be a valid number');
+    }
+
+    const order = await Order.findOne({ where: { order_no: String(orderNo).trim() } });
+    if (!order || digits(order.customer_phone).slice(-10) !== phoneTail) {
+      throw new AppError(404, 'NOT_FOUND', 'Order not found — check the order number and phone');
+    }
+    const tenant = order.tenant_id ? await Tenant.findByPk(order.tenant_id) : null;
+    if (!tenant) throw new AppError(404, 'NOT_FOUND', 'Order not found');
+
+    const items = orderItemSchema.array().min(1).parse(req.body.items);
+    const edit = await createEditRequest({
+      tenant,
+      orderId: order.id,
+      orderNo: order.order_no,
+      phone: order.customer_phone,
+      items: items.map((i) => ({ product_id: i.product_id, quantity: i.quantity })),
+      reason: req.body.reason,
+    });
+    res.status(201).json({ id: edit.id, status: edit.status, orderNo: order.order_no });
   })
 );
 

@@ -51,6 +51,8 @@ const EXPECTED_TABLES = [
   'availability_overrides',
   'tenant_closure_dates',
   'availability_weekday_rules',
+  'order_edit_requests',
+  'delivery_zones',
 ];
 
 describe('migration runner', () => {
@@ -89,6 +91,7 @@ describe('migration runner', () => {
       '022_availability_overrides.js',
       '023_restaurant_closures_weekday_rules.js',
       '024_closure_labels.js',
+      '025_ordering_fulfillment.js',
     ]);
   });
 
@@ -120,7 +123,7 @@ describe('migration runner', () => {
   it('reports every migration as applied', async () => {
     const status = await migrationStatus(sequelize);
     expect(status.every((row) => row.state === 'applied')).toBe(true);
-    expect(status).toHaveLength(24);
+    expect(status).toHaveLength(25);
   });
 
   it('adds menu_items.vat_rate via migration 009', async () => {
@@ -134,6 +137,17 @@ describe('migration runner', () => {
 
   it('rolls back only the most recent migration, then re-applies', async () => {
     const qi = sequelize.getQueryInterface();
+
+    // Down 025: drops the ordering/fulfillment tables + columns (edit
+    // requests, delivery zones, rider coverage, cancel reason, KDS timers).
+    expect(await migrateDown(sequelize)).toBe(1);
+    expect(await qi.tableExists('order_edit_requests')).toBe(false);
+    expect(await qi.tableExists('delivery_zones')).toBe(false);
+    expect((await qi.describeTable('orders')).cancel_reason).toBeUndefined();
+    expect((await qi.describeTable('orders')).delivery_zone).toBeUndefined();
+    expect((await qi.describeTable('orders')).prep_started_at).toBeUndefined();
+    expect((await qi.describeTable('orders')).bumped_at).toBeUndefined();
+    expect((await qi.describeTable('user_tenants')).delivery_zones).toBeUndefined();
 
     // Down 024: removes the closure label column (holiday names).
     expect(await migrateDown(sequelize)).toBe(1);
@@ -232,8 +246,8 @@ describe('migration runner', () => {
     expect(await migrateDown(sequelize)).toBe(1);
     expect((await qi.describeTable('orders')).table_no).toBeUndefined();
 
-    // Re-applying restores all eighteen rolled-back (including 021–024).
-    expect(await migrateUp(sequelize)).toBe(18);
+    // Re-applying restores all nineteen rolled-back (including 025–021).
+    expect(await migrateUp(sequelize)).toBe(19);
     expect(await qi.tableExists('tenant_invites')).toBe(true);
     expect((await qi.describeTable('plans')).max_products).toBeDefined();
     expect((await qi.describeTable('plans')).storage_mb).toBeDefined();

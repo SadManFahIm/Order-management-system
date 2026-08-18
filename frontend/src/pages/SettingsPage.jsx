@@ -4,6 +4,7 @@ import api from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../i18n';
 import { PageHeader, Card, Button, Field, Input, Textarea, Switch, Badge, Skeleton, useToast } from '../components/ui';
+import DeliveryZonesCard from '../components/DeliveryZonesCard';
 
 const PRESETS = [
   { name: 'KFC red', primary: '#e4002b', accent: '#ffd400' },
@@ -1359,6 +1360,9 @@ export default function SettingsPage() {
           )}
         </Card>
       )}
+
+      {/* Delivery zones + rider coverage — auto-assignment (Phase 5 follow-up) */}
+      {canManageUsers && <DeliveryZonesCard />}
     </div>
   );
 }

@@ -32,6 +32,9 @@ export const createOrderSchema = z.object({
   // Requested pickup/delivery time for scheduled_* orders (ISO datetime,
   // validated in the route).
   scheduled_at: z.string().trim().optional().or(z.literal('')),
+  // Delivery zone (Phase 5 follow-up): optional zone a delivery order belongs
+  // to; auto-assignment picks a least-loaded rider covering that zone.
+  delivery_zone: z.string().trim().max(64).optional().or(z.literal('')),
   // Split payments (Phase 6) — when present, creates one payment row per part
   // instead of a single one; each part must be an enabled non-online method
   // and the parts must sum to the order total (validated in the route/service
