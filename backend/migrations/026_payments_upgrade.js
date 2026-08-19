@@ -82,7 +82,7 @@ export const up = async (qi, transaction) => {
         defaultValue: 'processed',
       },
       created_by: { type: DataTypes.INTEGER, allowNull: true },
-      created_at: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+      created_at: { type: DataTypes.DATE, allowNull: false, defaultValue: qi.sequelize.literal('CURRENT_TIMESTAMP') },
       processed_at: { type: DataTypes.DATE, allowNull: true },
     },
     { ...t, indexes: [{ fields: ['tenant_id', 'payment_id'] }, { fields: ['order_id'] }] }
@@ -115,11 +115,11 @@ export const up = async (qi, transaction) => {
         defaultValue: 'pending',
       },
       bank_ref: { type: DataTypes.STRING(120), allowNull: true },
-      requested_at: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+      requested_at: { type: DataTypes.DATE, allowNull: false, defaultValue: qi.sequelize.literal('CURRENT_TIMESTAMP') },
       processed_at: { type: DataTypes.DATE, allowNull: true },
       created_by: { type: DataTypes.INTEGER, allowNull: true },
-      created_at: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
-      updated_at: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+      created_at: { type: DataTypes.DATE, allowNull: false, defaultValue: qi.sequelize.literal('CURRENT_TIMESTAMP') },
+      updated_at: { type: DataTypes.DATE, allowNull: false, defaultValue: qi.sequelize.literal('CURRENT_TIMESTAMP') },
     },
     {
       ...t,
