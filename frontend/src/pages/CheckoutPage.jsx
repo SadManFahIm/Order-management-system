@@ -105,7 +105,6 @@ export default function CheckoutPage() {
   // server the order is parked locally and replayed once the browser is back
   // online. `queued` shows the "we saved your order" confirmation.
   const [queued, setQueued] = useState(null); // null | { id, count }
-  const [queuedCount, setQueuedCount] = useState(0);
   const idemKeyRef = useRef(null);
 
   const tableNo = searchParams.get('table');
@@ -126,14 +125,10 @@ export default function CheckoutPage() {
   };
 
   // Offline queue: register the global online-listener (replays any parked
-  // orders as soon as connectivity returns) and keep the pending badge fresh.
+  // orders as soon as connectivity returns).
   useEffect(() => {
     setupPendingFlusher();
-    const syncCount = () => setQueuedCount(pendingCount(slug));
-    syncCount();
-    window.addEventListener('online', syncCount);
-    return () => window.removeEventListener('online', syncCount);
-  }, [slug]);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -408,8 +403,11 @@ export default function CheckoutPage() {
     }
     setSubmitting(true);
     setError(null);
+    // Built before the request so the offline catch can replay the exact
+    // payload (body must be in scope in the catch block).
+    let body;
     try {
-      const body = {
+      body = {
         order_type: orderType,
         customer_name: form.name.trim(),
         customer_phone: form.phone.trim(),

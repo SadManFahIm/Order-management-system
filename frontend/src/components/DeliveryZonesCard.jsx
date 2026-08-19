@@ -29,7 +29,6 @@ export default function DeliveryZonesCard() {
   useEffect(() => {
     if (!activeTenantId) return undefined;
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTenantId]);
 
   const addZone = async () => {

@@ -16,7 +16,7 @@ import {
   OrderEditRequest,
   DeliveryZone,
 } from '../models/index.js';
-import { autoAssign } from '../services/assignmentService.js';
+import { autoAssign, autoAssignTenant, deliveryMembers } from '../services/assignmentService.js';
 import { createEditRequest, approveEditRequest, rejectEditRequest } from '../services/editRequestService.js';
 
 /**
@@ -330,5 +330,243 @@ describe('delivery zone CRUD + rider coverage', () => {
     const list = await request(app).get('/api/orders/delivery-zones').set(auth(managerToken));
     expect(list.status).toBe(200);
     expect(list.body.some((z) => z.name === 'Mirpur')).toBe(true);
+  });
+
+  it('renames/toggles and deletes a zone', async () => {
+    const created = await request(app)
+      .post('/api/orders/delivery-zones')
+      .set(auth(managerToken))
+      .send({ name: 'Uttara' });
+    const id = created.body.id;
+    expect(created.status).toBe(201);
+
+    const toggled = await request(app)
+      .patch(`/api/orders/delivery-zones/${id}`)
+      .set(auth(managerToken))
+      .send({ is_active: false });
+    expect(toggled.status).toBe(200);
+    expect(toggled.body.is_active).toBe(false);
+
+    const renamed = await request(app)
+      .patch(`/api/orders/delivery-zones/${id}`)
+      .set(auth(managerToken))
+      .send({ name: 'Uttara North' });
+    expect(renamed.status).toBe(200);
+    expect(renamed.body.name).toBe('Uttara North');
+
+    const del = await request(app)
+      .delete(`/api/orders/delivery-zones/${id}`)
+      .set(auth(managerToken));
+    expect(del.status).toBe(200);
+    const list = await request(app).get('/api/orders/delivery-zones').set(auth(managerToken));
+    expect(list.body.some((z) => z.id === id)).toBe(false);
+  });
+
+  it('lists delivery members and updates their zone coverage', async () => {
+    const members = await request(app).get('/api/orders/delivery-members').set(auth(managerToken));
+    expect(members.status).toBe(200);
+    const rider = members.body.find((m) => m.email === 'rider.one@example.com');
+    expect(rider).toBeTruthy();
+
+    const set = await request(app)
+      .patch(`/api/orders/delivery-members/${rider.id}/zones`)
+      .set(auth(managerToken))
+      .send({ delivery_zones: ['Gulshan', 'Banani'] });
+    expect(set.status).toBe(200);
+    expect(set.body.delivery_zones).toEqual(['Gulshan', 'Banani']);
+
+    const after = await request(app).get('/api/orders/delivery-members').set(auth(managerToken));
+    expect(after.body.find((m) => m.id === rider.id).delivery_zones).toEqual(['Gulshan', 'Banani']);
+  });
+
+  it('sweeps the tenant queue via the auto-assign endpoint', async () => {
+    await request(app).post('/api/orders/auto-assign').set(auth(managerToken)).expect(200);
+  });
+});
+
+describe('assignment service edge coverage', () => {
+  it('autoAssignTenant assigns every eligible unassigned delivery order', async () => {
+    const rider = await makeUser('Rider Sweep', 'rider.sweep@example.com', 'delivery', {
+      delivery_zones: ['SweepZone'],
+    });
+    const unassigned = await Order.create({
+      tenant_id: tenant.id,
+      order_no: 'ORD-SWEEP',
+      customer_name: 'Q',
+      type: 'delivery',
+      delivery_zone: 'SweepZone',
+      status: 'ready',
+      subtotal: 0,
+      total_discount: 0,
+      grand_total: 0,
+    });
+    const count = await autoAssignTenant(tenant.id);
+    expect(count).toBeGreaterThanOrEqual(1);
+    await unassigned.reload();
+    expect(unassigned.assigned_to).toBe(rider.id);
+  });
+
+  it('deliveryMembers returns the delivery-role members with user info', async () => {
+    const members = await deliveryMembers(tenant.id);
+    expect(members.length).toBeGreaterThanOrEqual(1);
+    expect(members[0].User).toBeTruthy();
+  });
+
+  it('coversZone treats empty coverage as covering all zones', async () => {
+    const noZones = await makeUser('Rider Anywhere', 'rider.anywhere@example.com', 'delivery');
+    const order = await Order.create({
+      tenant_id: tenant.id,
+      order_no: 'ORD-ANY',
+      customer_name: 'A',
+      type: 'delivery',
+      delivery_zone: 'Dhanmondi',
+      status: 'ready',
+      subtotal: 0,
+      total_discount: 0,
+      grand_total: 0,
+    });
+    expect(await autoAssign(tenant.id, order)).toBe(noZones.id);
+  });
+
+  it('autoAssign is a no-op for terminal / non-delivery orders', async () => {
+    const delivered = await Order.create({
+      tenant_id: tenant.id,
+      order_no: 'ORD-TERM',
+      customer_name: 'T',
+      type: 'delivery',
+      status: 'delivered',
+      subtotal: 0,
+      total_discount: 0,
+      grand_total: 0,
+    });
+    expect(await autoAssign(tenant.id, delivered)).toBeNull();
+    const pickup = await Order.create({
+      tenant_id: tenant.id,
+      order_no: 'ORD-PICK',
+      customer_name: 'P',
+      type: 'pickup',
+      status: 'ready',
+      subtotal: 0,
+      total_discount: 0,
+      grand_total: 0,
+    });
+    expect(await autoAssign(tenant.id, pickup)).toBeNull();
+  });
+});
+
+describe('order editing — approval flow edge cases', () => {
+  it('rejects edit requests on non-editable orders', async () => {
+    const order = await Order.create({
+      tenant_id: tenant.id,
+      order_no: 'ORD-FINAL',
+      customer_name: 'F',
+      type: 'pickup',
+      status: 'delivered',
+      subtotal: 0,
+      total_discount: 0,
+      grand_total: 0,
+    });
+    const res = await request(app)
+      .post(`/api/orders/${order.id}/edit-request`)
+      .set(auth(ownerToken))
+      .send({ items: [{ product_id: productBId, quantity: 1 }] });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INVALID_STATUS_TRANSITION');
+  });
+
+  it('rejects edit requests referencing unavailable products', async () => {
+    const placed = await placeOrder();
+    const res = await request(app)
+      .post(`/api/orders/${placed.body.id}/edit-request`)
+      .set(auth(ownerToken))
+      .send({ items: [{ product_id: 99999, quantity: 1 }] });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('PRODUCT_UNAVAILABLE');
+  });
+
+  it('stores the reject decision note', async () => {
+    const placed = await placeOrder();
+    const req = await request(app)
+      .post(`/api/orders/${placed.body.id}/edit-request`)
+      .set(auth(ownerToken))
+      .send({ items: [{ product_id: productBId, quantity: 1 }] });
+    const rejected = await request(app)
+      .post(`/api/orders/${placed.body.id}/edit-request/${req.body.id}/reject`)
+      .set(auth(managerToken))
+      .send({ note: 'ran out of fries tonight' });
+    expect(rejected.status).toBe(200);
+    const edit = await OrderEditRequest.findByPk(req.body.id);
+    expect(edit.decision_note).toBe('ran out of fries tonight');
+    expect(edit.decided_by).toBeTruthy();
+  });
+
+  it('approve/reject a second time is a 409 (already decided)', async () => {
+    const placed = await placeOrder();
+    const req = await request(app)
+      .post(`/api/orders/${placed.body.id}/edit-request`)
+      .set(auth(ownerToken))
+      .send({ items: [{ product_id: productBId, quantity: 1 }] });
+    await request(app)
+      .post(`/api/orders/${placed.body.id}/edit-request/${req.body.id}/approve`)
+      .set(auth(managerToken));
+    const again = await request(app)
+      .post(`/api/orders/${placed.body.id}/edit-request/${req.body.id}/approve`)
+      .set(auth(managerToken));
+    expect(again.status).toBe(409);
+    expect(again.body.error.code).toBe('EDIT_ALREADY_DECIDED');
+  });
+
+  it('lists edit requests for an order (newest first)', async () => {
+    const placed = await placeOrder();
+    await request(app)
+      .post(`/api/orders/${placed.body.id}/edit-request`)
+      .set(auth(ownerToken))
+      .send({ items: [{ product_id: productBId, quantity: 1 }] });
+    const list = await request(app)
+      .get(`/api/orders/${placed.body.id}/edit-requests`)
+      .set(auth(ownerToken));
+    expect(list.status).toBe(200);
+    expect(list.body.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('approving a delivery order adds the delivery fee to the new total', async () => {
+    const rider = await makeUser('Rider Fee', 'rider.fee@example.com', 'delivery', {
+      delivery_zones: ['FeeZone'],
+    });
+    const placed = await placeOrder({
+      order_type: 'delivery',
+      customer_address: 'Dhanmondi Rd 7',
+      delivery_zone: 'FeeZone',
+      items: [{ product_id: productId, quantity: 1 }],
+    });
+    expect(placed.status).toBe(201);
+    const req = await request(app)
+      .post(`/api/orders/${placed.body.id}/edit-request`)
+      .set(auth(ownerToken))
+      .send({ items: [{ product_id: productBId, quantity: 2 }] });
+    const approved = await request(app)
+      .post(`/api/orders/${placed.body.id}/edit-request/${req.body.id}/approve`)
+      .set(auth(managerToken));
+    expect(approved.status).toBe(200);
+    // 2 × Fries (200) + delivery fee (60).
+    expect(approved.body.grand_total).toBe(200 + 60);
+  });
+
+  it('bump rejects terminal orders (delivered)', async () => {
+    const delivered = await Order.create({
+      tenant_id: tenant.id,
+      order_no: 'ORD-BUMPTERM',
+      customer_name: 'X',
+      type: 'pickup',
+      status: 'delivered',
+      subtotal: 0,
+      total_discount: 0,
+      grand_total: 0,
+    });
+    const res = await request(app)
+      .post(`/api/orders/${delivered.id}/bump`)
+      .set(auth(kitchenToken));
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INVALID_STATUS_TRANSITION');
   });
 });
