@@ -445,7 +445,7 @@ Deeper analytics (retention cohorts, funnel, delivery perf) · SaaS admin portal
 │   │   ├── services/         # payments, gateway, whatsapp, tenant, storage
 │   │   ├── utils/            # promotion engine, pagination
 │   │   ├── test/             # Test environment setup
-│   │   └── __tests__/        # 35 suites · 334 tests  │   ├── migrations/           # Versioned schema migrations (001–013)
+│   │   └── __tests__/        # 52 suites · 603 tests  │   ├── migrations/           # Versioned schema migrations (001–013)
 │   ├── scripts/              # CLI utilities (seed, migrate runner, v1→v2 copy)
 │   └── Dockerfile
 ├── frontend/                 # React SPA
@@ -536,7 +536,7 @@ npm run db:pg:test -- --keep    # keep the scratch DB after a failure for debugg
 # env overrides: PG_ADMIN_URL (default postgres://postgres:postgres@localhost:5432/postgres), PG_TEST_DB
 ```
 
-The script creates a throwaway `oms_local_test` database (dropped afterwards unless `--keep`), runs the real migration runner, then the entire backend test suite against it — **385 tests on PostgreSQL** in CI-identical fashion.
+The script creates a throwaway `oms_local_test` database (dropped afterwards unless `--keep`), runs the real migration runner, then the entire backend test suite against it — **603 tests on PostgreSQL** in CI-identical fashion.
 
 > **Cutover to PostgreSQL in production?** Follow [`docs/04-pg-cutover-runbook.md`](docs/04-pg-cutover-runbook.md) — backup, dry-run, migrate, copy, verify, flip, rollback.
 
@@ -605,7 +605,7 @@ Full media/import/S3 setup details: [`docs/05-media-import-public-menu.md`](docs
 
 ```bash
 cd backend
-npm test                      # Vitest — 535 tests across 50 suites (2 skipped locally)
+npm test                      # Vitest — 603 tests across 52 suites (2 skipped locally)
 npm run test:coverage         # with coverage report
 npm run lint                  # ESLint
 
