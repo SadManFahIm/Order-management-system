@@ -6,6 +6,7 @@ import Payment from '../models/Payment.js';
 import Product from '../models/Product.js';
 import ItemVariant from '../models/ItemVariant.js';
 import InventoryItem from '../models/InventoryItem.js';
+import Settlement from '../models/Settlement.js';
 import { PAYMENT_METHODS, METHOD_LABELS } from './paymentsService.js';
 import { sendEmail } from './notifications/email.js';
 
@@ -40,13 +41,16 @@ export async function buildCloseout(tenantId, dateStr) {
   const { start, end } = dayBounds(dateStr);
   const where = { tenant_id: tenantId, createdAt: { [Op.gte]: start, [Op.lt]: end } };
 
-  const [orders, payments] = await Promise.all([
+  const [orders, payments, settlements] = await Promise.all([
     Order.findAll({
       where,
       include: [{ model: OrderItem, as: 'items' }],
       order: [['id', 'ASC']],
     }),
     Payment.findAll({ where: { tenant_id: tenantId, createdAt: { [Op.gte]: start, [Op.lt]: end } } }),
+    Settlement.findAll({
+      where: { tenant_id: tenantId, createdAt: { [Op.gte]: start, [Op.lt]: end } },
+    }),
   ]);
 
   const byMethod = new Map();
@@ -87,6 +91,27 @@ export async function buildCloseout(tenantId, dateStr) {
     if (o.status === 'canceled') canceled += 1;
   }
 
+  // Tips (Phase 6): charged to the customer (inside grand_total / the payment
+  // rows above) but reported SEPARATELY — never food revenue. Summed from the
+  // order rows so the closeout shows exactly how much the day took in tips.
+  let tips = 0;
+  for (const o of orders) {
+    if (o.tip_amount != null && Number.isFinite(Number(o.tip_amount))) {
+      tips += Number(o.tip_amount);
+    }
+  }
+
+  // Settlements (Phase 6): money moved from the gateway wallet to the bank on
+  // this day — a movement record, never revenue.
+  let settledAmount = 0;
+  let pendingSettlements = 0;
+  for (const s of settlements) {
+    if (s.status === 'completed' || s.status === 'processing') {
+      settledAmount += Number(s.settled_amount ?? s.requested_amount ?? 0);
+    }
+    if (s.status === 'pending') pendingSettlements += Number(s.requested_amount || 0);
+  }
+
   const serializedOrders = orders.map((o) => ({
     id: o.id,
     orderNo: o.order_no,
@@ -98,6 +123,7 @@ export async function buildCloseout(tenantId, dateStr) {
     paymentMethod: o.payment_method || (o.payment_status === 'paid' ? 'cash' : null),
     items: (o.items || []).reduce((n, i) => n + Number(i.quantity || 0), 0),
     amount: Number(o.grand_total || 0),
+    tip: o.tip_amount != null && Number.isFinite(Number(o.tip_amount)) ? Number(o.tip_amount) : 0,
   }));
 
   // Split-order breakdown (Phase 6): one order split across methods (or
@@ -132,6 +158,9 @@ export async function buildCloseout(tenantId, dateStr) {
       revenue: Math.round(revenue * 100) / 100,
       pendingAmount: Math.round(pendingAmount * 100) / 100,
       refundedAmount: Math.round(refundedAmount * 100) / 100,
+      tips: Math.round(tips * 100) / 100,
+      settledAmount: Math.round(settledAmount * 100) / 100,
+      pendingSettlements: Math.round(pendingSettlements * 100) / 100,
       avgOrder: orders.length ? Math.round((revenue / orders.length) * 100) / 100 : 0,
     },
     byMethod: [...byMethod.values()]
@@ -266,8 +295,10 @@ export function renderCloseoutHtml(data, tenantName) {
       <div class="stats">
         <div class="stat"><span>Orders</span><b>${data.totals.orders}</b></div>
         <div class="stat"><span>Revenue (paid)</span><b>${fmt(data.totals.revenue)}</b></div>
-        <div class="stat"><span>Pending</span><b>${fmt(data.totals.pendingAmount)}</b></div>
+        <div class="stat"><span>Tips</span><b>${fmt(data.totals.tips)}</b></div>
         <div class="stat"><span>Refunded</span><b>${fmt(data.totals.refundedAmount)}</b></div>
+        <div class="stat"><span>Settled</span><b>${fmt(data.totals.settledAmount)}</b></div>
+        <div class="stat"><span>Pending</span><b>${fmt(data.totals.pendingAmount)}</b></div>
       </div>
       <h2>Revenue by payment method</h2>
       ${methods || '<div class="empty">No payments this day.</div>'}

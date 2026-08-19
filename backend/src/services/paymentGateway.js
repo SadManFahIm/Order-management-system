@@ -312,16 +312,57 @@ export async function executeBkashPayment(paymentID) {
 /**
  * Applies a gateway confirmation: finds the pending online payment by its
  * gateway transaction reference and marks it paid (keeps the order's
- * payment_status in sync). Returns the updated payment, or null if nothing
- * matched (idempotent — replayed webhooks are safe).
+ * payment_status in sync).
+ *
+ * Server-side verification (Phase 6):
+ *   - `expectedAmount` (the gateway-reported amount) is compared to the
+ *     payment's own amount; a mismatch throws — the payment is NOT marked
+ *     paid. This is the fraud guard for unsigned callbacks and replayed
+ *     webhooks: a tampered amount can never confirm a payment for less (or
+ *     more) than what was charged.
+ *   - `verification` (an object like
+ *     { gateway, transactionStatus, trxID, amount, currency, verifiedAt,
+ *       method }) is persisted to `payment.verification_metadata` so every
+ *     paid online payment carries a provable gateway record. Never secrets.
+ *   - `payment.gateway` records which gateway confirmed it.
+ *
+ * Returns the updated payment, or null if nothing matched (idempotent —
+ * replayed webhooks are safe).
  */
-export async function applyGatewayConfirmation({ gateway, reference, gatewayReference }) {
+export async function applyGatewayConfirmation({
+  gateway,
+  reference,
+  gatewayReference,
+  expectedAmount,
+  verification,
+}) {
   const payment = await Payment.findOne({
     where: { method: 'online', status: 'pending', reference },
   });
   if (!payment) return null;
   const order = await Order.findByPk(payment.order_id);
   if (!order) return null;
+
+  if (expectedAmount != null) {
+    const charged = Number(payment.amount || 0);
+    if (Math.abs(Number(expectedAmount) - charged) > 0.01) {
+      throw new AppError(
+        400,
+        'AMOUNT_MISMATCH',
+        `Gateway confirmed amount (${Number(expectedAmount).toFixed(2)}) does not match the charged amount (${charged.toFixed(2)})`
+      );
+    }
+  }
+
+  // Persist the server-side verification record so the payment is auditable.
+  payment.gateway = gateway;
+  if (verification && typeof verification === 'object') {
+    payment.verification_metadata = {
+      ...verification,
+      verifiedAt: verification.verifiedAt || new Date().toISOString(),
+    };
+  }
+  await payment.save();
 
   const { payment: updated } = await applyPaymentStatus(
     payment,
@@ -333,4 +374,29 @@ export async function applyGatewayConfirmation({ gateway, reference, gatewayRefe
     order
   );
   return updated;
+}
+
+/**
+ * Queries bKash for the real transaction state of a paymentID — the
+ * server-side source of truth used for manual verification / reconciliation
+ * (Phase 6). Returns `{ paymentID, trxID, transactionStatus, amount,
+ * currency }` or throws on a gateway error.
+ */
+export async function queryBkashPayment(paymentID) {
+  const token = await bkashToken();
+  const res = await fetch(`${bkashBase()}/checkout/payment/status`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      authorization: token,
+      'x-app-key': env.BKASH_APP_KEY,
+    },
+    body: JSON.stringify({ paymentID }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status !== 200 || !data.paymentID) {
+    throw new AppError(502, 'GATEWAY_ERROR', `bKash query failed: ${data.statusMessage || res.status}`);
+  }
+  return data;
 }

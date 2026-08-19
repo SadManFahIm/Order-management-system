@@ -635,6 +635,62 @@ CREATE TABLE payment_intents (
 CREATE INDEX ix_payment_intents_order ON payment_intents (order_id, status);
 ```
 
+**Phase 6 additions (shipped in migration 026)**
+
+```sql
+-- orders: optional delivery tip (charged to the customer, never food revenue).
+ALTER TABLE orders ADD COLUMN tip_amount numeric(12,2) NOT NULL DEFAULT 0;
+
+-- payments: which gateway confirmed the row + server-side verification metadata.
+ALTER TABLE payments ADD COLUMN gateway text;
+ALTER TABLE payments ADD COLUMN verification_metadata jsonb;
+
+-- payment_refunds: one ledger row per refund (full OR partial) — the accrual
+-- that drives orders.payment_status and the closeout's refunded totals.
+CREATE TABLE payment_refunds (
+    id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    tenant_id     bigint NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    payment_id    bigint NOT NULL REFERENCES payments(id) ON DELETE CASCADE,
+    order_id      bigint NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    amount        numeric(12,2) NOT NULL CHECK (amount > 0),
+    reason        text,
+    status        text NOT NULL DEFAULT 'processed',
+    created_by    bigint REFERENCES users(id) ON DELETE SET NULL,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    processed_at  timestamptz
+);
+CREATE INDEX ix_payment_refunds_payment ON payment_refunds (payment_id);
+CREATE INDEX ix_payment_refunds_tenant ON payment_refunds (tenant_id, created_at);
+
+-- settlements: movement of money FROM the gateway wallet TO the bank — never
+-- revenue. The wallet balance is computed from the ledger (Σ paid online
+-- payments − refunds − settlements), not stored here.
+CREATE TABLE settlements (
+    id               bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    tenant_id        bigint NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    gateway          text NOT NULL DEFAULT 'other',
+    settlement_id    text,                              -- gateway's reference
+    requested_amount numeric(12,2) NOT NULL,
+    settled_amount   numeric(12,2),
+    fees             numeric(12,2) NOT NULL DEFAULT 0,
+    net_amount       numeric(12,2),
+    currency         text NOT NULL DEFAULT 'BDT',
+    status           text NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending','processing','completed','failed','reversed')),
+    bank_ref         text,
+    requested_at     timestamptz NOT NULL DEFAULT now(),
+    processed_at     timestamptz,
+    created_by       bigint REFERENCES users(id) ON DELETE SET NULL,
+    created_at       timestamptz NOT NULL DEFAULT now(),
+    updated_at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX ix_settlements_tenant ON settlements (tenant_id, created_at);
+```
+
+**Phase 6 settings (JSONB on `tenants.settings`)**
+- `vat.registeredName`, `vat.address`, `vat.bin` (13-digit NBR BIN) — the supplier block printed on invoices; `vat.defaultRate` — workspace-wide VAT %.
+- `delivery.enabled`, `delivery.fee` — gate + fee for delivery orders.
+
 ### 4.8 Ops, Audit & Notifications
 
 ```sql

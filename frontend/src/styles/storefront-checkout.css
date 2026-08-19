@@ -549,6 +549,29 @@
   color: var(--muted);
 }
 
+.ticket-tip {
+  width: 84px;
+  text-align: right;
+  font: inherit;
+  font-weight: 700;
+  color: var(--ink);
+  background: transparent;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  padding: 2px 8px;
+}
+
+.ticket-tip:focus {
+  outline: none;
+  border-color: var(--brand);
+  border-style: solid;
+}
+
+.ticket-tip::placeholder {
+  color: var(--muted);
+  font-weight: 400;
+}
+
 .ticket-row--total {
   font-weight: 800;
   font-size: 17px;

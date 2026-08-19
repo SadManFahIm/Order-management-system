@@ -35,6 +35,10 @@ export const checkoutSchema = z.object({
   // cash | bkash | nagad | card | online — validated against the tenant's
   // enabled methods in the route.
   payment_method: z.string().trim().max(16).default('cash'),
+  // Optional tip for delivery orders (Phase 6). Server-validated in the route
+  // (delivery only, sane upper bound, never negative); added to the charged
+  // grand total but reported separately from food revenue.
+  tip: z.number().min(0, 'Tip cannot be negative').max(100000).optional(),
   // bKash/Nagad transaction ID captured at the counter (optional).
   payment_reference: z.string().trim().max(120).optional().or(z.literal('')),
   // Optional split payment (Phase 6): one entry per part — method + amount

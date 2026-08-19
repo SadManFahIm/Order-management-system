@@ -51,6 +51,26 @@ export function deliveryConfig(tenant) {
 }
 
 /**
+ * Normalises an optional tip (Phase 6). Tips are delivery-only — pickup /
+ * scheduled_pickup orders never carry one (the frontend hides the field, but
+ * the server enforces it too). Never negative, sane upper bound, 2-dp rounded.
+ */
+export function normalizeTip(rawTip, isDelivery) {
+  if (rawTip === undefined || rawTip === null || rawTip === '') return 0;
+  const tip = Number(rawTip);
+  if (!Number.isFinite(tip) || tip < 0) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Tip must be a non-negative number');
+  }
+  if (tip > 100000) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Tip amount is too large');
+  }
+  if (!isDelivery && tip > 0) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Tips are only available on delivery orders');
+  }
+  return round2(tip);
+}
+
+/**
  * Fetches the requested products (enabled, tenant-scoped) with their
  * variants/add-ons, validates each line (product exists + enabled, quantity
  * sane, variant/add-ons belong to the product), and returns the enriched

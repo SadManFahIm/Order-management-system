@@ -1,5 +1,7 @@
 import { AppError } from '../middleware/errorHandler.js';
 import Payment from '../models/Payment.js';
+import PaymentRefund from '../models/PaymentRefund.js';
+import sequelize from '../config/db.js';
 
 /**
  * Payment records (Phase 5) — bKash/Nagad/cash lifecycle.
@@ -203,6 +205,89 @@ export async function recomputeOrderPaymentStatus(order, options = {}) {
 }
 
 /**
+ * Refunds a payment — full or partial — writing a `payment_refunds` ledger
+ * row and accumulating `payments.refunded_amount` (the running total). Runs
+ * inside a transaction with an atomic compare-and-swap on `refunded_amount`
+ * so two concurrent refunds can never over-refund: each refund's UPDATE only
+ * matches the previously-read total, and a lost race throws 409.
+ *
+ * Supports multiple partial refunds (each adds to the ledger). Returns the
+ * updated `{ payment, order }`.
+ */
+export async function applyRefund({ payment, order, amount, reason, actorId, req }) {
+  const refundAmount = amount === undefined ? Number(payment.amount) : Number(amount);
+  if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Refund amount must be a positive number');
+  }
+
+  return sequelize.transaction(async (transaction) => {
+    // Fresh read INSIDE the transaction — the source of truth for the
+    // remaining-refundable check + the CAS precondition.
+    const current = await Payment.findByPk(payment.id, { transaction });
+    if (!current) throw new AppError(404, 'NOT_FOUND', 'Payment not found');
+    if (current.status !== 'paid' && current.status !== 'refunded') {
+      throw new AppError(400, 'REFUND_NOT_ALLOWED', 'Only collected payments can be refunded');
+    }
+
+    const alreadyRefunded = Number(current.refunded_amount) || 0;
+    const maxRefundable = Number(current.amount) - alreadyRefunded;
+    if (refundAmount > maxRefundable + 0.001) {
+      throw new AppError(
+        400,
+        'VALIDATION_ERROR',
+        `Refund cannot exceed the remaining refundable amount (৳${maxRefundable.toFixed(2)})`
+      );
+    }
+    const nextTotal = Math.round((alreadyRefunded + refundAmount) * 100) / 100;
+
+    // Atomic compare-and-swap: only succeeds if no other refund changed
+    // refunded_amount since our read. 0 affected rows = lost race → 409.
+    const [affected] = await Payment.update(
+      {
+        status: 'refunded',
+        refunded_amount: nextTotal,
+        refunded_at: new Date(),
+        refund_reason: reason || null,
+        refunded_by: actorId || null,
+      },
+      {
+        where: { id: current.id, refunded_amount: current.refunded_amount },
+        transaction,
+      }
+    );
+    if (affected === 0) {
+      throw new AppError(409, 'REFUND_RACE', 'Another refund was processed concurrently — please retry');
+    }
+
+    await PaymentRefund.create(
+      {
+        tenant_id: current.tenant_id,
+        payment_id: current.id,
+        order_id: current.order_id,
+        amount: refundAmount,
+        reason: reason || null,
+        status: 'processed',
+        created_by: actorId || null,
+        processed_at: new Date(),
+      },
+      { transaction }
+    );
+
+    const refreshed = await Payment.findByPk(current.id, { transaction });
+    await recomputeOrderPaymentStatus(order, { transaction });
+    return { payment: refreshed, order };
+  });
+}
+
+/** Lists the refund ledger rows for a payment (newest first). */
+export async function listPaymentRefunds(paymentId, tenantId) {
+  return PaymentRefund.findAll({
+    where: { payment_id: paymentId, tenant_id: tenantId },
+    order: [['id', 'DESC']],
+  });
+}
+
+/**
  * Confirms / refunds / fails a payment and keeps the order's payment_status
  * in sync (recomputed across ALL of the order's payments — split- and
  * refund-aware). Refunds require a previously collected (paid) payment, take
@@ -216,27 +301,13 @@ export async function applyPaymentStatus(payment, { status, reference, notes, am
   }
 
   if (status === 'refunded') {
-    if (payment.status !== 'paid' && payment.status !== 'refunded') {
-      throw new AppError(400, 'REFUND_NOT_ALLOWED', 'Only collected payments can be refunded');
-    }
-    const refundAmount = amount === undefined ? Number(payment.amount) : Number(amount);
-    if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
-      throw new AppError(400, 'VALIDATION_ERROR', 'Refund amount must be a positive number');
-    }
-    if (refundAmount > Number(payment.amount)) {
-      throw new AppError(400, 'VALIDATION_ERROR', 'Refund cannot exceed the payment amount');
-    }
-    payment.status = 'refunded';
-    payment.refunded_amount = refundAmount;
-    payment.refunded_at = new Date();
-    payment.refund_reason = reason || null;
-    payment.refunded_by = actorId || null;
-  } else {
-    payment.status = status;
-    if (reference !== undefined) payment.reference = reference || null;
-    if (notes !== undefined) payment.notes = notes || null;
-    if (status === 'paid') payment.paid_at = payment.paid_at || new Date();
+    return applyRefund({ payment, order, amount, reason, actorId });
   }
+
+  payment.status = status;
+  if (reference !== undefined) payment.reference = reference || null;
+  if (notes !== undefined) payment.notes = notes || null;
+  if (status === 'paid') payment.paid_at = payment.paid_at || new Date();
   await payment.save();
 
   await recomputeOrderPaymentStatus(order);

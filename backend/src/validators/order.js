@@ -29,6 +29,9 @@ export const createOrderSchema = z.object({
   order_type: z
     .enum(['pickup', 'delivery', 'scheduled_pickup', 'scheduled_delivery'])
     .optional(),
+  // Optional tip for delivery orders (Phase 6) — server-validated (delivery
+  // only, capped) in the route; charged to the customer, reported separately.
+  tip: z.number().min(0, 'Tip cannot be negative').max(100000).optional(),
   // Requested pickup/delivery time for scheduled_* orders (ISO datetime,
   // validated in the route).
   scheduled_at: z.string().trim().optional().or(z.literal('')),

@@ -6,7 +6,8 @@ import { requirePermission, attachPermissionCheck } from '../middleware/rbac.js'
 import { resolveTenant, requireTenant } from '../middleware/tenant.js';
 import Order from '../models/Order.js';
 import Payment from '../models/Payment.js';
-import { applyPaymentStatus } from '../services/paymentsService.js';
+import { applyPaymentStatus, listPaymentRefunds } from '../services/paymentsService.js';
+import { queryBkashPayment, applyGatewayConfirmation } from '../services/paymentGateway.js';
 import { audit } from '../services/auditService.js';
 
 const router = express.Router();
@@ -33,6 +34,74 @@ router.get(
     res.json(
       await Payment.findAll({ where, order: [['id', 'ASC']] })
     );
+  })
+);
+
+/**
+ * GET /api/payments/:id/refunds — the refund ledger for a payment (view:orders).
+ * Every refund (full or partial) is a row here, newest first.
+ */
+router.get(
+  '/:id/refunds',
+  requirePermission('view:orders'),
+  asyncHandler(async (req, res) => {
+    const payment = await Payment.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+    });
+    if (!payment) throw new AppError(404, 'NOT_FOUND', 'Payment not found');
+    res.json(await listPaymentRefunds(payment.id, req.tenant.id));
+  })
+);
+
+/**
+ * POST /api/payments/:id/verify — manually verify a pending online payment
+ * against its gateway (Phase 6). For bKash this queries the gateway for the
+ * real transaction state and, when Completed + amount matches, confirms the
+ * payment idempotently. Used when the browser callback was lost or a cashier
+ * wants to double-check before hand-confirming. Requires `place:orders`.
+ */
+router.post(
+  '/:id/verify',
+  requirePermission('place:orders'),
+  asyncHandler(async (req, res) => {
+    const payment = await Payment.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+    });
+    if (!payment) throw new AppError(404, 'NOT_FOUND', 'Payment not found');
+    if (payment.method !== 'online' || payment.status !== 'pending') {
+      throw new AppError(400, 'NOT_VERIFIABLE', 'Only pending online payments can be verified');
+    }
+    if (payment.gateway === 'bkash' || !payment.gateway) {
+      const queried = await queryBkashPayment(payment.reference);
+      if (queried.transactionStatus !== 'Completed') {
+        return res.json({ verified: false, status: queried.transactionStatus, payment });
+      }
+      const updated = await applyGatewayConfirmation({
+        gateway: 'bkash',
+        reference: payment.reference,
+        gatewayReference: queried.trxID || payment.reference,
+        expectedAmount: queried.amount,
+        verification: {
+          gateway: 'bkash',
+          transactionStatus: queried.transactionStatus,
+          trxID: queried.trxID,
+          amount: Number(queried.amount),
+          currency: queried.currency || 'BDT',
+          method: 'bkash',
+        },
+      });
+      await audit({
+        action: 'payment.verified',
+        actorId: req.user?.id,
+        tenantId: req.tenant.id,
+        entityType: 'payment',
+        entityId: payment.id,
+        metadata: { orderId: payment.order_id, gateway: 'bkash', trxID: queried.trxID },
+        req,
+      });
+      return res.json({ verified: Boolean(updated), status: 'Completed', payment: updated });
+    }
+    throw new AppError(400, 'NOT_VERIFIABLE', 'Manual verification is only supported for bKash');
   })
 );
 
@@ -96,8 +165,9 @@ router.patch(
         entityId: payment.id,
         metadata: {
           orderId: order.id,
-          amount: payment.refunded_amount,
-          reason: payment.refund_reason,
+          amount: amount !== undefined ? amount : Number(payment.amount),
+          totalRefunded: result.payment.refunded_amount,
+          reason: reason || payment.refund_reason,
         },
         req,
       });

@@ -31,6 +31,8 @@ import './models/ItemAddon.js';
 import './models/InventoryItem.js';
 import './models/Table.js';
 import './models/Payment.js';
+import './models/PaymentRefund.js';
+import './models/Settlement.js';
 import './models/DailyStat.js';
 import './models/IdempotencyKey.js';
 
@@ -48,6 +50,7 @@ import storefrontRoutes from './routes/storefront.js';
 import dashboardRoutes from './routes/dashboard.js';
 import tableRoutes from './routes/tables.js';
 import paymentRoutes from './routes/payments.js';
+import settlementRoutes from './routes/settlements.js';
 import webhookRoutes from './routes/webhooks.js';
 import reportRoutes from './routes/reports.js';
 import adminAnalyticsRoutes from './routes/adminAnalytics.js';
@@ -147,6 +150,7 @@ app.use('/api/public', apiLimiter, storefrontRoutes);
 app.use('/api/dashboard', apiLimiter, dashboardRoutes);
 app.use('/api/tables', apiLimiter, tableRoutes);
 app.use('/api/payments', apiLimiter, paymentRoutes);
+app.use('/api/settlements', apiLimiter, settlementRoutes);
 app.use('/api/reports', apiLimiter, reportRoutes);
 app.use('/api/admin', apiLimiter, adminAnalyticsRoutes);
 

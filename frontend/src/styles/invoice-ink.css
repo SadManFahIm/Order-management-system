@@ -116,6 +116,30 @@
   margin-bottom: 22px;
 }
 
+/* NBR supplier block + invoice QR (Phase 6). */
+.invoice-sheet__supplier {
+  margin-bottom: 22px;
+}
+
+.invoice-sheet__supplier-inner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  background: var(--tile);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 16px;
+  font-size: 13.5px;
+}
+
+.invoice-sheet__qr {
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  flex-shrink: 0;
+}
+
 .invoice-sheet__field-label {
   display: block;
   font-size: 11px;

@@ -170,6 +170,12 @@ export async function updateTenant(user, tenantId, fields, req) {
       tenant.settings && typeof tenant.settings === 'object' ? tenant.settings : {};
     allowed.settings = { ...current, timezone: fields.timezone };
   }
+  if (fields.delivery !== undefined) {
+    // Delivery fee/enabled (Phase 6) — merge like brand/whatsapp.
+    const current =
+      tenant.settings && typeof tenant.settings === 'object' ? tenant.settings : {};
+    allowed.settings = { ...current, delivery: fields.delivery };
+  }
   await tenant.update(allowed);
   await audit({
     action: 'tenant.updated',

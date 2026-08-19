@@ -53,6 +53,8 @@ const EXPECTED_TABLES = [
   'availability_weekday_rules',
   'order_edit_requests',
   'delivery_zones',
+  'payment_refunds',
+  'settlements',
 ];
 
 describe('migration runner', () => {
@@ -92,6 +94,7 @@ describe('migration runner', () => {
       '023_restaurant_closures_weekday_rules.js',
       '024_closure_labels.js',
       '025_ordering_fulfillment.js',
+      '026_payments_upgrade.js',
     ]);
   });
 
@@ -123,7 +126,7 @@ describe('migration runner', () => {
   it('reports every migration as applied', async () => {
     const status = await migrationStatus(sequelize);
     expect(status.every((row) => row.state === 'applied')).toBe(true);
-    expect(status).toHaveLength(25);
+    expect(status).toHaveLength(26);
   });
 
   it('adds menu_items.vat_rate via migration 009', async () => {
@@ -137,6 +140,15 @@ describe('migration runner', () => {
 
   it('rolls back only the most recent migration, then re-applies', async () => {
     const qi = sequelize.getQueryInterface();
+
+    // Down 026: drops the payments-upgrade tables + columns (refund ledger,
+    // settlements, tip amount, gateway verification).
+    expect(await migrateDown(sequelize)).toBe(1);
+    expect(await qi.tableExists('payment_refunds')).toBe(false);
+    expect(await qi.tableExists('settlements')).toBe(false);
+    expect((await qi.describeTable('orders')).tip_amount).toBeUndefined();
+    expect((await qi.describeTable('payments')).gateway).toBeUndefined();
+    expect((await qi.describeTable('payments')).verification_metadata).toBeUndefined();
 
     // Down 025: drops the ordering/fulfillment tables + columns (edit
     // requests, delivery zones, rider coverage, cancel reason, KDS timers).
@@ -246,8 +258,8 @@ describe('migration runner', () => {
     expect(await migrateDown(sequelize)).toBe(1);
     expect((await qi.describeTable('orders')).table_no).toBeUndefined();
 
-    // Re-applying restores all nineteen rolled-back (including 025–021).
-    expect(await migrateUp(sequelize)).toBe(19);
+    // Re-applying restores all twenty rolled-back (including 026–021).
+    expect(await migrateUp(sequelize)).toBe(20);
     expect(await qi.tableExists('tenant_invites')).toBe(true);
     expect((await qi.describeTable('plans')).max_products).toBeDefined();
     expect((await qi.describeTable('plans')).storage_mb).toBeDefined();
@@ -285,6 +297,12 @@ describe('migration runner', () => {
     expect(await qi.tableExists('availability_weekday_rules')).toBe(true);
     // 024 restored: closure labels.
     expect((await qi.describeTable('tenant_closure_dates')).label).toBeDefined();
+    // 026 restored: refund ledger, settlements, tip, gateway verification.
+    expect(await qi.tableExists('payment_refunds')).toBe(true);
+    expect(await qi.tableExists('settlements')).toBe(true);
+    expect((await qi.describeTable('orders')).tip_amount).toBeDefined();
+    expect((await qi.describeTable('payments')).gateway).toBeDefined();
+    expect((await qi.describeTable('payments')).verification_metadata).toBeDefined();
   });
 
   it('refuses to roll back a migration that is not the most recent', async () => {

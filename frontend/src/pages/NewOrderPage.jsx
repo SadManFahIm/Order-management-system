@@ -15,6 +15,10 @@ export default function NewOrderPage() {
     customer_phone: '',
     customer_address: ''
   });
+  const [orderType, setOrderType] = useState('pickup');
+  // Optional delivery tip (Phase 6): delivery orders only (server-enforced),
+  // charged to the customer and reported separately from food revenue.
+  const [tip, setTip] = useState(0);
   const [tables, setTables] = useState([]);
   const [tableNo, setTableNo] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
@@ -88,11 +92,13 @@ export default function NewOrderPage() {
     const payload = {
       ...customer,
       table_no: tableNo ? Number(tableNo) : null,
+      order_type: orderType,
       items: cart.map((i) => ({
         product_id: i.product.id,
         quantity: i.quantity
       }))
     };
+    if (orderType === 'delivery' && Number(tip) > 0) payload.tip = Math.min(Number(tip), 100000);
     if (splitMode && splitParts.length > 0) {
       // Split order: the backend creates one payment row per part (cash parts
       // paid on the spot, wallets pending) and validates the sum server-side.
@@ -199,6 +205,25 @@ export default function NewOrderPage() {
             <Field label="Delivery address" hint="Leave blank for pickup.">
               <Textarea name="customer_address" placeholder="House, road, area…" value={customer.customer_address} onChange={onCustomerChange} />
             </Field>
+            <Field label="Order type" hint="Pickup or delivery — delivery adds the workspace delivery fee.">
+              <Select value={orderType} onChange={(e) => setOrderType(e.target.value)}>
+                <option value="pickup">Pickup</option>
+                <option value="delivery">Delivery</option>
+              </Select>
+            </Field>
+            {orderType === 'delivery' && (
+              <Field label="Tip (optional)" hint="Goes to the delivery rider — reported separately from food revenue.">
+                <Input
+                  type="number"
+                  min="0"
+                  step="1"
+                  max="100000"
+                  placeholder="৳ 0"
+                  value={tip || ''}
+                  onChange={(e) => setTip(e.target.value)}
+                />
+              </Field>
+            )}
             <Field label="Table" hint="Dine-in? Pick the physical table (QR table menu).">
               <Select value={tableNo} onChange={(e) => setTableNo(e.target.value)}>
                 <option value="">— No table (delivery / takeaway)</option>
