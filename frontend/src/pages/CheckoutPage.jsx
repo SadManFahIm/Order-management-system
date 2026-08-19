@@ -98,6 +98,10 @@ export default function CheckoutPage() {
   const [walletTrxId, setWalletTrxId] = useState('');
   const [splitRefs, setSplitRefs] = useState({});
   const [copiedNum, setCopiedNum] = useState(null);
+  // Delivery tip (Phase 6): optional, delivery orders only (the server
+  // enforces this too). Charged inside the total; reported separately by the
+  // restaurant — never food revenue.
+  const [tip, setTip] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [placed, setPlaced] = useState(null);
@@ -248,7 +252,16 @@ export default function CheckoutPage() {
     () => cart.reduce((s, l) => s + Number(l.unit_price) * l.quantity, 0),
     [cart]
   );
-  const total = Math.round((subtotal + deliveryFee) * 100) / 100;
+  const isDelivery = orderType === 'delivery' || orderType === 'scheduled_delivery';
+  // Keep the tip honest while typing: clamp to [0, 100000] to mirror the
+  // backend's normalizeTip cap (delivery orders only).
+  const normalizedTip = useMemo(() => {
+    if (!isDelivery) return 0;
+    const n = Number(tip) || 0;
+    if (!Number.isFinite(n) || n < 0) return 0;
+    return Math.min(Math.round(n * 100) / 100, 100000);
+  }, [tip, isDelivery]);
+  const total = Math.round((subtotal + deliveryFee + normalizedTip) * 100) / 100;
 
   // Per-line stock snapshot (Phase 5 scarcity cues): the menu payload's
   // inventory per product (stock null when untracked) + variant stock. The
@@ -424,6 +437,7 @@ export default function CheckoutPage() {
           addon_ids: l.addon_ids || [],
         })),
       };
+      if (isDelivery && normalizedTip > 0) body.tip = normalizedTip;
       if (useSplit && splitMode === 'diner') {
         // Diner split: parts carry the diner's name as the note + trxID.
         body.payments = dinerParts.map((p) => ({
@@ -1120,6 +1134,21 @@ export default function CheckoutPage() {
               <div className="ticket-row">
                 <span className="ticket-row__label">{t('store.deliveryFee')}</span>
                 <span>{fmtMoney(deliveryFee)}</span>
+              </div>
+            )}
+            {isDelivery && (
+              <div className="ticket-row">
+                <span className="ticket-row__label">{t('store.tip')}</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="0"
+                  value={tip || ''}
+                  onChange={(e) => setTip(e.target.value)}
+                  aria-label={t('store.tip')}
+                  className="ticket-tip"
+                />
               </div>
             )}
             <div className="ticket-row ticket-row--total">

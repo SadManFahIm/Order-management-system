@@ -6,6 +6,7 @@ import { useRealtimeOrders } from '../hooks/useRealtimeOrders';
 import { PageHeader, Card, Table, Button, Badge, Select, Skeleton, useToast } from '../components/ui';
 import SplitBillModal from '../components/SplitBillModal';
 import OrderEditModal from '../components/OrderEditModal';
+import RefundModal from '../components/RefundModal';
 
 const fmt = (n) => `৳ ${Number(n).toFixed(2)}`;
 
@@ -82,6 +83,7 @@ export default function OrdersListPage() {
   const [members, setMembers] = useState([]);
   const [filters, setFilters] = useState({ status: '', tableNo: '', sort: 'open', assignedToMe: false });
   const [editFor, setEditFor] = useState(null); // { order } — order-edit-request modal
+  const [refundFor, setRefundFor] = useState(null); // { order } — refund modal
   // KDS prep timer tick — re-renders the elapsed-time cells every 15s.
   const [now, setNow] = useState(() => Date.now());
   const toast = useToast();
@@ -97,6 +99,7 @@ export default function OrdersListPage() {
   const canFulfill = ['owner', 'manager', 'kitchen', 'platform_admin', 'staff'].includes(role);
   const canDeliver = ['owner', 'manager', 'delivery', 'platform_admin', 'staff'].includes(role);
   const canManage = ['owner', 'manager', 'platform_admin', 'staff'].includes(role);
+  const canRefund = ['owner', 'manager', 'platform_admin', 'staff'].includes(role);
   const isDeliveryRole = role === 'delivery';
   const waNumber = waConfig.enabled ? waConfig.number : '';
 
@@ -223,22 +226,7 @@ export default function OrdersListPage() {
   const refundPayment = async (o) => {
     const payment = (o.payments || [])[0];
     if (!payment) return;
-    const amount = window.prompt(
-      `Refund amount in ৳ (blank = full ${Number(payment.amount).toFixed(2)})?`,
-      String(Number(payment.amount).toFixed(2))
-    );
-    if (amount === null) return;
-    const reason = window.prompt('Reason (optional)?') || undefined;
-    try {
-      const body = { status: 'refunded', reason };
-      const amt = Number(amount);
-      if (Number.isFinite(amt) && amt >= 0 && amt !== Number(payment.amount)) body.amount = amt;
-      await api.patch(`/payments/${payment.id}`, body);
-      toast.success(t('orders.refunded'));
-      await load();
-    } catch {
-      toast.error(t('orders.couldNotUpdate'));
-    }
+    setRefundFor({ order: o, payment });
   };
 
   const onAccept = (o) => setStatus(o, 'accepted');
@@ -468,7 +456,7 @@ export default function OrdersListPage() {
                         ✓ {t('orders.markPaid')}
                       </Button>
                     )}
-                    {!splitParts.length && canPlace && o.payment_status === 'paid' && payment && payment.status === 'paid' && (
+                    {!splitParts.length && canRefund && o.payment_status === 'paid' && payment && payment.status === 'paid' && (
                       <Button size="sm" variant="ghost" onClick={() => refundPayment(o)}>
                         ↩ {t('orders.refund')}
                       </Button>
@@ -661,6 +649,13 @@ export default function OrdersListPage() {
         order={editFor?.order}
         canManage={canManage}
         onClose={() => setEditFor(null)}
+        onSaved={() => load()}
+      />
+
+      <RefundModal
+        open={!!refundFor}
+        payment={refundFor?.payment}
+        onClose={() => setRefundFor(null)}
         onSaved={() => load()}
       />
     </div>

@@ -112,6 +112,36 @@ export default function InvoicePage() {
             </div>
 
             <div className="invoice-sheet__body">
+              {/* NBR supplier block (Mushak-6.3, Phase 6): registered name,
+                  address and 13-digit BIN — optional, shown when configured. */}
+              {invoice.supplier && (invoice.supplier.name || invoice.supplier.bin || invoice.supplier.address) && (
+                <div className="invoice-sheet__supplier">
+                  <div className="invoice-sheet__section-label">Supplier (NBR)</div>
+                  <div className="invoice-sheet__supplier-inner">
+                    <div>
+                      <div className="invoice-sheet__field-value">{invoice.supplier.name}</div>
+                      {invoice.supplier.address && (
+                        <div className="invoice-sheet__field-label">{invoice.supplier.address}</div>
+                      )}
+                      {invoice.supplier.bin && (
+                        <div className="invoice-sheet__field-label">
+                          BIN: {invoice.supplier.bin}
+                        </div>
+                      )}
+                    </div>
+                    {invoice.qrDataUrl && (
+                      <img
+                        src={invoice.qrDataUrl}
+                        alt="Invoice QR"
+                        className="invoice-sheet__qr"
+                        width={96}
+                        height={96}
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Customer / table — ticket fields */}
               <div className="invoice-sheet__grid">
                 <div>
@@ -161,6 +191,9 @@ export default function InvoicePage() {
                   ['Subtotal', fmt(invoice.totals.subtotal), false],
                   ['Discount', fmt(invoice.totals.discount), false],
                   ['VAT', fmt(invoice.totals.vat), false],
+                  ...(Number(invoice.totals.tip) > 0
+                    ? [['Tip', fmt(invoice.totals.tip), false]]
+                    : []),
                   ['Grand total', fmt(invoice.totals.grandTotal), true],
                 ].map(([label, value, grand]) => (
                   <div key={label} className={`invoice-sheet__total${grand ? ' invoice-sheet__total--grand' : ''}`}>

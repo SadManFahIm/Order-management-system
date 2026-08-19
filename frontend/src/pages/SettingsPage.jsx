@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../i18n';
 import { PageHeader, Card, Button, Field, Input, Textarea, Switch, Badge, Skeleton, useToast } from '../components/ui';
 import DeliveryZonesCard from '../components/DeliveryZonesCard';
+import SettlementsCard from '../components/SettlementsCard';
 
 const PRESETS = [
   { name: 'KFC red', primary: '#e4002b', accent: '#ffd400' },
@@ -48,6 +49,13 @@ export default function SettingsPage() {
   const [waManualLink, setWaManualLink] = useState(null);
   const [reports, setReports] = useState({ closeoutEmail: '', autoSend: false, hour: 23 });
   const [reportsSaving, setReportsSaving] = useState(false);
+  // Invoice/NBR supplier block (Phase 6): registered name, address, 13-digit
+  // BIN + default VAT % — printed on every invoice (Mushak-6.3).
+  const [inv, setInv] = useState({ registeredName: '', address: '', bin: '', vatRate: '' });
+  const [invSaving, setInvSaving] = useState(false);
+  // Delivery settings (Phase 6): the fee charged to delivery orders.
+  const [delFee, setDelFee] = useState('');
+  const [delSaving, setDelSaving] = useState(false);
   // Restaurant-wide closure days + recurring weekday closures (Phase 5):
   // one-off closed dates (holidays/events) and "closed every <weekday>"
   // toggles — the whole storefront is hidden + checkout rejected those days.
@@ -496,6 +504,15 @@ export default function SettingsPage() {
           hour: savedRp.autoSendCloseout?.hour ?? 23,
         });
         setTz(res.data.settings?.timezone || '');
+        const savedVat = res.data.settings?.vat || {};
+        setInv({
+          registeredName: savedVat.registeredName || '',
+          address: savedVat.address || '',
+          bin: savedVat.bin || '',
+          vatRate: savedVat.defaultRate != null ? String(savedVat.defaultRate) : '',
+        });
+        const savedDel = res.data.settings?.delivery || {};
+        setDelFee(savedDel.fee != null ? String(savedDel.fee) : '');
         setLoading(false);
       })
       .catch(() => {
@@ -557,6 +574,41 @@ export default function SettingsPage() {
       toast.error(err?.response?.data?.error?.message || 'Could not save closeout settings');
     } finally {
       setReportsSaving(false);
+    }
+  };
+
+  const saveInvoice = async () => {
+    const bin = inv.bin.trim();
+    if (bin && !/^\d{13}$/.test(bin)) {
+      toast.error(t('settings.invBinInvalid'));
+      return;
+    }
+    setInvSaving(true);
+    try {
+      const vat = { registeredName: inv.registeredName.trim(), address: inv.address.trim(), bin };
+      const rate = Number(inv.vatRate);
+      if (Number.isFinite(rate) && rate >= 0 && rate <= 100) vat.defaultRate = rate;
+      await api.patch(`/tenants/${activeTenantId}`, { vat });
+      toast.success(t('settings.invSaved'));
+    } catch (err) {
+      toast.error(err?.response?.data?.error?.message || 'Could not save invoice settings');
+    } finally {
+      setInvSaving(false);
+    }
+  };
+
+  const saveDelivery = async () => {
+    setDelSaving(true);
+    try {
+      const fee = Number(delFee);
+      const delivery = { enabled: true };
+      if (Number.isFinite(fee) && fee >= 0) delivery.fee = Math.round(fee * 100) / 100;
+      await api.patch(`/tenants/${activeTenantId}`, { delivery });
+      toast.success(t('settings.delSaved'));
+    } catch (err) {
+      toast.error(err?.response?.data?.error?.message || 'Could not save delivery settings');
+    } finally {
+      setDelSaving(false);
     }
   };
 
@@ -772,6 +824,44 @@ export default function SettingsPage() {
           <div style={{ display: 'flex', gap: 10 }}>
             <Button variant="primary" onClick={savePaymentMethods} disabled={pmSaving}>
               {pmSaving ? t('common.loading') : t('settings.pmSave')}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      {/* Invoice / NBR supplier block (Phase 6) — registered name, address,
+          BIN + default VAT printed on every invoice. */}
+      <Card title={t('settings.invTitle')} subtitle={t('settings.invDesc')} style={{ marginTop: 16 }}>
+        <div style={{ display: 'grid', gap: 16 }}>
+          <Field label={t('settings.invRegisteredName')} hint="Upgrade Diner Ltd">
+            <Input value={inv.registeredName} onChange={(e) => setInv((v) => ({ ...v, registeredName: e.target.value }))} />
+          </Field>
+          <Field label={t('settings.invAddress')}>
+            <Input value={inv.address} onChange={(e) => setInv((v) => ({ ...v, address: e.target.value }))} />
+          </Field>
+          <Field label={t('settings.invBin')} hint={t('settings.invBinHint')}>
+            <Input value={inv.bin} maxLength={13} onChange={(e) => setInv((v) => ({ ...v, bin: e.target.value.replace(/\D/g, '') }))} />
+          </Field>
+          <Field label={t('settings.invVatRate')} hint={t('settings.invVatHint')}>
+            <Input type="number" min="0" max="100" step="0.1" value={inv.vatRate} onChange={(e) => setInv((v) => ({ ...v, vatRate: e.target.value }))} style={{ maxWidth: 160 }} />
+          </Field>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <Button variant="primary" onClick={saveInvoice} disabled={invSaving}>
+              {invSaving ? t('common.loading') : t('settings.invSave')}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      {/* Delivery fee (Phase 6) — charged to delivery orders. */}
+      <Card title={t('settings.delTitle')} subtitle={t('settings.delFeeHint')} style={{ marginTop: 16 }}>
+        <div style={{ display: 'grid', gap: 16 }}>
+          <Field label={t('settings.delFee')}>
+            <Input type="number" min="0" step="0.01" value={delFee} onChange={(e) => setDelFee(e.target.value)} style={{ maxWidth: 160 }} />
+          </Field>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <Button variant="primary" onClick={saveDelivery} disabled={delSaving}>
+              {delSaving ? t('common.loading') : t('settings.delSave')}
             </Button>
           </div>
         </div>
@@ -1363,6 +1453,9 @@ export default function SettingsPage() {
 
       {/* Delivery zones + rider coverage — auto-assignment (Phase 5 follow-up) */}
       {canManageUsers && <DeliveryZonesCard />}
+
+      {/* Settlements + gateway wallet balance (Phase 6) — manager only. */}
+      {canManageUsers && <SettlementsCard />}
     </div>
   );
 }

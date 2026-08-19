@@ -30,6 +30,8 @@ import IdempotencyKey from './IdempotencyKey.js';
 import OrderSplitItem from './OrderSplitItem.js';
 import OrderEditRequest from './OrderEditRequest.js';
 import DeliveryZone from './DeliveryZone.js';
+import PaymentRefund from './PaymentRefund.js';
+import Settlement from './Settlement.js';
 
 // Tenant ↔ Plan / SaaS wiring
 Tenant.belongsTo(Plan, { foreignKey: 'plan_id', as: 'plan' });
@@ -72,4 +74,6 @@ export {
   OrderSplitItem,
   OrderEditRequest,
   DeliveryZone,
+  PaymentRefund,
+  Settlement,
 };

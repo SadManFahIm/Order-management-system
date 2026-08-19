@@ -2,6 +2,7 @@ import express from 'express';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { env } from '../config/env.js';
+import Payment from '../models/Payment.js';
 import {
   verifySslcommerzSignature,
   verifyStripeSignature,
@@ -46,6 +47,18 @@ router.post(
       gateway: 'sslcommerz',
       reference: body.tran_id,
       gatewayReference: body.val_id || body.tran_id,
+      // Server-side verification record (Phase 6): the gateway-signed amount
+      // must match the charged amount, and the full confirmation is stored
+      // on the payment for auditability.
+      expectedAmount: body.amount,
+      verification: {
+        gateway: 'sslcommerz',
+        transactionStatus: body.status,
+        trxID: body.val_id || body.tran_id,
+        amount: Number(body.amount),
+        currency: body.currency,
+        method: body.card_issuer_country ? 'card' : 'online',
+      },
     });
     res.json({ received: true, applied: Boolean(updated) });
   })
@@ -69,6 +82,15 @@ router.post(
         gateway: 'stripe',
         reference: session.id,
         gatewayReference: session.payment_intent || session.id,
+        expectedAmount: session.amount_total != null ? session.amount_total / 100 : undefined,
+        verification: {
+          gateway: 'stripe',
+          transactionStatus: session.payment_status || 'Completed',
+          trxID: session.payment_intent || session.id,
+          amount: session.amount_total != null ? session.amount_total / 100 : undefined,
+          currency: session.currency,
+          method: 'card',
+        },
       });
     }
     // Every verified event is acknowledged — unhandled types are a no-op.
@@ -103,10 +125,26 @@ router.all(
       return res.redirect(env.SSLCOMMERZ_FAIL_URL);
     }
 
+    // The callback + execute round-trip is the verification, but the amount
+    // must still match what this order was charged — a tampered paymentID is
+    // caught by the amount check inside applyGatewayConfirmation.
+    const payment = await Payment.findOne({
+      where: { method: 'online', reference: paymentID },
+    });
+
     await applyGatewayConfirmation({
       gateway: 'bkash',
       reference: paymentID,
       gatewayReference: executed.trxID || paymentID,
+      expectedAmount: executed.amount != null ? executed.amount : payment?.amount,
+      verification: {
+        gateway: 'bkash',
+        transactionStatus: executed.transactionStatus,
+        trxID: executed.trxID,
+        amount: Number(executed.amount),
+        currency: executed.currency || 'BDT',
+        method: 'bkash',
+      },
     });
     return res.redirect(env.SSLCOMMERZ_SUCCESS_URL);
   })

@@ -47,6 +47,12 @@ const Payment = sequelize.define(
     // reconciliation job uses these to auto-expire stale pending payments.
     intent_ref: { type: DataTypes.STRING(120), allowNull: true },
     expires_at: { type: DataTypes.DATE, allowNull: true },
+    // Online-gateway confirmation (migration 026): which gateway confirmed
+    // the payment (sslcommerz | stripe | bkash) and the full server-side
+    // verification record — transactionStatus, trxID, amount, currency,
+    // verifiedAt, method. Never contains secrets.
+    gateway: { type: DataTypes.STRING(16), allowNull: true },
+    verification_metadata: { type: DataTypes.JSON, allowNull: true },
     // Dine-in split billing (migration 013): how this part's order was
     // split ('equal' | 'item' | 'custom') and its 1-based position among
     // the diners — drives per-diner receipts + split-method analytics.

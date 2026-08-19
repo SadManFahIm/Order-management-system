@@ -70,6 +70,10 @@ const Order = sequelize.define(
     // the kitchen bumped into the pickup bar.
     prep_started_at: { type: DataTypes.DATE, allowNull: true },
     bumped_at: { type: DataTypes.DATE, allowNull: true },
+    // Optional tip on delivery orders (migration 026). Kept separate from
+    // item subtotal / VAT / discount / delivery fee — it is charged to the
+    // customer (included in grand_total) but never becomes food revenue.
+    tip_amount: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 0 },
     payment_status: {
       type: DataTypes.STRING(16),
       allowNull: false,

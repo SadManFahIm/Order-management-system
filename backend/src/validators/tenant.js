@@ -83,10 +83,20 @@ export const paymentMethodsSchema = z.object({
 /**
  * VAT configuration (Phase 5, NBR-ready). Lives inside `tenant.settings.vat`:
  * `defaultRate` is the workspace-wide VAT % used by the VAT report for items
- * without their own `vat_rate` (Bangladesh: 5% food / 15% standard).
+ * without their own `vat_rate` (Bangladesh: 5% food / 15% standard). The
+ * NBR supplier block (Mushak-6.3) — `registeredName`, `address`, and the
+ * 13-digit `bin` — is printed on the order invoice (Phase 6).
  */
 export const vatSettingsSchema = z.object({
   defaultRate: z.coerce.number().min(0).max(100).optional(),
+  registeredName: z.string().trim().max(200).optional().or(z.literal('')),
+  address: z.string().trim().max(500).optional().or(z.literal('')),
+  bin: z
+    .string()
+    .trim()
+    .regex(/^\d{13}$/, 'BIN must be exactly 13 digits')
+    .optional()
+    .or(z.literal('')),
 });
 
 export const reportsSettingsSchema = z.object({
@@ -99,6 +109,15 @@ export const reportsSettingsSchema = z.object({
     .optional(),
 });
 
+/**
+ * Delivery configuration (Phase 6). Lives inside `tenant.settings.delivery`:
+ * `enabled` gates storefront delivery, `fee` is charged to delivery orders.
+ */
+export const deliverySettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+  fee: z.coerce.number().min(0).max(1000000).optional(),
+});
+
 export const updateTenantSchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
   logoUrl: z.string().url().max(500).nullable().optional(),
@@ -107,6 +126,7 @@ export const updateTenantSchema = z.object({
   paymentMethods: paymentMethodsSchema.optional(),
   reports: reportsSettingsSchema.optional(),
   vat: vatSettingsSchema.optional(),
+  delivery: deliverySettingsSchema.optional(),
   // IANA timezone for wall-clock availability resolution (Phase 5 follow-up);
   // validated against Intl so bogus zones are rejected at the API edge.
   timezone: z

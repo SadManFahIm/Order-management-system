@@ -11,6 +11,7 @@ import {
   buildVatCsv,
   renderCloseoutHtml,
   sendCloseoutEmail,
+  dhakaDate,
 } from '../services/reportsService.js';
 
 /**
@@ -30,7 +31,7 @@ router.use(authMiddleware, resolveTenant, requireTenant, requirePermission('view
 router.get(
   '/closeout',
   asyncHandler(async (req, res) => {
-    res.json(await buildCloseout(req.tenant.id, req.query.date));
+    res.json(await buildCloseout(req.tenant.id, req.query.date || dhakaDate()));
   })
 );
 
@@ -38,7 +39,7 @@ router.get(
 router.get(
   '/closeout.csv',
   asyncHandler(async (req, res) => {
-    const data = await buildCloseout(req.tenant.id, req.query.date);
+    const data = await buildCloseout(req.tenant.id, req.query.date || dhakaDate());
     res.set('Content-Type', 'text/csv; charset=utf-8');
     res.set('Content-Disposition', `attachment; filename="closeout-${data.date}.csv"`);
     res.send(buildCloseoutCsv(data));

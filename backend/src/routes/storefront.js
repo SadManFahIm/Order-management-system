@@ -7,7 +7,7 @@ import OrderItem from '../models/OrderItem.js';
 import Payment from '../models/Payment.js';
 import Product from '../models/Product.js';
 import { checkoutSchema } from '../validators/checkout.js';
-import { priceCart, validateSchedule, deliveryConfig, DELIVERY_TYPES } from '../services/checkoutService.js';
+import { priceCart, validateSchedule, deliveryConfig, DELIVERY_TYPES, normalizeTip } from '../services/checkoutService.js';
 import {
   assertMethodEnabled,
   createPaymentForOrder,
@@ -92,7 +92,11 @@ async function placeCheckoutOrder(tenant, payload) {
   );
 
   const deliveryFee = isDelivery ? delivery.fee : 0;
-  const grandTotal = Math.round((subtotal - totalDiscount + deliveryFee) * 100) / 100;
+  // Optional tip (Phase 6): delivery-only, capped, and added to the charged
+  // total. It is charged to the customer but never food revenue / never VAT-
+  // able — payment verification + reporting keep it separate from subtotal.
+  const tipAmount = normalizeTip(payload.tip, isDelivery);
+  const grandTotal = Math.round((subtotal - totalDiscount + deliveryFee + tipAmount) * 100) / 100;
 
   // 3. Payment — single method (fail-closed against the workspace config)
   //    or split parts (each validated + summed to the exact grand total).
@@ -127,6 +131,7 @@ async function placeCheckoutOrder(tenant, payload) {
       delivery_zone: payload.delivery_zone || null,
       scheduled_at: scheduledAt,
       delivery_fee: deliveryFee,
+      tip_amount: tipAmount,
       payment_method: method,
       payment_status: initialPaymentStatus,
       subtotal,

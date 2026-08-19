@@ -37,7 +37,7 @@ import { sendOrderAlert, sendStatusNotification } from '../services/whatsappServ
 import { sendOrderStatusEmail } from '../services/notifications/orderConfirmation.js';
 import { withIdempotency } from '../services/idempotency.js';
 import { publishOrderEvent } from '../services/realtime.js';
-import { DELIVERY_TYPES, validateSchedule, deliveryConfig } from '../services/checkoutService.js';
+import { DELIVERY_TYPES, validateSchedule, deliveryConfig, normalizeTip } from '../services/checkoutService.js';
 import { assertMethodEnabled, createPaymentForOrder, validateSplits } from '../services/paymentsService.js';
 import { createOnlinePayment } from '../services/paymentGateway.js';
 import { RECONCILIATION_TTL_MS } from '../services/paymentReconciliation.js';
@@ -818,6 +818,7 @@ async function placeStaffOrder(req, {
   order_type = 'pickup',
   scheduled_at,
   delivery_zone,
+  tip,
 }) {
 
     // Validate the payment method against THIS workspace's enabled methods
@@ -895,6 +896,11 @@ async function placeStaffOrder(req, {
     const deliveryFee = isDeliveryType ? deliveryConfig(tenantConfig).fee : 0;
     const scheduledAt = validateSchedule(scheduled_at, orderType);
 
+    // Optional tip (Phase 6): delivery-only + capped, then added to the
+    // charged total. Never food revenue — payment verification and reporting
+    // keep it separate from subtotal/VAT/revenue.
+    const tipAmount = normalizeTip(tip, isDeliveryType);
+
     // Split orders: validate every part against the workspace's enabled
     // methods and the exact grand total, then derive the initial order-level
     // payment status from the parts (all-cash → paid on the spot, mixed →
@@ -902,7 +908,7 @@ async function placeStaffOrder(req, {
     let resolvedSplits = null;
     let initialPaymentStatus = method === 'cash' ? 'paid' : 'pending';
     if (useSplit) {
-      resolvedSplits = validateSplits(tenantConfig, splitParts, grandTotal + deliveryFee);
+      resolvedSplits = validateSplits(tenantConfig, splitParts, grandTotal + deliveryFee + tipAmount);
       const allCash = resolvedSplits.every((s) => s.method === 'cash');
       const anyCash = resolvedSplits.some((s) => s.method === 'cash');
       initialPaymentStatus = allCash ? 'paid' : anyCash ? 'partial' : 'pending';
@@ -924,11 +930,12 @@ async function placeStaffOrder(req, {
         delivery_zone: delivery_zone || null,
         scheduled_at: scheduledAt,
         delivery_fee: deliveryFee,
+        tip_amount: tipAmount,
         payment_method: method,
         payment_status: initialPaymentStatus,
         subtotal,
         total_discount: totalDiscount,
-        grand_total: grandTotal + deliveryFee,
+        grand_total: grandTotal + deliveryFee + tipAmount,
         items: enriched.map((i) => ({
           tenant_id: req.tenant.id,
           product_id: i.product.id,

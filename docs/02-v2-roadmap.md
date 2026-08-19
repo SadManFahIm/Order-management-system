@@ -252,24 +252,24 @@ Core tables for V2 (migrations land phase by phase):
 
 ---
 
-### Phase 6 — Payments
+### Phase 6 — Payments (implemented)
 
-**Objectives:** Gateway-agnostic billing.
+**Objectives:** Verified online payments, NBR-ready invoicing, and safe refund/settlement tracking.
 
-**Deliverables**
-- `PaymentProvider` interface (`createIntent`, `verifyWebhook`, `capture`, `refund`, `status`) + provider registry
-- **Adapter stubs + integration for SSLCommerz and bKash first** (Dhaka market), Nagad/Rocket/Stripe adapters behind the same interface (config-driven, no code change to add one)
-- Payment flow: create intent → redirect/QR → webhook verify (signature validation) → confirm order; idempotency + reconciliation job (mark stale intents)
-- Payment statuses on orders; partial/refund flows; invoices link payments
-- Sandbox mode (test gateway credentials) for dev/staging
+**Deliverables (all shipped)**
+- **Gateway verification + idempotent confirmation** — bKash Tokenized Checkout: unsigned callback → server-side `execute` round-trip (`transactionStatus === 'Completed'` + exact amount match) before a pending payment is marked paid; `verification_metadata` (trxID, amount, status) stored on the payment; `gateway` column records the provider. Manual `POST /api/payments/:id/verify` re-queries the gateway when the browser callback is lost (bKash, requires `place:orders`). SSLCommerz + Stripe webhooks pass the expected amount for the same server-side check. Refunds are never trusted from callbacks — every confirm is idempotent (an already-paid payment is never double-confirmed).
+- **NBR invoice (Mushak-6.3)** — `GET /api/orders/:id/invoice` returns VAT-aware line items + per-item VAT split, totals, linked payments, a **supplier block** (registered name, address, 13-digit BIN from `tenant.settings.vat`), a **QR data URL** carrying invoice identity only (invoice no, order no, total, date — no secrets/PII; no national QR spec exists, so this is additive, never a compliance claim), and a print-ready HTML view. Tips shown separately (never VAT-able, never food revenue).
+- **Refund ledger** — the existing `PATCH /api/payments/:id` refund path now writes a `payment_refunds` ledger row per refund (amount, reason, by, at) inside a transaction with an atomic compare-and-swap on `refunded_amount` (lost races → 409 `REFUND_RACE`), accumulates partial refunds, guards over-refunds, and re-evaluates the order's `payment_status` across all of its payments (split-aware). `GET /api/payments/:id/refunds` reads the ledger. Requires `refund:orders`.
+- **Settlements / wallet balance** — `settlements` table + `GET /api/settlements` / `POST` / `PATCH /:id` (create/update = `manage:settings`, read = `view:reports`). Balance is **computed from the ledger** (Σ paid online payments − refunds − settlements) via `GET /api/settlements/balance` — no wallet table, settlements are movement of money, never revenue.
+- **Tips** — optional tip on delivery order types (server-enforced, capped ৳100k, charged inside `grand_total`/the payment), stored on `orders.tip_amount`, shown separately in the closeout, VAT report and invoice.
+- **Sandbox-ready** — gateways hit env-configured endpoints; tests mock the providers locally, never real money.
+- **Frontend** — RefundModal (replaces the old `window.prompt` refund flow), tip inputs on storefront checkout + New Order, invoice QR + supplier block + tip line, Invoice/NBR settings + delivery-fee card + SettlementsCard in Settings, full en/bn i18n.
 
-**Dependencies:** Phase 5 (orders), webhook-exposed API.
+**Dependencies:** Phase 5 (orders), webhook-exposed API. **Effort:** ~3–4 weeks.
 
-**Effort:** ~3–4 weeks
+**Risks:** gateway sandbox quirks (mitigate: adapter tests against sandbox, contract per provider); double-charge (mitigate: idempotency keys + unique payment refs); webhook replay (mitigate: server-side execute round-trip + exact amount match — a forged callback can never mark a payment paid); refund race (mitigate: CAS on `refunded_amount` + 409).
 
-**Risks:** gateway sandbox quirks (mitigate: adapter tests against sandbox, contract per provider); double-charge (mitigate: idempotency keys + unique payment refs); webhook replay (mitigate: signature + nonce).
-
-**Acceptance criteria:** payment via SSLCommerz sandbox completes and confirms order end-to-end; webhook replay/forgery rejected; refund flow works; adding a new provider = new adapter file + env config, zero order-flow changes.
+**Acceptance criteria:** bKash payment confirms only after the execute round-trip matches the expected amount, and replays are idempotent; a forged/failed callback never confirms; partial + full refunds land in the ledger and the closeout; invoice carries the BIN supplier block + QR; wallet balance always equals collected − refunded − settled.
 
 ---
 

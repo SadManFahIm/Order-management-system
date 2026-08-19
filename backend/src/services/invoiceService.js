@@ -1,4 +1,5 @@
 import Product from '../models/Product.js';
+import QRCode from 'qrcode';
 import { METHOD_LABELS } from './paymentsService.js';
 
 /**
@@ -10,6 +11,13 @@ import { METHOD_LABELS } from './paymentsService.js';
  * order's payment records (method, amount, status, trxID) so the merchant's
  * PDF ties money to items. Rendered as print-ready HTML (browser Save-as-PDF,
  * perfect Bangla rendering) — same pattern as the daily closeout.
+ *
+ * NBR compliance (Mushak-6.3, VAT & SD Act 2012 §51): the supplier block
+ * (registered name, address, 13-digit BIN) comes from
+ * `tenant.settings.vat.{bin,registeredName,address}`. The QR code is an
+ * ADDITIVE enhancement carrying invoice identity only (invoice no, order no,
+ * grand total, date) — Bangladesh has no mandated national QR format yet, so
+ * this must not be described as an NBR QR.
  */
 
 /** Builds the full invoice document for one order (items + VAT + payments). */
@@ -66,7 +74,24 @@ export async function buildInvoice(order, tenant) {
     paidAt: p.paid_at || null,
   }));
 
-  return {
+  // NBR supplier block (Mushak-6.3): registered name + address + 13-digit BIN.
+  // All optional — a tenant that never filled them still gets a valid invoice.
+  const vatSettings = tenant?.settings?.vat && typeof tenant.settings.vat === 'object' ? tenant.settings.vat : {};
+  const bin = String(vatSettings.bin || '').trim();
+  const supplier = {
+    name: String(vatSettings.registeredName || '').trim() || tenant?.name || 'Restaurant',
+    address: String(vatSettings.address || '').trim(),
+    bin: /^\d{13}$/.test(bin) ? bin : '',
+  };
+
+  const grandTotal = Number.isFinite(Number(order.grand_total))
+    ? Number(order.grand_total)
+    : Math.round((subtotal - discountTotal) * 100) / 100;
+  // Tip (delivery orders, Phase 6): charged to the customer but never VAT-able
+  // and never food revenue — shown separately on the invoice.
+  const tipAmount = Number.isFinite(Number(order.tip_amount)) ? Number(order.tip_amount) : 0;
+
+  const invoice = {
     invoiceNo: `INV-${order.order_no || order.id}`,
     orderId: order.id,
     orderNo: order.order_no,
@@ -80,16 +105,37 @@ export async function buildInvoice(order, tenant) {
     paymentStatus: order.payment_status,
     items,
     payments,
+    supplier,
     totals: {
       subtotal: Math.round(subtotal * 100) / 100,
       discount: Math.round(discountTotal * 100) / 100,
       vat: Math.round(vatTotal * 100) / 100,
       net: Math.round(netTotal * 100) / 100,
-      grandTotal: Number.isFinite(Number(order.grand_total))
-        ? Number(order.grand_total)
-        : Math.round((subtotal - discountTotal) * 100) / 100,
+      tip: Math.round(tipAmount * 100) / 100,
+      grandTotal,
     },
   };
+
+  // QR carries invoice IDENTITY only — never secrets, no PII beyond the
+  // invoice number itself. No national QR spec exists, so this is an additive
+  // convenience, not a compliance claim.
+  try {
+    const qrPayload = JSON.stringify({
+      i: invoice.invoiceNo,
+      o: String(order.order_no || order.id),
+      t: invoice.totals.grandTotal.toFixed(2),
+      d: invoice.createdAt || '',
+    });
+    invoice.qrDataUrl = await QRCode.toDataURL(qrPayload, {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 160,
+    });
+  } catch {
+    invoice.qrDataUrl = null;
+  }
+
+  return invoice;
 }
 
 /** Escapes a value for safe inline HTML (quotes + angle brackets). */
@@ -139,6 +185,11 @@ export function renderInvoiceHtml(invoice) {
   .sub{color:var(--muted);margin:0;font-size:13.5px}
   .mono{font-family:'JetBrains Mono',Consolas,monospace;font-size:12px}
   .badge{display:inline-block;background:#fdeef1;color:var(--brand);font-size:12px;font-weight:700;border-radius:999px;padding:4px 12px}
+  .supplier{display:flex;justify-content:space-between;align-items:center;gap:16px;background:#fafbfc;border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px}
+  .supplier b{font-size:14px;display:block}
+  .supplier .sub{font-size:12.5px;margin-top:2px}
+  .bin{display:inline-block;background:#eef2ff;color:#3730a3;font-family:'JetBrains Mono',Consolas,monospace;font-size:12px;font-weight:700;border-radius:8px;padding:3px 10px;margin-top:6px}
+  .qr img{width:120px;height:120px;image-rendering:pixelated}
   .meta{display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;background:#fafbfc;border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:13.5px;margin-bottom:22px}
   .meta b{color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;display:block}
   h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:22px 0 10px}
@@ -163,6 +214,14 @@ export function renderInvoiceHtml(invoice) {
       <span class="badge">${esc(invoice.paymentStatus)}</span>
     </div>
   </div>
+  ${invoice.supplier ? `<div class="supplier">
+    <div>
+      <b>${esc(invoice.supplier.name)}</b>
+      ${invoice.supplier.address ? `<p class="sub">${esc(invoice.supplier.address)}</p>` : ''}
+      ${invoice.supplier.bin ? `<span class="bin">BIN ${esc(invoice.supplier.bin)}</span>` : ''}
+    </div>
+    ${invoice.qrDataUrl ? `<div class="qr" title="Invoice ${esc(invoice.invoiceNo)}"><img src="${invoice.qrDataUrl}" alt="Invoice QR"></div>` : ''}
+  </div>` : ''}
   <div class="meta">
     <div><b>Order</b>${esc(invoice.orderNo || invoice.orderId)}</div>
     <div><b>Customer</b>${esc(invoice.customerName)}${invoice.customerPhone ? ` · ${esc(invoice.customerPhone)}` : ''}</div>
@@ -180,6 +239,7 @@ export function renderInvoiceHtml(invoice) {
     <div class="stat"><span>VAT</span><b>${fmt(invoice.totals.vat)}</b></div>
     <div class="stat"><span>Grand total</span><b>${fmt(invoice.totals.grandTotal)}</b></div>
   </div>
+  ${Number(invoice.totals.tip) > 0 ? `<p class="sub">Including tip ${fmt(invoice.totals.tip)} (not subject to VAT).</p>` : ''}
   <h2>Payments</h2>
   ${payRows || '<div class="sub">No payment records.</div>'}
   <div class="foot">VAT split per item (Bangladesh NBR convention: VAT = line × rate/(100+rate)) · generated ${new Date().toLocaleString('en-GB', { timeZone: 'Asia/Dhaka' })} · Orderly OMS</div>
