@@ -58,6 +58,18 @@ const Order = sequelize.define(
     // Kitchen reject audit trail (migration 012).
     rejected_reason: { type: DataTypes.STRING(255), allowNull: true },
     rejected_by: { type: DataTypes.INTEGER, allowNull: true },
+    // Cancellation reason + actor (migration 025) — managers cancel with a
+    // reason (no-show / customer_canceled / stock / etc.), mirroring reject.
+    cancel_reason: { type: DataTypes.STRING(255), allowNull: true },
+    canceled_by: { type: DataTypes.INTEGER, allowNull: true },
+    // Delivery auto-assignment (migration 025): optional zone name the order
+    // belongs to; auto-assign picks a least-loaded rider covering that zone.
+    delivery_zone: { type: DataTypes.STRING(64), allowNull: true },
+    // KDS (migration 025): prep_started_at is set on `preparing` and drives
+    // the prep timer + overdue highlight; bumped_at marks a ready order that
+    // the kitchen bumped into the pickup bar.
+    prep_started_at: { type: DataTypes.DATE, allowNull: true },
+    bumped_at: { type: DataTypes.DATE, allowNull: true },
     payment_status: {
       type: DataTypes.STRING(16),
       allowNull: false,

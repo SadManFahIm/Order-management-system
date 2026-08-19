@@ -651,6 +651,14 @@
   margin-top: 14px;
 }
 
+.ticket-done__hint {
+  margin: 14px auto 0;
+  max-width: 340px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-soft, #555);
+}
+
 .ticket-done__parts {
   margin-top: 16px;
   border-top: 1px dashed var(--line-strong);

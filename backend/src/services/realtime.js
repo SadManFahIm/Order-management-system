@@ -46,6 +46,10 @@ export function orderEventPayload(order) {
     grand_total: Number(order.grand_total ?? order.total_amount ?? 0),
     customer_name: order.customer_name ?? null,
     assigned_to: order.assigned_to ?? null,
+    delivery_zone: order.delivery_zone ?? null,
+    prep_started_at: order.prep_started_at ?? null,
+    bumped_at: order.bumped_at ?? null,
+    cancel_reason: order.cancel_reason ?? null,
     items,
   };
 }

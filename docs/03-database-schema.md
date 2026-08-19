@@ -775,6 +775,8 @@ export const down = async (qi, transaction) => {
 | 021 | `item_variants.low_stock_at` (variant-level low-stock alert threshold) | 4 | ✅ shipped |
 | 022 | `availability_overrides` (per-day availability override per item) | 4 | ✅ shipped |
 | 023 | `tenant_closure_dates` + `availability_weekday_rules` (restaurant-wide closure days, recurring weekday rules) | 4/5 | ✅ shipped |
+| 024 | `tenant_closure_dates.label` (optional holiday names) | 4/5 | ✅ shipped |
+| 025 | `orders.cancel_reason/canceled_by/delivery_zone/prep_started_at/bumped_at`, `user_tenants.delivery_zones`, `delivery_zones`, `order_edit_requests` (order editing approval flow, delivery auto-assign, KDS bump/prep/overdue, cancellation reasons) | 5 | ✅ shipped |
 
 ---
 

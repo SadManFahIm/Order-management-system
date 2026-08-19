@@ -4,6 +4,11 @@ import axios from 'axios';
 import { Skeleton } from '../components/ui';
 import { useI18n } from '../i18n';
 import { usePaperTheme } from '../hooks/usePaperTheme';
+import {
+  enqueuePending,
+  pendingCount,
+  setupPendingFlusher,
+} from '../utils/pendingOrders';
 
 /**
  * Storefront checkout (Phase 5) — the customer journey's final step.
@@ -96,6 +101,10 @@ export default function CheckoutPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [placed, setPlaced] = useState(null);
+  // Offline submit queue (Phase 5 follow-up): when the POST can't reach the
+  // server the order is parked locally and replayed once the browser is back
+  // online. `queued` shows the "we saved your order" confirmation.
+  const [queued, setQueued] = useState(null); // null | { id, count }
   const idemKeyRef = useRef(null);
 
   const tableNo = searchParams.get('table');
@@ -114,6 +123,12 @@ export default function CheckoutPage() {
     }
     return idemKeyRef.current;
   };
+
+  // Offline queue: register the global online-listener (replays any parked
+  // orders as soon as connectivity returns).
+  useEffect(() => {
+    setupPendingFlusher();
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -388,8 +403,11 @@ export default function CheckoutPage() {
     }
     setSubmitting(true);
     setError(null);
+    // Built before the request so the offline catch can replay the exact
+    // payload (body must be in scope in the catch block).
+    let body;
     try {
-      const body = {
+      body = {
         order_type: orderType,
         customer_name: form.name.trim(),
         customer_phone: form.phone.trim(),
@@ -443,6 +461,17 @@ export default function CheckoutPage() {
     } catch (err) {
       const code = err?.response?.data?.error?.code;
       const message = err?.response?.data?.error?.message;
+      // No response = the request never reached the server (offline / DNS).
+      // Park the exact order + its Idempotency-Key so we can replay it — the
+      // same key guarantees the retry can never double-charge or double-create.
+      if (!err?.response || err.code === 'ERR_NETWORK' || err.code === 'ECONNABORTED') {
+        const id = enqueuePending(slug, body, idemKey());
+        clearCart();
+        idemKeyRef.current = null;
+        setQueued({ id, count: pendingCount(slug) });
+        window.scrollTo(0, 0);
+        return;
+      }
       if (code === 'IDEMPOTENCY_KEY_MISMATCH') {
         // A stale key from a previous attempt — mint a fresh one and retry once.
         try { window.sessionStorage.removeItem(IDEM_KEY(slug)); } catch { /* noop */ }
@@ -522,6 +551,53 @@ export default function CheckoutPage() {
       {paperPref === 'light' ? '☀️' : paperPref === 'dark' ? '🌙' : '🌓'}
     </button>
   );
+
+  // ── Offline queued view — order saved, waiting for the network ────────
+  if (queued) {
+    return (
+      <div className={`menu menu--checkout${paperClass}`} {...paperAttrs}>
+        <header className="stub stub--done">
+          <div className="stub__orbs" aria-hidden="true">
+            {ORBS.map((o) => (
+              <span key={o.cls} className={`stub__orb ${o.cls}`}>{o.emoji}</span>
+            ))}
+          </div>
+          <div className="stub__inner">
+            <div className="stub__meta">
+              {paperBtn}
+              <span className="stub__table">📶 {t('store.offlineQueued')}</span>
+            </div>
+            <div className="stub__brand">
+              {restaurant.logoUrl ? (
+                <img src={restaurant.logoUrl} alt="" className="stub__logo" />
+              ) : (
+                <div className="stub__logo">🏪</div>
+              )}
+              <div className="stub__copy">
+                <h1 className="stub__name">{restaurant.name}</h1>
+                <div className="stub__tagline">{t('store.offlineQueuedDesc')}</div>
+                <div className="stub__eyebrow">📶 {t('store.offlinePending', { n: queued.count })}</div>
+              </div>
+            </div>
+          </div>
+          <div className="stub__tear" aria-hidden="true" />
+        </header>
+        <main className="menu__body checkout__body">
+          <section className="ticket-card ticket-done__card">
+            <div className="ticket-done__label">{t('store.offlineOrderSaved')}</div>
+            <div className="ticket-done__no">📶 {t('store.offlineAwaitNetwork')}</div>
+            <div className="ticket-done__total">{fmtMoney(total)}</div>
+            <p className="ticket-done__hint">{t('store.offlineHint')}</p>
+            <div className="ticket-actions">
+              <Link to={`/m/${slug}`} className="ticket-btn ticket-btn--ghost">
+                {t('store.continueShopping')}
+              </Link>
+            </div>
+          </section>
+        </main>
+      </div>
+    );
+  }
 
   // ── Confirmation view (post-place) — the ticket stub, torn off ────────
   if (placed) {

@@ -12,13 +12,27 @@ import Order from '../models/Order.js';
 import OrderItem from '../models/OrderItem.js';
 import Payment from '../models/Payment.js';
 import OrderSplitItem from '../models/OrderSplitItem.js';
+import OrderEditRequest from '../models/OrderEditRequest.js';
+import DeliveryZone from '../models/DeliveryZone.js';
 import Table from '../models/Table.js';
 import Tenant from '../models/Tenant.js';
 import User from '../models/User.js';
 import UserTenant from '../models/UserTenant.js';
+import { audit } from '../services/auditService.js';
+import {
+  createEditRequest,
+  approveEditRequest,
+  rejectEditRequest,
+  listEditRequests,
+} from '../services/editRequestService.js';
+import {
+  autoAssign,
+  autoAssignTenant,
+  deliveryMembers,
+} from '../services/assignmentService.js';
 import { applyPromotionsToCart } from '../utils/promotionEngine.js';
 import { parsePagination } from '../utils/pagination.js';
-import { createOrderSchema } from '../validators/order.js';
+import { createOrderSchema, orderItemSchema } from '../validators/order.js';
 import { sendOrderAlert, sendStatusNotification } from '../services/whatsappService.js';
 import { sendOrderStatusEmail } from '../services/notifications/orderConfirmation.js';
 import { withIdempotency } from '../services/idempotency.js';
@@ -342,6 +356,14 @@ router.patch(
           `Order in "${order.status}" cannot be canceled`
         );
       }
+      // Cancellation reason collection (Phase 5 follow-up): a manager must
+      // say WHY (no_show / customer_canceled / stock / etc.) — mirrors the
+      // existing reject-reason rule so the cancel is always auditable.
+      if (!reason || typeof reason !== 'string' || !reason.trim()) {
+        throw new AppError(400, 'VALIDATION_ERROR', 'A cancel reason is required');
+      }
+      order.cancel_reason = reason.trim().slice(0, 255);
+      order.canceled_by = req.user.id;
     } else if (status === 'rejected') {
       if (!canFulfill(req)) {
         throw new AppError(403, 'FORBIDDEN', 'Only kitchen/managers can reject orders');
@@ -388,8 +410,31 @@ router.patch(
       }
     }
 
+    // KDS prep timer (Phase 5 follow-up): stamp when the kitchen starts
+    // preparing — drives the prep timer + overdue highlight.
+    if (status === 'preparing' && !order.prep_started_at) {
+      order.prep_started_at = new Date();
+    }
     order.status = status;
     await order.save();
+
+    // Delivery auto-assignment (Phase 5 follow-up): when a delivery order is
+    // ready, auto-pick a least-loaded rider covering its zone (unless already
+    // assigned). Fire-and-forget — a failed sweep never blocks the move.
+    if (status === 'ready' && DELIVERY_TYPES.includes(order.type)) {
+      void autoAssign(req.tenant.id, order);
+    }
+
+    // Audit the fulfillment move (status / reject / cancel).
+    void audit({
+      action: status === 'canceled' ? 'order.canceled' : `order.status_${status}`,
+      actorId: req.user.id,
+      tenantId: req.tenant.id,
+      entityType: 'Order',
+      entityId: order.id,
+      metadata: { reason: order.cancel_reason ?? order.rejected_reason ?? null },
+      req,
+    });
 
     // Customer status notification (Phase 5): fire-and-forget, never blocks
     // the status change — the service swallows every failure internally.
@@ -409,6 +454,7 @@ router.patch(
       id: order.id,
       status: order.status,
       rejected_reason: order.rejected_reason ?? null,
+      cancel_reason: order.cancel_reason ?? null,
     });
   })
 );
@@ -457,6 +503,288 @@ router.patch(
   })
 );
 
+/** GET /api/orders/delivery-zones — the workspace's zone catalogue. */
+router.get(
+  '/delivery-zones',
+  requirePermission('view:orders'),
+  asyncHandler(async (req, res) => {
+    const zones = await DeliveryZone.findAll({
+      where: { tenant_id: req.tenant.id },
+      order: [['sort_order', 'ASC'], ['name', 'ASC']],
+    });
+    res.json(zones);
+  })
+);
+
+/** POST /api/orders/delivery-zones — create a zone (manage:orders). */
+router.post(
+  '/delivery-zones',
+  requirePermission('manage:orders'),
+  asyncHandler(async (req, res) => {
+    const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+    if (!name || name.length > 64) {
+      throw new AppError(400, 'VALIDATION_ERROR', 'A zone name (≤64 chars) is required');
+    }
+    const zone = await DeliveryZone.create({
+      tenant_id: req.tenant.id,
+      name,
+      sort_order: Number.isInteger(req.body.sort_order) ? req.body.sort_order : 0,
+    });
+    void audit({
+      action: 'delivery.zone_created',
+      actorId: req.user.id,
+      tenantId: req.tenant.id,
+      entityType: 'DeliveryZone',
+      entityId: zone.id,
+      metadata: { name: zone.name },
+      req,
+    });
+    res.status(201).json(zone);
+  })
+);
+
+/** PATCH /api/orders/delivery-zones/:id — rename / toggle a zone. */
+router.patch(
+  '/delivery-zones/:id',
+  requirePermission('manage:orders'),
+  asyncHandler(async (req, res) => {
+    const zone = await DeliveryZone.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+    });
+    if (!zone) throw new AppError(404, 'NOT_FOUND', 'Zone not found');
+    if (typeof req.body.name === 'string' && req.body.name.trim()) {
+      zone.name = req.body.name.trim().slice(0, 64);
+    }
+    if (typeof req.body.is_active === 'boolean') zone.is_active = req.body.is_active;
+    if (Number.isInteger(req.body.sort_order)) zone.sort_order = req.body.sort_order;
+    await zone.save();
+    void audit({
+      action: 'delivery.zone_updated',
+      actorId: req.user.id,
+      tenantId: req.tenant.id,
+      entityType: 'DeliveryZone',
+      entityId: zone.id,
+      metadata: { name: zone.name, is_active: zone.is_active },
+      req,
+    });
+    res.json(zone);
+  })
+);
+
+/** DELETE /api/orders/delivery-zones/:id — remove a zone. */
+router.delete(
+  '/delivery-zones/:id',
+  requirePermission('manage:orders'),
+  asyncHandler(async (req, res) => {
+    const zone = await DeliveryZone.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+    });
+    if (!zone) throw new AppError(404, 'NOT_FOUND', 'Zone not found');
+    await zone.destroy();
+    void audit({
+      action: 'delivery.zone_deleted',
+      actorId: req.user.id,
+      tenantId: req.tenant.id,
+      entityType: 'DeliveryZone',
+      entityId: zone.id,
+      metadata: { name: zone.name },
+      req,
+    });
+    res.json({ id: zone.id, deleted: true });
+  })
+);
+
+/** GET /api/orders/delivery-members — delivery members + their zone coverage. */
+router.get(
+  '/delivery-members',
+  requirePermission('view:orders'),
+  asyncHandler(async (req, res) => {
+    const members = await deliveryMembers(req.tenant.id);
+    res.json(
+      members.map((m) => ({
+        id: m.user_id,
+        name: m.User?.name ?? null,
+        email: m.User?.email ?? null,
+        delivery_zones: Array.isArray(m.delivery_zones) ? m.delivery_zones : [],
+      }))
+    );
+  })
+);
+
+/** PATCH /api/orders/delivery-members/:userId/zones — set a rider's coverage. */
+router.patch(
+  '/delivery-members/:userId/zones',
+  requirePermission('manage:orders'),
+  asyncHandler(async (req, res) => {
+    const member = await UserTenant.findOne({
+      where: { user_id: req.params.userId, tenant_id: req.tenant.id, role: 'delivery' },
+    });
+    if (!member) throw new AppError(404, 'NOT_FOUND', 'Delivery member not found');
+    const zones = Array.isArray(req.body.delivery_zones) ? req.body.delivery_zones : [];
+    member.delivery_zones = zones.map((z) => String(z).slice(0, 64)).slice(0, 200);
+    await member.save();
+    void audit({
+      action: 'delivery.rider_zones_updated',
+      actorId: req.user.id,
+      tenantId: req.tenant.id,
+      entityType: 'User',
+      entityId: member.user_id,
+      metadata: { delivery_zones: member.delivery_zones },
+      req,
+    });
+    res.json({ id: member.user_id, delivery_zones: member.delivery_zones });
+  })
+);
+
+/** POST /api/orders/auto-assign — sweep every eligible unassigned delivery order. */
+router.post(
+  '/auto-assign',
+  requirePermission('manage:orders'),
+  asyncHandler(async (req, res) => {
+    const count = await autoAssignTenant(req.tenant.id);
+    void audit({
+      action: 'delivery.auto_assigned',
+      actorId: req.user.id,
+      tenantId: req.tenant.id,
+      metadata: { count },
+      req,
+    });
+    res.json({ assigned: count });
+  })
+);
+
+/** POST /api/orders/:id/bump — KDS bump: mark a ready order in the pickup bar.
+ *
+ * Kitchen bump bar (Phase 5 follow-up): a preparing order can be bumped to
+ * `ready` (stamps bumped_at); an already-bumped ready order is a no-op so
+ * double-taps are harmless (idempotent).
+ */
+router.post(
+  '/:id/bump',
+  asyncHandler(async (req, res) => {
+    if (!canFulfill(req)) {
+      throw new AppError(403, 'FORBIDDEN', 'Only kitchen/managers can bump orders');
+    }
+    const order = await Order.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+    });
+    if (!order) throw new AppError(404, 'NOT_FOUND', 'Order not found');
+    if (order.status === 'canceled' || order.status === 'rejected' || order.status === 'delivered') {
+      throw new AppError(409, 'INVALID_STATUS_TRANSITION', `Order in "${order.status}" cannot be bumped`);
+    }
+    if (order.status === 'preparing') {
+      order.status = 'ready';
+    }
+    if (!order.bumped_at) order.bumped_at = new Date();
+    if (!order.prep_started_at) order.prep_started_at = new Date();
+    await order.save();
+    void audit({
+      action: 'order.bumped',
+      actorId: req.user.id,
+      tenantId: req.tenant.id,
+      entityType: 'Order',
+      entityId: order.id,
+      req,
+    });
+    publishOrderEvent(req.tenant.id, 'order.bumped', order);
+    if (DELIVERY_TYPES.includes(order.type)) void autoAssign(req.tenant.id, order);
+    res.json({ id: order.id, status: order.status, bumped_at: order.bumped_at });
+  })
+);
+
+/** GET /api/orders/:id/edit-requests — pending/decided edit requests. */
+router.get(
+  '/:id/edit-requests',
+  requirePermission('view:orders'),
+  asyncHandler(async (req, res) => {
+    const requests = await listEditRequests(req.params.id, req.tenant.id);
+    res.json(requests);
+  })
+);
+
+/** POST /api/orders/:id/edit-request — customer/staff request an item change.
+ *
+ * Approval flow: creates a PENDING request. The live order is untouched until
+ * a manager approves (POST .../approve), which re-prices + rewrites it.
+ */
+router.post(
+  '/:id/edit-request',
+  requirePermission('place:orders'),
+  asyncHandler(async (req, res) => {
+    const items = orderItemSchema.array().min(1).parse(req.body.items);
+    const edit = await createEditRequest({
+      tenant: req.tenant,
+      orderId: req.params.id,
+      items: items.map((i) => ({ product_id: i.product_id, quantity: i.quantity })),
+      reason: req.body.reason,
+      actor: req.user,
+    });
+    void audit({
+      action: 'order.edit_requested',
+      actorId: req.user.id,
+      tenantId: req.tenant.id,
+      entityType: 'Order',
+      entityId: req.params.id,
+      metadata: { items },
+      req,
+    });
+    res.status(201).json(edit);
+  })
+);
+
+/** POST /api/orders/:id/edit-request/:reqId/approve — apply the edit. */
+router.post(
+  '/:id/edit-request/:reqId/approve',
+  requirePermission('manage:orders'),
+  asyncHandler(async (req, res) => {
+    const order = await approveEditRequest({
+      tenant: req.tenant,
+      orderId: req.params.id,
+      reqId: req.params.reqId,
+      actorId: req.user.id,
+    });
+    void audit({
+      action: 'order.edit_approved',
+      actorId: req.user.id,
+      tenantId: req.tenant.id,
+      entityType: 'Order',
+      entityId: order.id,
+      req,
+    });
+    res.json({
+      id: order.id,
+      status: order.status,
+      grand_total: order.grand_total,
+      payment_status: order.payment_status,
+    });
+  })
+);
+
+/** POST /api/orders/:id/edit-request/:reqId/reject — decline the edit. */
+router.post(
+  '/:id/edit-request/:reqId/reject',
+  requirePermission('manage:orders'),
+  asyncHandler(async (req, res) => {
+    const edit = await rejectEditRequest({
+      tenant: req.tenant,
+      orderId: req.params.id,
+      reqId: req.params.reqId,
+      actorId: req.user.id,
+      note: req.body.note,
+    });
+    void audit({
+      action: 'order.edit_rejected',
+      actorId: req.user.id,
+      tenantId: req.tenant.id,
+      entityType: 'OrderEditRequest',
+      entityId: edit.id,
+      metadata: { note: edit.decision_note },
+      req,
+    });
+    res.json({ id: edit.id, status: edit.status });
+  })
+);
+
 /** POST /api/orders — create an order with server-side pricing and promotions. */
 router.post(
   '/',
@@ -489,6 +817,7 @@ async function placeStaffOrder(req, {
   items,
   order_type = 'pickup',
   scheduled_at,
+  delivery_zone,
 }) {
 
     // Validate the payment method against THIS workspace's enabled methods
@@ -592,6 +921,7 @@ async function placeStaffOrder(req, {
         customer_address: customer_address || null,
         table_no: table_no ?? null,
         type: orderType,
+        delivery_zone: delivery_zone || null,
         scheduled_at: scheduledAt,
         delivery_fee: deliveryFee,
         payment_method: method,

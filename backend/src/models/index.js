@@ -28,10 +28,16 @@ import Payment from './Payment.js';
 import DailyStat from './DailyStat.js';
 import IdempotencyKey from './IdempotencyKey.js';
 import OrderSplitItem from './OrderSplitItem.js';
+import OrderEditRequest from './OrderEditRequest.js';
+import DeliveryZone from './DeliveryZone.js';
 
 // Tenant ↔ Plan / SaaS wiring
 Tenant.belongsTo(Plan, { foreignKey: 'plan_id', as: 'plan' });
 Plan.hasMany(Tenant, { foreignKey: 'plan_id' });
+
+// Ordering & fulfillment (migration 025): edit requests belong to orders.
+Order.hasMany(OrderEditRequest, { foreignKey: 'order_id', as: 'editRequests' });
+OrderEditRequest.belongsTo(Order, { foreignKey: 'order_id' });
 
 export {
   User,
@@ -64,4 +70,6 @@ export {
   DailyStat,
   IdempotencyKey,
   OrderSplitItem,
+  OrderEditRequest,
+  DeliveryZone,
 };

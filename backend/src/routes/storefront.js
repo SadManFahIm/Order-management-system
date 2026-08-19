@@ -124,6 +124,7 @@ async function placeCheckoutOrder(tenant, payload) {
       customer_email: payload.customer_email || null,
       customer_address: payload.customer_address || null,
       type: payload.order_type,
+      delivery_zone: payload.delivery_zone || null,
       scheduled_at: scheduledAt,
       delivery_fee: deliveryFee,
       payment_method: method,
