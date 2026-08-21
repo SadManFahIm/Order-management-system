@@ -21,6 +21,8 @@ import { sendOrderConfirmationEmail } from '../services/notifications/orderConfi
 import { publishOrderEvent } from '../services/realtime.js';
 import { assertQuota, incrementUsage, notifyQuotaIfCrossed } from '../services/planService.js';
 import { decrementVariantStock } from '../services/menuService.js';
+import AnalyticsEvent from '../models/AnalyticsEvent.js';
+import { z } from 'zod';
 
 /**
  * Public storefront checkout (Phase 5) — the customer journey's final step.
@@ -42,8 +44,35 @@ const findPublicTenant = async (slug) => {
   return tenant;
 };
 
-/** POST /api/public/restaurants/:slug/checkout — place a guest order. */
+/**
+ * POST /api/public/restaurants/:slug/events — funnel event ingestion
+ * (Phase 7 analytics). Fire-and-forget from the storefront: menu_view,
+ * add_to_cart, checkout_start — each carrying the anonymous session id.
+ * NO authentication; writes are bounded (validated enum + lengths) and the
+ * table is append-only. Failures never surface to shoppers.
+ */
+const eventSchema = z.object({
+  type: z.enum(['menu_view', 'add_to_cart', 'checkout_start']),
+  session_id: z.string().trim().min(8).max(64),
+  product_id: z.number().int().positive().optional().nullable(),
+});
+
 router.post(
+  '/restaurants/:slug/events',
+  asyncHandler(async (req, res) => {
+    const tenant = await findPublicTenant(req.params.slug);
+    const payload = eventSchema.parse(req.body);
+    await AnalyticsEvent.create({
+      tenant_id: tenant.id,
+      session_id: payload.session_id,
+      event_type: payload.type,
+      product_id: payload.product_id ?? null,
+    });
+    return res.status(204).send();
+  })
+);
+
+/** POST /api/public/restaurants/:slug/checkout — place a guest order. */router.post(
   '/restaurants/:slug/checkout',
   asyncHandler(async (req, res) => {
     const tenant = await findPublicTenant(req.params.slug);
@@ -130,6 +159,9 @@ async function placeCheckoutOrder(tenant, payload) {
       type: payload.order_type,
       delivery_zone: payload.delivery_zone || null,
       scheduled_at: scheduledAt,
+      // Phase 7 analytics: storefront channel + funnel session linkage.
+      channel: 'storefront',
+      analytics_session: payload.analytics_session || null,
       delivery_fee: deliveryFee,
       tip_amount: tipAmount,
       payment_method: method,

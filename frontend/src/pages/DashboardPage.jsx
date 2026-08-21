@@ -4,9 +4,13 @@ import { useI18n } from '../i18n';
 import { usePaper } from '../theme/PaperThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { PageHeader, Card, Skeleton, Badge, Button } from '../components/ui';
-import { TrendAreaChart, OrdersBarChart, StatusDonut, CloseoutTrendChart, PeakHoursHeatmap, CategoryMixDonut, SplitMethodDonut } from '../components/charts';
+import { TrendAreaChart, OrdersBarChart, StatusDonut, CloseoutTrendChart, PeakHoursHeatmap, CategoryMixDonut, SplitMethodDonut, FunnelChart } from '../components/charts';
+import AnalyticsFilterBar from '../components/AnalyticsFilterBar';
+import ExportCsvButton from '../components/ExportCsvButton';
 
 const fmtTaka = (n) => `৳ ${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+
+const DEFAULT_FILTERS = { from: '', to: '', channel: 'all', orderType: 'all' };
 
 export default function DashboardPage() {
   const { t } = useI18n();
@@ -23,6 +27,22 @@ export default function DashboardPage() {
   const [days, setDays] = useState(7);
   const [loading, setLoading] = useState(true);
   const mounted = useRef(true);
+
+  // Phase 7: custom-range analytics (from/to/channel/order_type) served by
+  // the /api/analytics/* endpoints. Null while loading or when the viewer
+  // lacks view:analytics (cashiers see the legacy dashboard only).
+  const [filters, setFilters] = useState(DEFAULT_FILTERS);
+  const [analytics, setAnalytics] = useState(null);
+  const [analyticsError, setAnalyticsError] = useState(null);
+  const hasRange = Boolean(filters.from && filters.to);
+  const filterParams = hasRange
+    ? {
+        from: filters.from,
+        to: filters.to,
+        ...(filters.channel !== 'all' ? { channel: filters.channel } : {}),
+        ...(filters.orderType !== 'all' ? { order_type: filters.orderType } : {}),
+      }
+    : {};
 
   useEffect(() => {
     mounted.current = true;
@@ -49,6 +69,37 @@ export default function DashboardPage() {
       clearInterval(timer);
     };
   }, [days]);
+
+  // Analytics payload — refetched whenever the filter bar changes.
+  useEffect(() => {
+    mounted.current = true;
+    setAnalyticsError(null);
+    Promise.all([
+      api.get('/analytics/summary', { params: filterParams }),
+      api.get('/analytics/funnel', { params: filterParams }),
+      api.get('/analytics/riders', { params: filterParams }),
+      api.get('/analytics/anomalies'),
+    ])
+      .then(([summary, funnel, riders, anomalies]) => {
+        if (!mounted.current) return;
+        setAnalytics({
+          summary: summary.data,
+          funnel: funnel.data,
+          riders: riders.data,
+          anomalies: anomalies.data,
+        });
+      })
+      .catch((err) => {
+        if (!mounted.current) return;
+        if (err?.response?.status === 403) {
+          setAnalytics(null); // no view:analytics permission — hide sections
+        } else {
+          const msg = err?.response?.data?.error?.message;
+          setAnalyticsError(msg || 'Could not load analytics for this range');
+        }
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.from, filters.to, filters.channel, filters.orderType]);
 
   if (error) {
     return (
@@ -90,6 +141,17 @@ export default function DashboardPage() {
 
   const weekRevenue = (data.trend || []).reduce((s, d) => s + (Number(d.revenue) || 0), 0);
   const weekOrders = (data.trend || []).reduce((s, d) => s + (Number(d.orders) || 0), 0);
+
+  // Phase 7: when a custom range is active, the historical charts render
+  // from the filtered analytics API instead of the fixed ?days= dashboard.
+  const summary = analytics?.summary;
+  const trend = hasRange && summary ? summary.series : data.trend || [];
+  const statusData = hasRange && summary ? summary.statusBreakdown : data.statusBreakdown || [];
+  const methodData =
+    hasRange && summary
+      ? summary.methodMix.map((m) => ({ method: m.method, amount: m.amount, count: m.count }))
+      : data.paymentBreakdown || [];
+  const rangeKpis = summary?.summary;
 
   const ts = data.trendStats || {};
   const dod = ts.dayOverDay || {};
@@ -142,6 +204,26 @@ export default function DashboardPage() {
         <div style={{ display: 'grid', gap: 10, marginBottom: 16 }}>
           {data.alerts.map((a) => (
             <AlertBanner key={a.code} alert={a} t={t} />
+          ))}
+        </div>
+      )}
+
+      {/* Phase 7: custom range + channel/order-type filters (analytics API) */}
+      {analytics !== null && (
+        <div style={{ marginBottom: 16 }}>
+          <AnalyticsFilterBar
+            filters={filters}
+            onChange={setFilters}
+            error={analyticsError}
+          />
+        </div>
+      )}
+
+      {/* Revenue anomaly alerts (Phase 7) — persisted, cooldown-deduped */}
+      {(analytics?.anomalies?.alerts || []).length > 0 && (
+        <div style={{ display: 'grid', gap: 10, marginBottom: 16 }}>
+          {analytics.anomalies.alerts.slice(0, 5).map((a) => (
+            <AnomalyBanner key={a.id} alert={a} t={t} />
           ))}
         </div>
       )}
@@ -234,15 +316,26 @@ export default function DashboardPage() {
       >
         <Card
           title={t('dash.revenueTrend')}
-          subtitle={`${t('dash.last7Days')} · ${fmtTaka(weekRevenue)} ${t('dash.total')}`}
+          subtitle={
+            hasRange
+              ? `${filters.from} → ${filters.to}${rangeKpis ? ` · ${fmtTaka(rangeKpis.totalRevenue)}` : ''}`
+              : `${t('dash.last7Days')} · ${fmtTaka(weekRevenue)} ${t('dash.total')}`
+          }
+          actions={
+            hasRange ? <ExportCsvButton type="revenue" params={filterParams} /> : null
+          }
         >
-          <TrendAreaChart data={data.trend || []} />
+          <TrendAreaChart data={trend} />
         </Card>
         <Card
           title={t('dash.orderVolume')}
-          subtitle={`${t('dash.last7Days')} · ${weekOrders} ${t('dash.ordersTotal')}`}
+          subtitle={
+            hasRange
+              ? `${filters.from} → ${filters.to} · ${rangeKpis?.totalOrders ?? 0} ${t('dash.ordersTotal')}`
+              : `${t('dash.last7Days')} · ${weekOrders} ${t('dash.ordersTotal')}`
+          }
         >
-          <OrdersBarChart data={data.trend || []} />
+          <OrdersBarChart data={trend} />
         </Card>
       </div>
 
@@ -255,8 +348,12 @@ export default function DashboardPage() {
           marginTop: 16,
         }}
       >
-        <Card title={t('dash.statusBreakdown')} subtitle={t('dash.statusSub')}>
-          <StatusDonut data={data.statusBreakdown || []} />
+        <Card
+          title={t('dash.statusBreakdown')}
+          subtitle={t('dash.statusSub')}
+          actions={hasRange ? <ExportCsvButton type="status" params={filterParams} /> : null}
+        >
+          <StatusDonut data={statusData} />
         </Card>
 
         <Card title={t('dash.topItems')} subtitle={t('dash.topItemsSub')}>
@@ -394,14 +491,18 @@ export default function DashboardPage() {
           marginTop: 16,
         }}
       >
-        <Card title={t('dash.paymentBreakdown')} subtitle={t('dash.paymentBreakdownSub')}>
-          {(data.paymentBreakdown || []).length === 0 ? (
+        <Card
+          title={t('dash.paymentBreakdown')}
+          subtitle={t('dash.paymentBreakdownSub')}
+          actions={hasRange ? <ExportCsvButton type="methods" params={filterParams} /> : null}
+        >
+          {methodData.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>
               {t('dash.noData')}
             </div>
           ) : (
             <div style={{ display: 'grid', gap: 14 }}>
-              {data.paymentBreakdown.map((m) => (
+              {methodData.map((m) => (
                 <div key={m.method}>
                   <div
                     style={{
@@ -428,7 +529,7 @@ export default function DashboardPage() {
                       style={{
                         height: '100%',
                         width: `${Math.max(
-                          (m.amount / Math.max(...data.paymentBreakdown.map((x) => x.amount), 1)) * 100,
+                          (m.amount / Math.max(...methodData.map((x) => x.amount), 1)) * 100,
                           4
                         )}%`,
                         borderRadius: 999,
@@ -496,6 +597,91 @@ export default function DashboardPage() {
           )}
         </Card>
       </div>
+
+      {/* Conversion funnel + rider performance (Phase 7 analytics) */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
+          gap: 16,
+          marginTop: 16,
+        }}
+      >
+        {analytics?.funnel && (
+          <Card title={t('dash.funnel')} subtitle={t('dash.funnelSub')}>
+            <FunnelChart
+              stages={analytics.funnel.stages || []}
+              conversions={analytics.funnel.conversions || {}}
+            />
+            <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+              <ExportCsvButton type="funnel" params={filterParams} />
+            </div>
+          </Card>
+        )}
+
+        {analytics?.riders && (
+          <Card
+            title={t('dash.riders')}
+            subtitle={`${t('dash.ridersSub')} · ${t('dash.sla')} ${analytics.riders.definitions?.slaMinutes ?? 60} ${t('dash.minutes')}`}
+            actions={<ExportCsvButton type="riders" params={filterParams} />}
+          >
+            {(analytics.riders.riders || []).length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>
+                {t('dash.noRiders')}
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table
+                  style={{
+                    width: '100%',
+                    borderCollapse: 'collapse',
+                    fontSize: 13,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  <thead>
+                    <tr style={{ color: 'var(--text-muted)', textAlign: 'left' }}>
+                      <th style={{ padding: '6px 8px', fontWeight: 700 }}>{t('dash.riderCol')}</th>
+                      <th style={{ padding: '6px 8px', fontWeight: 700 }}>{t('dash.deliveriesCol')}</th>
+                      <th style={{ padding: '6px 8px', fontWeight: 700 }}>{t('dash.avgTimeCol')}</th>
+                      <th style={{ padding: '6px 8px', fontWeight: 700 }}>{t('dash.onTimeRateCol')}</th>
+                      <th style={{ padding: '6px 8px', fontWeight: 700 }}>{t('dash.lateCol')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {analytics.riders.riders.map((r) => (
+                      <tr key={r.riderId} style={{ borderTop: '1px solid var(--border)' }}>
+                        <td style={{ padding: '8px', fontWeight: 650 }}>{r.rider}</td>
+                        <td style={{ padding: '8px' }}>{r.deliveries}</td>
+                        <td style={{ padding: '8px' }}>
+                          {r.avgDeliveryMinutes === null ? '—' : `${r.avgDeliveryMinutes} ${t('dash.minutes')}`}
+                        </td>
+                        <td style={{ padding: '8px' }}>
+                          <Badge tone={r.onTimeRate === null ? 'neutral' : r.onTimeRate >= 90 ? 'success' : r.onTimeRate >= 70 ? 'warning' : 'danger'}>
+                            {r.onTimeRate === null ? '—' : `${r.onTimeRate}%`}
+                          </Badge>
+                        </td>
+                        <td style={{ padding: '8px' }}>{r.lateDeliveries}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        )}
+      </div>
+
+      {/* One-click CSV exports — every chart dataset (Phase 7) */}
+      {analytics !== null && (
+        <Card title={t('dash.exports')} subtitle={t('dash.exportsSub')} style={{ marginTop: 16 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {['revenue', 'methods', 'categories', 'status', 'top-items', 'peak-hours', 'retention', 'funnel', 'riders', 'anomalies'].map((type) => (
+              <ExportCsvButton key={type} type={type} params={filterParams} label={type} />
+            ))}
+          </div>
+        </Card>
+      )}
 
       {/* Customer retention + fulfillment time (Phase 7) */}
       <div
@@ -642,8 +828,43 @@ function StatRow({ label, value, strong }) {
   );
 }
 
-function AlertBanner({ alert, t }) {
-  const danger = alert.severity === 'danger';
+/** Persisted revenue-anomaly alert (Phase 7) — drop/spike vs baseline. */
+function AnomalyBanner({ alert, t }) {
+  const isDrop = alert.alertType === 'revenue_drop';
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '12px 16px',
+        borderRadius: 14,
+        background: 'var(--surface-2)',
+        border: '1px solid var(--border)',
+        borderLeft: `4px solid ${isDrop ? 'var(--danger)' : 'var(--success)'}`,
+      }}
+    >
+      <span style={{ fontSize: 16 }}>{isDrop ? '📉' : '📈'}</span>
+      <div>
+        <div style={{ fontWeight: 700, fontSize: 13.5 }}>
+          {isDrop ? t('dash.anomalyDrop') : t('dash.anomalySpike')}{' '}
+          <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>
+            ({alert.segment})
+          </span>
+        </div>
+        <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
+          {t('dash.anomalyDetail')
+            .replace('{current}', fmtTaka(alert.currentValue ?? 0))
+            .replace('{baseline}', fmtTaka(alert.baselineValue ?? 0))
+            .replace('{dev}', `${alert.percentageDeviation > 0 ? '+' : ''}${alert.percentageDeviation}%`)}
+          {alert.from ? ` · ${alert.from} → ${alert.to}` : ''}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AlertBanner({ alert, t }) {  const danger = alert.severity === 'danger';
   const title =
     alert.code === 'LOW_STOCK'
       ? t('dash.alertLowStock')

@@ -132,6 +132,10 @@ const envSchema = z.object({
   BILLING_WEBHOOK_URL: z.string().optional(),
   BILLING_WEBHOOK_SECRET: z.string().optional(),
   BILLING_REPORT_INTERVAL_MS: z.coerce.number().int().positive().default(6 * 60 * 60 * 1000),
+  // ── Analytics (Phase 7) ───────────────────────────────────────────────
+  // Maximum span (days) a custom analytics date range may cover — bounds the
+  // cost of range queries no matter what the client asks for.
+  ANALYTICS_MAX_RANGE_DAYS: z.coerce.number().int().positive().default(366),
 });
 
 const parsed = envSchema.safeParse(process.env);

@@ -87,6 +87,17 @@ const Order = sequelize.define(
     // Denormalised snapshot — a payment record lives in `payments` with its
     // own status/reference lifecycle.
     payment_method: { type: DataTypes.STRING(16), allowNull: true },
+    // Sales channel (Phase 7 analytics): 'pos' (staff-placed, the historical
+    // default) | 'storefront' (public guest checkout). The analytics channel
+    // filter aggregates on this column.
+    channel: {
+      type: DataTypes.STRING(16),
+      allowNull: false,
+      defaultValue: 'pos',
+    },
+    // Anonymous storefront session id (Phase 7 funnel) — ties a paid order
+    // back to its Browse → Cart → Checkout journey. NULL for POS orders.
+    analytics_session: { type: DataTypes.STRING(64), allowNull: true },
   },
   {
     tableName: 'orders',

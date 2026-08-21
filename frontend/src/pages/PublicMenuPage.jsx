@@ -11,6 +11,7 @@ import {
   browserDaySlots,
   browserTimeZone,
 } from '../utils/timezone';
+import { track } from '../utils/funnelTrack';
 
 /** 'YYYY-MM-DD' shifted by `delta` days (calendar arithmetic). */
 const shiftDay = (date, delta) => {
@@ -844,6 +845,7 @@ export default function PublicMenuPage() {
     mounted.current = true;
     setCart(loadCart(slug));
     setState({ loading: true, error: null, data: null });
+    track(slug, 'menu_view'); // funnel stage 1 — Browse (Phase 7)
     loadPage(0, false).catch((err) => {
       if (!mounted.current) return;
       setState({
@@ -880,6 +882,7 @@ export default function PublicMenuPage() {
 
   /** Adds a line to the cart, merging identical configurations. */
   const addLine = (item, { variant_id, addon_ids, quantity }) => {
+    track(slug, 'add_to_cart', item.id); // funnel stage 2 — Cart (Phase 7)
     const variant = (item.variants || []).find((v) => v.id === variant_id);
     const addons = (item.addons || []).filter((a) => (addon_ids || []).includes(a.id));
     const line = {

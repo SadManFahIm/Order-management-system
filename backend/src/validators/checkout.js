@@ -59,4 +59,8 @@ export const checkoutSchema = z.object({
     )
     .optional(),
   items: z.array(checkoutItemSchema).min(1, 'Cart is empty — add items before checkout'),
+  // Anonymous funnel session id (Phase 7 analytics): ties the paid order
+  // back to its Browse → Cart → Checkout journey. Optional — legacy clients
+  // simply omit it.
+  analytics_session: z.string().trim().min(8).max(64).optional(),
 });
