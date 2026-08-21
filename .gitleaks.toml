@@ -1,0 +1,19 @@
+# Gitleaks configuration - extends the built-in ruleset.
+#
+# The nightly scheduled CI run scans the WHOLE git history, so harmless test
+# fixtures can trip the generic-api-key heuristic long after they land. These
+# two strings are documented test constants (an e2e split-payment label and a
+# Stripe webhook secret used ONLY against the local sandbox harness) - they
+# are allowlisted here so real leaks stay loud while known false positives
+# stay silent.
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+[rules.allowlist]
+regexTarget = "match"
+regexes = [
+  '''e2e-split-bad-sum''',
+  '''whsec_test-secret-123456''',
+]
