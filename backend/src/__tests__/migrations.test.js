@@ -55,6 +55,7 @@ const EXPECTED_TABLES = [
   'delivery_zones',
   'payment_refunds',
   'settlements',
+  'analytics_events',
 ];
 
 describe('migration runner', () => {
@@ -95,6 +96,7 @@ describe('migration runner', () => {
       '024_closure_labels.js',
       '025_ordering_fulfillment.js',
       '026_payments_upgrade.js',
+      '027_analytics_phase7.js',
     ]);
   });
 
@@ -126,7 +128,7 @@ describe('migration runner', () => {
   it('reports every migration as applied', async () => {
     const status = await migrationStatus(sequelize);
     expect(status.every((row) => row.state === 'applied')).toBe(true);
-    expect(status).toHaveLength(26);
+    expect(status).toHaveLength(27);
   });
 
   it('adds menu_items.vat_rate via migration 009', async () => {
@@ -140,6 +142,13 @@ describe('migration runner', () => {
 
   it('rolls back only the most recent migration, then re-applies', async () => {
     const qi = sequelize.getQueryInterface();
+
+    // Down 027: drops analytics_events + the orders channel/session columns
+    // (Phase 7 analytics).
+    expect(await migrateDown(sequelize)).toBe(1);
+    expect(await qi.tableExists('analytics_events')).toBe(false);
+    expect((await qi.describeTable('orders')).channel).toBeUndefined();
+    expect((await qi.describeTable('orders')).analytics_session).toBeUndefined();
 
     // Down 026: drops the payments-upgrade tables + columns (refund ledger,
     // settlements, tip amount, gateway verification).
@@ -258,8 +267,8 @@ describe('migration runner', () => {
     expect(await migrateDown(sequelize)).toBe(1);
     expect((await qi.describeTable('orders')).table_no).toBeUndefined();
 
-    // Re-applying restores all twenty rolled-back (including 026–021).
-    expect(await migrateUp(sequelize)).toBe(20);
+    // Re-applying restores all twenty-one rolled-back (including 027–021).
+    expect(await migrateUp(sequelize)).toBe(21);
     expect(await qi.tableExists('tenant_invites')).toBe(true);
     expect((await qi.describeTable('plans')).max_products).toBeDefined();
     expect((await qi.describeTable('plans')).storage_mb).toBeDefined();
@@ -303,6 +312,10 @@ describe('migration runner', () => {
     expect((await qi.describeTable('orders')).tip_amount).toBeDefined();
     expect((await qi.describeTable('payments')).gateway).toBeDefined();
     expect((await qi.describeTable('payments')).verification_metadata).toBeDefined();
+    // 027 restored: analytics_events + orders channel/session columns.
+    expect(await qi.tableExists('analytics_events')).toBe(true);
+    expect((await qi.describeTable('orders')).channel).toBeDefined();
+    expect((await qi.describeTable('orders')).analytics_session).toBeDefined();
   });
 
   it('refuses to roll back a migration that is not the most recent', async () => {

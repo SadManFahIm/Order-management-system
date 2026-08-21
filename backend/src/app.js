@@ -35,6 +35,7 @@ import './models/PaymentRefund.js';
 import './models/Settlement.js';
 import './models/DailyStat.js';
 import './models/IdempotencyKey.js';
+import './models/AnalyticsEvent.js';
 
 import authRoutes from './routes/auth.js';
 import productRoutes from './routes/products.js';
@@ -54,6 +55,7 @@ import settlementRoutes from './routes/settlements.js';
 import webhookRoutes from './routes/webhooks.js';
 import reportRoutes from './routes/reports.js';
 import adminAnalyticsRoutes from './routes/adminAnalytics.js';
+import analyticsRoutes from './routes/analytics.js';
 
 import { storageDriver, localStatic } from './config/storage.js';
 
@@ -153,6 +155,7 @@ app.use('/api/payments', apiLimiter, paymentRoutes);
 app.use('/api/settlements', apiLimiter, settlementRoutes);
 app.use('/api/reports', apiLimiter, reportRoutes);
 app.use('/api/admin', apiLimiter, adminAnalyticsRoutes);
+app.use('/api/analytics', apiLimiter, analyticsRoutes);
 
 // 404 + centralized error handling
 app.use(notFound);

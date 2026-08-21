@@ -32,6 +32,7 @@ import OrderEditRequest from './OrderEditRequest.js';
 import DeliveryZone from './DeliveryZone.js';
 import PaymentRefund from './PaymentRefund.js';
 import Settlement from './Settlement.js';
+import AnalyticsEvent from './AnalyticsEvent.js';
 
 // Tenant ↔ Plan / SaaS wiring
 Tenant.belongsTo(Plan, { foreignKey: 'plan_id', as: 'plan' });
@@ -76,4 +77,5 @@ export {
   DeliveryZone,
   PaymentRefund,
   Settlement,
+  AnalyticsEvent,
 };

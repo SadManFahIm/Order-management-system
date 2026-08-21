@@ -671,9 +671,7 @@ const STATUS_COLORS = {
   ready: '#0ea5e9',
   delivered: 'var(--success)',
   canceled: 'var(--danger)',
-};
-
-/** Donut of order statuses over the window, with a legend. */
+};/** Donut of order statuses over the window, with a legend. */
 export function StatusDonut({ data, size = 168 }) {
   const total = data.reduce((sum, d) => sum + (Number(d.count) || 0), 0);
   const r = (size - 26) / 2;
@@ -717,6 +715,74 @@ export function StatusDonut({ data, size = 168 }) {
             <span className="oms-donut__dot" style={{ background: STATUS_COLORS[d.status] || 'var(--text-muted)' }} />
             <span className="oms-donut__name">{d.status}</span>
             <span className="oms-donut__count">{d.count}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Conversion funnel (Phase 7) — Browse → Cart → Checkout → Paid as
+ * proportional horizontal bars with stage counts and step-conversion
+ * percentages. Null conversions (zero denominator upstream) render as an
+ * em dash, never 0%.
+ */
+export function FunnelChart({ stages = [], conversions = {} }) {
+  const max = Math.max(...stages.map((s) => s.count), 1);
+  const convRows = [
+    { label: 'Browse → Cart', value: conversions.browseToCart },
+    { label: 'Cart → Checkout', value: conversions.cartToCheckout },
+    { label: 'Checkout → Paid', value: conversions.checkoutToPaid },
+    { label: 'Browse → Paid', value: conversions.browseToPaid },
+  ];
+
+  return (
+    <div>
+      <div style={{ display: 'grid', gap: 12 }}>
+        {stages.map((s) => (
+          <div key={s.key}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+              <span style={{ fontWeight: 650 }}>{s.label}</span>
+              <span style={{ fontSize: 13, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                {s.count} sessions
+              </span>
+            </div>
+            <div
+              style={{
+                height: 10,
+                borderRadius: 999,
+                background: 'var(--surface-2)',
+                overflow: 'hidden',
+              }}
+            >
+              <div
+                style={{
+                  height: '100%',
+                  width: `${Math.max((s.count / max) * 100, s.count > 0 ? 4 : 0)}%`,
+                  borderRadius: 999,
+                  background: 'linear-gradient(90deg, var(--primary), var(--accent))',
+                  transition: 'width .5s var(--ease-out)',
+                }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div
+        style={{
+          marginTop: 14,
+          paddingTop: 12,
+          borderTop: '1px solid var(--border)',
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+          gap: 10,
+        }}
+      >
+        {convRows.map((c) => (
+          <div key={c.label} className="oms-mini-stat">
+            <div className="oms-mini-stat__value">{c.value === null || c.value === undefined ? '—' : `${c.value}%`}</div>
+            <div className="oms-mini-stat__label" style={{ fontSize: 11.5 }}>{c.label}</div>
           </div>
         ))}
       </div>

@@ -9,6 +9,7 @@ import {
   pendingCount,
   setupPendingFlusher,
 } from '../utils/pendingOrders';
+import { track, getSessionId } from '../utils/funnelTrack';
 
 /**
  * Storefront checkout (Phase 5) — the customer journey's final step.
@@ -136,6 +137,7 @@ export default function CheckoutPage() {
 
   useEffect(() => {
     let mounted = true;
+    track(slug, 'checkout_start'); // funnel stage 3 — Checkout (Phase 7)
     (async () => {
       try {
         const [infoRes, menuRes] = await Promise.all([
@@ -436,6 +438,8 @@ export default function CheckoutPage() {
           variant_id: l.variant_id ?? undefined,
           addon_ids: l.addon_ids || [],
         })),
+        // Ties this paid order back to its Browse → Cart journey (Phase 7).
+        analytics_session: getSessionId(slug),
       };
       if (isDelivery && normalizedTip > 0) body.tip = normalizedTip;
       if (useSplit && splitMode === 'diner') {
