@@ -56,6 +56,9 @@ const EXPECTED_TABLES = [
   'payment_refunds',
   'settlements',
   'analytics_events',
+  'outlets',
+  'outlet_memberships',
+  'outlet_menu_overrides',
 ];
 
 describe('migration runner', () => {
@@ -97,6 +100,7 @@ describe('migration runner', () => {
       '025_ordering_fulfillment.js',
       '026_payments_upgrade.js',
       '027_analytics_phase7.js',
+      '028_outlets.js',
     ]);
   });
 
@@ -128,7 +132,7 @@ describe('migration runner', () => {
   it('reports every migration as applied', async () => {
     const status = await migrationStatus(sequelize);
     expect(status.every((row) => row.state === 'applied')).toBe(true);
-    expect(status).toHaveLength(27);
+    expect(status).toHaveLength(28);
   });
 
   it('adds menu_items.vat_rate via migration 009', async () => {
@@ -140,8 +144,15 @@ describe('migration runner', () => {
     expect(columns.vat_rate.allowNull).toBe(false);
   });
 
-  it('rolls back only the most recent migration, then re-applies', async () => {
+  it('rolls back only the most recent migration, then re-applies', { timeout: 30000 }, async () => {
     const qi = sequelize.getQueryInterface();
+
+    // Down 028: drops outlet tables + all outlet_id FK columns (Phase 8 multi-outlet).
+    expect(await migrateDown(sequelize)).toBe(1);
+    expect(await qi.tableExists('outlets')).toBe(false);
+    expect(await qi.tableExists('outlet_memberships')).toBe(false);
+    expect(await qi.tableExists('outlet_menu_overrides')).toBe(false);
+    expect((await qi.describeTable('orders')).outlet_id).toBeUndefined();
 
     // Down 027: drops analytics_events + the orders channel/session columns
     // (Phase 7 analytics).
@@ -267,8 +278,8 @@ describe('migration runner', () => {
     expect(await migrateDown(sequelize)).toBe(1);
     expect((await qi.describeTable('orders')).table_no).toBeUndefined();
 
-    // Re-applying restores all twenty-one rolled-back (including 027–021).
-    expect(await migrateUp(sequelize)).toBe(21);
+    // Re-applying restores all twenty-two rolled-back (including 028–021).
+    expect(await migrateUp(sequelize)).toBe(22);
     expect(await qi.tableExists('tenant_invites')).toBe(true);
     expect((await qi.describeTable('plans')).max_products).toBeDefined();
     expect((await qi.describeTable('plans')).storage_mb).toBeDefined();
@@ -316,6 +327,11 @@ describe('migration runner', () => {
     expect(await qi.tableExists('analytics_events')).toBe(true);
     expect((await qi.describeTable('orders')).channel).toBeDefined();
     expect((await qi.describeTable('orders')).analytics_session).toBeDefined();
+    // 028 restored: outlet tables + outlet_id FK columns.
+    expect(await qi.tableExists('outlets')).toBe(true);
+    expect(await qi.tableExists('outlet_memberships')).toBe(true);
+    expect(await qi.tableExists('outlet_menu_overrides')).toBe(true);
+    expect((await qi.describeTable('orders')).outlet_id).toBeDefined();
   });
 
   it('refuses to roll back a migration that is not the most recent', async () => {

@@ -33,6 +33,9 @@ import DeliveryZone from './DeliveryZone.js';
 import PaymentRefund from './PaymentRefund.js';
 import Settlement from './Settlement.js';
 import AnalyticsEvent from './AnalyticsEvent.js';
+import Outlet from './Outlet.js';
+import OutletMembership from './OutletMembership.js';
+import OutletMenuOverride from './OutletMenuOverride.js';
 
 // Tenant ↔ Plan / SaaS wiring
 Tenant.belongsTo(Plan, { foreignKey: 'plan_id', as: 'plan' });
@@ -41,6 +44,19 @@ Plan.hasMany(Tenant, { foreignKey: 'plan_id' });
 // Ordering & fulfillment (migration 025): edit requests belong to orders.
 Order.hasMany(OrderEditRequest, { foreignKey: 'order_id', as: 'editRequests' });
 OrderEditRequest.belongsTo(Order, { foreignKey: 'order_id' });
+
+// Outlets (migration 028)
+Tenant.hasMany(Outlet, { foreignKey: 'tenant_id', as: 'outlets' });
+Outlet.belongsTo(Tenant, { foreignKey: 'tenant_id' });
+
+Outlet.hasMany(OutletMembership, { foreignKey: 'outlet_id', as: 'memberships' });
+OutletMembership.belongsTo(Outlet, { foreignKey: 'outlet_id' });
+
+Outlet.hasMany(OutletMenuOverride, { foreignKey: 'outlet_id', as: 'menuOverrides' });
+OutletMenuOverride.belongsTo(Outlet, { foreignKey: 'outlet_id' });
+
+Product.hasMany(OutletMenuOverride, { foreignKey: 'menu_item_id', as: 'outletOverrides' });
+OutletMenuOverride.belongsTo(Product, { foreignKey: 'menu_item_id' });
 
 export {
   User,
@@ -78,4 +94,7 @@ export {
   PaymentRefund,
   Settlement,
   AnalyticsEvent,
+  Outlet,
+  OutletMembership,
+  OutletMenuOverride,
 };
