@@ -36,6 +36,9 @@ import './models/Settlement.js';
 import './models/DailyStat.js';
 import './models/IdempotencyKey.js';
 import './models/AnalyticsEvent.js';
+import './models/Outlet.js';
+import './models/OutletMembership.js';
+import './models/OutletMenuOverride.js';
 
 import authRoutes from './routes/auth.js';
 import productRoutes from './routes/products.js';
@@ -56,6 +59,7 @@ import webhookRoutes from './routes/webhooks.js';
 import reportRoutes from './routes/reports.js';
 import adminAnalyticsRoutes from './routes/adminAnalytics.js';
 import analyticsRoutes from './routes/analytics.js';
+import outletRoutes from './routes/outlets.js';
 
 import { storageDriver, localStatic } from './config/storage.js';
 
@@ -156,6 +160,7 @@ app.use('/api/settlements', apiLimiter, settlementRoutes);
 app.use('/api/reports', apiLimiter, reportRoutes);
 app.use('/api/admin', apiLimiter, adminAnalyticsRoutes);
 app.use('/api/analytics', apiLimiter, analyticsRoutes);
+app.use('/api/outlets', apiLimiter, outletRoutes);
 
 // 404 + centralized error handling
 app.use(notFound);

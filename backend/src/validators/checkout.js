@@ -35,6 +35,9 @@ export const checkoutSchema = z.object({
   // cash | bkash | nagad | card | online — validated against the tenant's
   // enabled methods in the route.
   payment_method: z.string().trim().max(16).default('cash'),
+  // Outlet (Phase 8) — which branch this order belongs to; validated
+  // against the tenant's outlets in the route.
+  outlet_id: z.number().int().positive().optional().nullable(),
   // Optional tip for delivery orders (Phase 6). Server-validated in the route
   // (delivery only, sane upper bound, never negative); added to the charged
   // grand total but reported separately from food revenue.

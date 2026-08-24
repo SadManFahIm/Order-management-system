@@ -51,6 +51,7 @@ Outlet.belongsTo(Tenant, { foreignKey: 'tenant_id' });
 
 Outlet.hasMany(OutletMembership, { foreignKey: 'outlet_id', as: 'memberships' });
 OutletMembership.belongsTo(Outlet, { foreignKey: 'outlet_id' });
+OutletMembership.belongsTo(User, { foreignKey: 'user_id' });
 
 Outlet.hasMany(OutletMenuOverride, { foreignKey: 'outlet_id', as: 'menuOverrides' });
 OutletMenuOverride.belongsTo(Outlet, { foreignKey: 'outlet_id' });

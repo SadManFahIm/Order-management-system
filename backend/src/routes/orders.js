@@ -15,6 +15,7 @@ import OrderSplitItem from '../models/OrderSplitItem.js';
 import OrderEditRequest from '../models/OrderEditRequest.js';
 import DeliveryZone from '../models/DeliveryZone.js';
 import Table from '../models/Table.js';
+import Outlet from '../models/Outlet.js';
 import Tenant from '../models/Tenant.js';
 import User from '../models/User.js';
 import UserTenant from '../models/UserTenant.js';
@@ -811,6 +812,7 @@ async function placeStaffOrder(req, {
   customer_phone,
   customer_address,
   table_no,
+  outlet_id,
   payment_method,
   payment_reference,
   payments: splitParts,
@@ -844,6 +846,29 @@ async function placeStaffOrder(req, {
           `Table ${table_no} does not exist or is not active in this workspace`
         );
       }
+    }
+
+    // Outlet validation (Phase 8) — if provided, must belong to this tenant.
+    let resolvedOutletId = null;
+    if (outlet_id != null) {
+      const outlet = await Outlet.findOne({
+        where: { id: outlet_id, tenant_id: req.tenant.id, status: 'active' },
+      });
+      if (!outlet) {
+        throw new AppError(
+          400,
+          'INVALID_OUTLET',
+          `Outlet ${outlet_id} does not exist or is not active in this workspace`
+        );
+      }
+      resolvedOutletId = outlet.id;
+    } else {
+      // Default to the tenant's first active outlet (Main Branch)
+      const defaultOutlet = await Outlet.findOne({
+        where: { tenant_id: req.tenant.id, status: 'active' },
+        order: [['id', 'ASC']],
+      });
+      resolvedOutletId = defaultOutlet?.id ?? null;
     }
 
     const [products, promotions] = await Promise.all([
@@ -917,6 +942,7 @@ async function placeStaffOrder(req, {
     const order = await Order.create(
       {
         tenant_id: req.tenant.id,
+        outlet_id: resolvedOutletId,
         // `order_no` is NOT NULL in the migration (no DB default) — the app
         // generates a human-friendly, roughly unique reference per tenant.
         order_no: `ORD-${req.tenant.id}-${Date.now().toString(36).toUpperCase()}-${Math.floor(
