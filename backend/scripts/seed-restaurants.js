@@ -23,6 +23,7 @@ import {
   ItemAddon,
   InventoryItem,
   Table,
+  Outlet,
 } from '../src/models/index.js';
 import { RESTAURANT_SEEDS, RESTAURANT_BRANDS } from './data/restaurants.js';
 
@@ -54,6 +55,7 @@ try {
   let categories = 0;
   let variants = 0;
   let addons = 0;
+  let outlets = 0;
 
   // Brand theme (Phase 4 R3): defaults for the storefront, keyed by slug.
   // Merchants can override later via the branding settings UI — the seeder
@@ -121,6 +123,31 @@ try {
         capacity: tableNo % 2 === 0 ? 4 : 2,
         is_active: true,
       });
+    }
+
+    // Outlets (Phase 8): seed a Main Branch + 1–2 location branches per
+    // tenant so the outlet API is demo-ready. Idempotent by (tenant, code).
+    const defaultOutlets = [
+      { name: 'Main Branch', code: 'MAIN', slug: 'main' },
+      { name: 'Dhanmondi Branch', code: 'DHAN', slug: 'dhanmondi' },
+      { name: 'Gulshan Branch', code: 'GULS', slug: 'gulshan' },
+    ];
+    for (const o of defaultOutlets) {
+      const existing = await Outlet.findOne({
+        where: { tenant_id: tenant.id, code: o.code },
+      });
+      if (existing) continue;
+      await Outlet.create({
+        tenant_id: tenant.id,
+        name: o.name,
+        code: o.code,
+        slug: o.slug,
+        status: 'active',
+        timezone: 'Asia/Dhaka',
+        opening_hours: {},
+        settings: {},
+      });
+      outlets += 1;
     }
 
     // Categories (Phase 4): seed.categoryDefaults, e.g. [{ name: 'Burgers' }]
@@ -228,6 +255,7 @@ try {
   console.log(`✅ Categories added: ${categories}`);
   console.log(`✅ Variants added: ${variants}`);
   console.log(`✅ Add-ons added: ${addons}`);
+  console.log(`✅ Outlets added: ${outlets}`);
   console.log('✅ Tables: 12 per restaurant (1–12, idempotent)');
   await sequelize.close();
 } catch (err) {

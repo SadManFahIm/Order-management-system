@@ -2,6 +2,7 @@ import express from 'express';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
 import Tenant from '../models/Tenant.js';
+import Outlet from '../models/Outlet.js';
 import Order from '../models/Order.js';
 import OrderItem from '../models/OrderItem.js';
 import Payment from '../models/Payment.js';
@@ -111,6 +112,22 @@ async function placeCheckoutOrder(tenant, payload) {
   }
   const scheduledAt = validateSchedule(payload.scheduled_at, payload.order_type);
 
+  // Outlet resolution (Phase 8) — storefront orders resolve to the
+  // tenant's default outlet when none is specified.
+  let resolvedOutletId = null;
+  if (payload.outlet_id != null) {
+    const outlet = await Outlet.findOne({
+      where: { id: payload.outlet_id, tenant_id: tenant.id, status: 'active' },
+    });
+    if (outlet) resolvedOutletId = outlet.id;
+  } else {
+    const defaultOutlet = await Outlet.findOne({
+      where: { tenant_id: tenant.id, status: 'active' },
+      order: [['id', 'ASC']],
+    });
+    resolvedOutletId = defaultOutlet?.id ?? null;
+  }
+
   // 2. Server-side pricing + availability (never trust the client). The
   //    scheduled date (when present) drives the per-day override check — a
   //    "closed that day" override rejects a scheduled order too.
@@ -149,6 +166,7 @@ async function placeCheckoutOrder(tenant, payload) {
   const order = await Order.create(
     {
       tenant_id: tenant.id,
+      outlet_id: resolvedOutletId,
       order_no: `ORD-${tenant.id}-${Date.now().toString(36).toUpperCase()}-${Math.floor(
         Math.random() * 1e4
       )}`,

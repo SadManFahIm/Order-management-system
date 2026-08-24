@@ -22,6 +22,10 @@ const Order = sequelize.define(
       defaultValue: 1,
       index: true,
     },
+    // Outlet scoping (Phase 8) — which branch this order belongs to.
+    // Nullable for backward compat; validated against the tenant's outlets
+    // at creation time.
+    outlet_id: { type: DataTypes.BIGINT, allowNull: true },
     // order_no is NOT NULL with no DB default in migration 004 — the route
     // generates it, and the attribute MUST be declared or Sequelize silently
     // drops it from the INSERT (and the DB rejects the row).
