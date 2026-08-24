@@ -168,8 +168,10 @@ afterAll(async () => {
   await sequelize.close();
 });
 
-const get = (url, token = managerToken) =>
-  request(app).get(url).set('Authorization', `Bearer ${token}`);
+const get = (url, token = managerToken) => {
+  const sep = url.includes('?') ? '&' : '?';
+  return request(app).get(`${url}${sep}timezone=Etc/UTC`).set('Authorization', `Bearer ${token}`);
+};
 
 describe('Analytics RBAC', () => {
   it('rejects unauthenticated requests', async () => {
@@ -317,7 +319,7 @@ describe('Revenue anomalies', () => {
     const res = await request(app)
       .post('/api/analytics/anomalies/evaluate')
       .set('Authorization', `Bearer ${managerToken}`)
-      .send({ from, to });
+      .send({ from, to, timezone: 'Etc/UTC' });
     expect(res.status).toBe(200);
 
     const all = res.body.segments.find((s) => s.segment === 'all');
@@ -330,7 +332,7 @@ describe('Revenue anomalies', () => {
     const again = await request(app)
       .post('/api/analytics/anomalies/evaluate')
       .set('Authorization', `Bearer ${managerToken}`)
-      .send({ from, to });
+      .send({ from, to, timezone: 'Etc/UTC' });
     const allAgain = again.body.segments.find((s) => s.segment === 'all');
     expect(allAgain.alertType).toBe('revenue_drop');
     expect(allAgain.suppressed).toBe(true);
