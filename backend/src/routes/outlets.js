@@ -1,5 +1,6 @@
 import express from 'express';
 import { z } from 'zod';
+import { literal } from 'sequelize';
 import Outlet from '../models/Outlet.js';
 import OutletMembership from '../models/OutletMembership.js';
 import User from '../models/User.js';
@@ -57,6 +58,19 @@ router.get(
     const { limit, offset } = parsePagination(req.query);
     const { rows, count } = await Outlet.findAndCountAll({
       where: { tenant_id: req.tenant.id },
+      attributes: {
+        include: [
+          [
+            literal(`(
+              SELECT COUNT(*)
+              FROM outlet_memberships AS om
+              WHERE om.outlet_id = "Outlet".id
+                AND om.tenant_id = "Outlet".tenant_id
+            )`),
+            'member_count',
+          ],
+        ],
+      },
       order: [['id', 'ASC']],
       limit,
       offset,

@@ -20,6 +20,7 @@ const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
 const ProductsPage = lazy(() => import('./pages/ProductsPage'));
 const MenuPage = lazy(() => import('./pages/MenuPage'));
 const PromotionsPage = lazy(() => import('./pages/PromotionsPage'));
+const OutletsPage = lazy(() => import('./pages/OutletsPage'));
 const OrdersListPage = lazy(() => import('./pages/OrdersListPage'));
 const NewOrderPage = lazy(() => import('./pages/NewOrderPage'));
 const InvoicePage = lazy(() => import('./pages/InvoicePage'));
@@ -85,6 +86,7 @@ export default function App() {
                         <Route path="/products" element={<ProductsPage />} />
                         <Route path="/menu" element={<MenuPage />} />
                         <Route path="/promotions" element={<PromotionsPage />} />
+                        <Route path="/outlets" element={<OutletsPage />} />
                         <Route path="/orders" element={<OrdersListPage />} />
                         <Route path="/orders/new" element={<NewOrderPage />} />
                         <Route path="/orders/:id/invoice" element={<InvoicePage />} />
