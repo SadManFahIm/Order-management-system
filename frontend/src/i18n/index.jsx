@@ -24,6 +24,7 @@ const en = {
     reports: 'Reports',
     admin: 'Platform',
     adminSso: 'SSO',
+    outlets: 'Outlets',
   },
   roles: {
     platform_admin: 'Platform',
@@ -105,6 +106,8 @@ const en = {
     noOrders: 'No orders yet',
     noOrdersDesc: 'Orders placed by customers will appear here.',
     createFirstOrder: 'Create the first order',
+    outlets: 'Outlets',
+    outletsDesc: 'Manage your franchise locations and assign staff.',
     admin: 'Platform analytics',
     adminDesc: 'SaaS-wide view across every workspace.',
   },
@@ -922,6 +925,7 @@ const bn = {
     reports: 'রিপোর্ট',
     admin: 'প্ল্যাটফর্ম',
     adminSso: 'SSO',
+    outlets: 'আউটলেট',
   },
   roles: {
     platform_admin: 'প্ল্যাটফর্ম',
@@ -1003,6 +1007,8 @@ const bn = {
     noOrders: 'এখনো কোনো অর্ডার নেই',
     noOrdersDesc: 'গ্রাহকের করা অর্ডার এখানে দেখা যাবে।',
     createFirstOrder: 'প্রথম অর্ডার তৈরি করুন',
+    outlets: 'আউটলেট',
+    outletsDesc: 'আপনার ফ্র্যাঞ্চাইজি লোকেশন ও স্টাফ ব্যবস্থাপনা করুন।',
     admin: 'প্ল্যাটফর্ম অ্যানালিটিক্স',
     adminDesc: 'সব ওয়ার্কস্পেস জুড়ে SaaS-স্তরের ভিউ।',
   },

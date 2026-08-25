@@ -14,6 +14,7 @@ const LINKS = [
   { to: '/orders/new', key: 'nav.newOrder', icon: <IconPlus /> },
   { to: '/tables', key: 'nav.qrMenu', icon: <IconQr /> },
   { to: '/reports', key: 'nav.reports', icon: <IconReceipt /> },
+  { to: '/outlets', key: 'nav.outlets', icon: <IconStore /> },
   { to: '/admin', key: 'nav.admin', icon: <IconChart />, adminOnly: true },
   { to: '/admin/sso', key: 'nav.adminSso', icon: <IconShield />, adminOnly: true },
   { to: '/settings', key: 'nav.settings', icon: <IconGear /> },
@@ -270,6 +271,15 @@ function IconSun() {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="4.2" />
       <path d="M12 2v2.5M12 19.5V22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M2 12h2.5M19.5 12H22M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8" />
+    </svg>
+  );
+}
+function IconStore() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 9l1-5h16l1 5" />
+      <path d="M3 9v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V9" />
+      <path d="M9 21V13h6v8" />
     </svg>
   );
 }
