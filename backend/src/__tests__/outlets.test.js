@@ -334,17 +334,23 @@ describe('POST /api/outlets/:id/members', () => {
     expect(res.body.role).toBe('outlet_manager');
   });
 
-  it('rejects duplicate membership with 409', async () => {
+  it('updates the role for an existing membership (upsert)', async () => {
     const manager = await User.findOne({
       where: { email: 'outletmanager@example.com' },
     });
+    // Manager already a member (from prior test) with outlet_manager role.
     const res = await request(app)
       .post(`/api/outlets/${outletId}/members`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .set('X-Tenant', String(tenantA.id))
-      .send({ user_id: manager.id });
-    expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe('DUPLICATE');
+      .send({ user_id: manager.id, role: 'staff' });
+    expect(res.status).toBe(200);
+    expect(res.body.user_id).toBe(manager.id);
+    expect(res.body.role).toBe('staff');
+    const saved = await OutletMembership.findOne({
+      where: { outlet_id: outletId, user_id: manager.id },
+    });
+    expect(saved.role).toBe('staff');
   });
 
   it('rejects a user not in this tenant with 400', async () => {
@@ -372,25 +378,100 @@ describe('POST /api/outlets/:id/members', () => {
 });
 
 describe('GET /api/outlets/:id/members', () => {
-  it('lists members of an outlet', async () => {
+  it('lists members of an outlet with a flattened user shape', async () => {
     const outlet = await Outlet.findOne({
       where: { tenant_id: tenantA.id, code: 'KEEP' },
     });
+    // Re-add the manager so the list is non-empty and has known user data.
+    const manager = await User.findOne({
+      where: { email: 'outletmanager@example.com' },
+    });
+    await OutletMembership.findOrCreate({
+      where: { outlet_id: outlet.id, user_id: manager.id, tenant_id: tenantA.id },
+      defaults: { role: 'outlet_manager' },
+    });
+
     const res = await request(app)
       .get(`/api/outlets/${outlet.id}/members`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .set('X-Tenant', String(tenantA.id));
     expect(res.status).toBe(200);
     expect(res.body.length).toBeGreaterThanOrEqual(1);
-    // Should include user data from the eager-loaded association.
-    expect(res.body[0].User).toBeDefined();
-    expect(res.body[0].User.name).toBeDefined();
+    // Members are flattened: name/email at top level, no nested User.
+    const member = res.body.find((m) => m.user_id === manager.id);
+    expect(member).toBeDefined();
+    expect(member.name).toBe('Outlet Manager');
+    expect(member.email).toBe('outletmanager@example.com');
+    expect(member.user_id).toBe(manager.id);
+    expect(member.role).toBe('staff');
+    // No raw association leaks through.
+    expect(res.body[0].User).toBeUndefined();
   });
 
   it('404s for outlets outside the workspace', async () => {
     const other = await Outlet.findOne({ where: { tenant_id: tenantB.id } });
     const res = await request(app)
       .get(`/api/outlets/${other.id}/members`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .set('X-Tenant', String(tenantA.id));
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('GET /api/outlets/:id/members/candidates', () => {
+  it('returns tenant members not yet assigned to the outlet', async () => {
+    const outlet = await Outlet.findOne({
+      where: { tenant_id: tenantA.id, code: 'KEEP' },
+    });
+    const manager = await User.findOne({
+      where: { email: 'outletmanager@example.com' },
+    });
+    const cashier = await User.findOne({
+      where: { email: 'outletcashier@example.com' },
+    });
+    // Ensure manager is assigned (so excluded) and cashier is not (so included).
+    await OutletMembership.findOrCreate({
+      where: { outlet_id: outlet.id, user_id: manager.id, tenant_id: tenantA.id },
+      defaults: { role: 'outlet_manager' },
+    });
+    await OutletMembership.destroy({
+      where: { outlet_id: outlet.id, user_id: cashier.id },
+    });
+
+    const res = await request(app)
+      .get(`/api/outlets/${outlet.id}/members/candidates`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .set('X-Tenant', String(tenantA.id));
+    expect(res.status).toBe(200);
+    const ids = res.body.map((c) => c.id);
+    // Assigned members are excluded.
+    expect(ids).not.toContain(manager.id);
+    // Available tenant members are included with a flattened shape.
+    expect(ids).toContain(cashier.id);
+    const c = res.body.find((c) => c.id === cashier.id);
+    expect(c.name).toBe('Outlet Cashier');
+    expect(c.email).toBe('outletcashier@example.com');
+  });
+
+  it('excludes users outside the tenant', async () => {
+    const outlet = await Outlet.findOne({
+      where: { tenant_id: tenantA.id, code: 'KEEP' },
+    });
+    const staffB = await User.findOne({
+      where: { email: 'outletstaffb@example.com' },
+    });
+    const res = await request(app)
+      .get(`/api/outlets/${outlet.id}/members/candidates`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .set('X-Tenant', String(tenantA.id));
+    const ids = res.body.map((c) => c.id);
+    expect(ids).not.toContain(staffB.id);
+  });
+
+  it('404s for outlets outside the workspace', async () => {
+    const other = await Outlet.findOne({ where: { tenant_id: tenantB.id } });
+    const res = await request(app)
+      .get(`/api/outlets/${other.id}/members/candidates`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .set('X-Tenant', String(tenantA.id));
     expect(res.status).toBe(404);

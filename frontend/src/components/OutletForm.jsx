@@ -49,7 +49,14 @@ export default function OutletForm({ initial, onSave }) {
     setSaving(true);
     try {
       const payload = { ...form };
-      if (!initial) delete payload.id;
+      if (initial) {
+        // code/slug are immutable identity fields; never send them on update.
+        delete payload.id;
+        delete payload.code;
+        delete payload.slug;
+      } else {
+        delete payload.id;
+      }
       await onSave(payload);
     } catch (err) {
       const msg = err?.response?.data?.error?.message;
