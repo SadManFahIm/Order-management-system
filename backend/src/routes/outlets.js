@@ -5,6 +5,16 @@ import Outlet from '../models/Outlet.js';
 import OutletMembership from '../models/OutletMembership.js';
 import User from '../models/User.js';
 import UserTenant from '../models/UserTenant.js';
+import Product from '../models/Product.js';
+import MenuCategory from '../models/MenuCategory.js';
+import ItemVariant from '../models/ItemVariant.js';
+import ItemAddon from '../models/ItemAddon.js';
+import OutletMenuOverride from '../models/OutletMenuOverride.js';
+import {
+  resolveOutletMenuOverrides,
+  replaceOutletMenuOverrides,
+  clearOutletMenuOverride,
+} from '../services/outletMenuService.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -331,6 +341,120 @@ router.delete(
     }
 
     await member.destroy();
+    res.status(204).send();
+  })
+);
+
+// ── Outlet Menu Overrides ──────────────────────────────────────────
+
+/** GET /api/outlets/:id/menu — the central menu annotated with this outlet's overrides. */
+router.get(
+  '/:id/menu',
+  canManageOutlets,
+  asyncHandler(async (req, res) => {
+    const outlet = await Outlet.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+    });
+    if (!outlet) {
+      throw new AppError(404, 'NOT_FOUND', 'Outlet not found');
+    }
+
+    const [categories, items, overrideMap] = await Promise.all([
+      MenuCategory.findAll({
+        where: { tenant_id: req.tenant.id },
+        order: [['sort_order', 'ASC'], ['id', 'ASC']],
+      }),
+      Product.findAll({
+        where: { tenant_id: req.tenant.id },
+        include: [
+          { model: ItemVariant, as: 'variants', order: [['sort_order', 'ASC'], ['id', 'ASC']] },
+          { model: ItemAddon, as: 'addons', order: [['sort_order', 'ASC'], ['id', 'ASC']] },
+        ],
+        order: [['sort_order', 'ASC'], ['id', 'ASC']],
+      }),
+      resolveOutletMenuOverrides(req.tenant.id, outlet.id),
+    ]);
+
+    res.json({
+      outlet: { id: outlet.id, name: outlet.name },
+      categories: categories.map((c) => ({ id: c.id, name: c.name, parentId: c.parent_id })),
+      items: items.map((item) => {
+        const ov = overrideMap.get(item.id) || {};
+        return {
+          id: item.id,
+          name: item.name,
+          price: item.price,
+          enabled: item.enabled,
+          categoryId: item.category_id,
+          // Effective values after override resolution (so the editor can
+          // show the outlet's price/availability at a glance).
+          effectivePrice: ov.priceOverride != null ? ov.priceOverride : item.price,
+          effectiveAvailable:
+            ov.isAvailable != null ? ov.isAvailable : item.enabled,
+          override: {
+            priceOverride: ov.priceOverride != null ? ov.priceOverride : null,
+            isAvailable: ov.isAvailable != null ? ov.isAvailable : null,
+            stockOverride: ov.stockOverride != null ? ov.stockOverride : null,
+            visible: ov.visible != null ? ov.visible : null,
+          },
+        };
+      }),
+    });
+  })
+);
+
+/** PUT /api/outlets/:id/menu/items/:itemId — upsert one item's override for this outlet. */
+router.put(
+  '/:id/menu/items/:itemId',
+  canManageOutlets,
+  asyncHandler(async (req, res) => {
+    const outlet = await Outlet.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+    });
+    if (!outlet) {
+      throw new AppError(404, 'NOT_FOUND', 'Outlet not found');
+    }
+
+    const menuItemId = Number(req.params.itemId);
+    const product = await Product.findOne({
+      where: { id: menuItemId, tenant_id: req.tenant.id },
+    });
+    if (!product) {
+      throw new AppError(404, 'NOT_FOUND', 'Menu item not found');
+    }
+
+    const { override } = await replaceOutletMenuOverrides(
+      req.tenant.id,
+      outlet.id,
+      menuItemId,
+      req.body || {}
+    );
+
+    res.json(override);
+  })
+);
+
+/** DELETE /api/outlets/:id/menu/items/:itemId — clear the override for this outlet+item. */
+router.delete(
+  '/:id/menu/items/:itemId',
+  canManageOutlets,
+  asyncHandler(async (req, res) => {
+    const outlet = await Outlet.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+    });
+    if (!outlet) {
+      throw new AppError(404, 'NOT_FOUND', 'Outlet not found');
+    }
+
+    const removed = await clearOutletMenuOverride(
+      req.tenant.id,
+      outlet.id,
+      Number(req.params.itemId)
+    );
+    if (!removed) {
+      throw new AppError(404, 'NOT_FOUND', 'No override set for this item');
+    }
+
     res.status(204).send();
   })
 );

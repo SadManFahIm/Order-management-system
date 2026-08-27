@@ -5,6 +5,7 @@ import { env } from '../config/env.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
 import Tenant from '../models/Tenant.js';
+import Outlet from '../models/Outlet.js';
 import MenuCategory from '../models/MenuCategory.js';
 import Product from '../models/Product.js';
 import ItemVariant from '../models/ItemVariant.js';
@@ -30,6 +31,7 @@ import {
 import { wallToUtc } from '../utils/timezone.js';
 import { createEditRequest } from '../services/editRequestService.js';
 import { orderItemSchema } from '../validators/order.js';
+import { resolveOutletMenuOverrides, overridePrice } from '../services/outletMenuService.js';
 
 /**
  * Public, read-only storefront menu API (Phase 4).
@@ -119,23 +121,26 @@ function serializeTenant(tenant) {
   };
 }
 
-function serializeItem(item, override = null, timeZone = null) {
+function serializeItem(item, override = null, timeZone = null, menuOverrideMap = null) {
   const inv = item.inventory;
+  // Outlet availability override (NULL = inherit catalog availability / time
+  // window resolution below).
+  const outletOverride = menuOverrideMap?.get(item.id);
+  const availOverride = outletOverride?.isAvailable;
   return {
     id: item.id,
     name: item.name,
     description: item.description,
-    price: item.price,
+    // Per-outlet price override (NULL = central catalog price).
+    price: overridePrice(item.price, menuOverrideMap, item.id),
     weightGm: item.weight_gm,
     prepMinutes: item.prep_minutes,
     imageUrl: item.image_url,
-    // Hard switch + base time window + today's per-day override (Phase 4
-    // follow-up: an override with no bounds closes the item for the day).
-    // Restaurant-wide closure days / weekday closures (Phase 5) are exposed
-    // separately on the menu payload (`closedToday`) so the storefront can
-    // render a "closed today" state without per-item noise. Windows resolve
-    // against the tenant's configured timezone when set (Phase 5 follow-up).
-    available: isAvailableNow(item, new Date(), override, timeZone),
+    // Outlet availability override short-circuits the time-window resolution.
+    available:
+      availOverride != null
+        ? availOverride
+        : isAvailableNow(item, new Date(), override, timeZone),
     // Storefront scarcity cue (Phase 4 follow-up): the product-level
     // inventory snapshot (null when untracked) + low-stock threshold, so
     // the storefront can show "Only N left" / "Sold out" honestly.
@@ -209,6 +214,19 @@ router.get(
 
     const ctx = await buildAvailabilityContext(tenant.id, undefined, timeZone);
 
+    // Optional per-outlet menu overrides (outlet overrides sector): the
+    // storefront may request a branch via ?outlet=<id|slug>; when provided,
+    // that outlet's price/availability/visibility overrides shape the menu.
+    // Omitting the param serves the central catalog (backward compatible).
+    let menuOverrideMap = null;
+    if (req.query.outlet) {
+      const outletQuery = String(req.query.outlet);
+      const outlet = /^\d+$/.test(outletQuery)
+        ? await Outlet.findOne({ where: { id: Number(outletQuery), tenant_id: tenant.id, status: 'active' } })
+        : await Outlet.findOne({ where: { slug: outletQuery, tenant_id: tenant.id, status: 'active' } });
+      menuOverrideMap = outlet ? await resolveOutletMenuOverrides(tenant.id, outlet.id) : null;
+    }
+
     // X-Total-Count reflects ALL matching items (before pagination) so
     // storefronts can render a "load more" affordance from the header.
     const totalItems = await Product.count({ where: itemWhere });
@@ -225,20 +243,35 @@ router.get(
       offset,
     });
 
+    // Outlet visibility override: drop items hidden at this outlet (visible=false).
+    let visibleItems = items;
+    if (menuOverrideMap) {
+      visibleItems = visibleItems.filter((i) => {
+        const ov = menuOverrideMap.get(i.id);
+        return !ov || ov.visible !== false;
+      });
+    }
+
     // Full availability filtering (only when the storefront asked for
     // available items): drop anything currently outside its effective
     // availability — restaurant closures, weekday rules, per-day overrides
     // and the base window. NB: arrow wrapper — Array#filter would pass the
     // index as `now`.
-    const visibleItems = onlyAvailable
-      ? items.filter((i) => isAvailableAt(i, ctx))
-      : items;
+    if (onlyAvailable) {
+      visibleItems = visibleItems.filter((i) => {
+        // An explicit outlet unavailability override wins over the window
+        // computation (but is still filtered by `onlyAvailable`).
+        const ov = menuOverrideMap?.get(i.id);
+        if (ov?.isAvailable != null) return ov.isAvailable;
+        return isAvailableAt(i, ctx);
+      });
+    }
 
     const itemsByCategory = new Map();
     for (const item of visibleItems) {
       const key = item.category_id ?? null;
       if (!itemsByCategory.has(key)) itemsByCategory.set(key, []);
-      itemsByCategory.get(key).push(serializeItem(item, ctx.overrideByItem.get(item.id), timeZone));
+      itemsByCategory.get(key).push(serializeItem(item, ctx.overrideByItem.get(item.id), timeZone, menuOverrideMap));
     }
 
     const menu = categories.map((c) => ({

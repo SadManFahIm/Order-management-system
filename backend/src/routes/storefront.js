@@ -134,7 +134,8 @@ async function placeCheckoutOrder(tenant, payload) {
   const { items: pricedItems, subtotal, totalDiscount } = await priceCart(
     tenant,
     payload.items,
-    scheduledAt ?? undefined
+    scheduledAt ?? undefined,
+    resolvedOutletId
   );
 
   const deliveryFee = isDelivery ? delivery.fee : 0;

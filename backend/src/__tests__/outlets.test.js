@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import app from '../app.js';
 import sequelize from '../config/db.js';
 import { resetTestDb } from '../test/resetDb.js';
-import { User, Tenant, UserTenant, Outlet, OutletMembership } from '../models/index.js';
+import { User, Tenant, UserTenant, Outlet, OutletMembership, Product, OutletMenuOverride } from '../models/index.js';
 
 /**
  * Outlet management + membership API (Phase 8) — CRUD, tenant isolation,
@@ -512,6 +512,117 @@ describe('DELETE /api/outlets/:id/members/:userId', () => {
     const other = await Outlet.findOne({ where: { tenant_id: tenantB.id } });
     const res = await request(app)
       .delete(`/api/outlets/${other.id}/members/1`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .set('X-Tenant', String(tenantA.id));
+    expect(res.status).toBe(404);
+  });
+});
+
+// ── Outlet Menu Overrides (Sector: outlet menu overrides) ────────────────
+
+describe('Outlet menu overrides', () => {
+  let outletId;
+  let itemId;
+  let itemId2;
+
+  beforeAll(async () => {
+    const outlet = await Outlet.findOne({
+      where: { tenant_id: tenantA.id, code: 'KEEP' },
+    });
+    outletId = outlet.id;
+
+    const a = await Product.create({
+      tenant_id: tenantA.id,
+      name: 'Branch Pizza',
+      price: 300,
+      weight_gm: 400,
+      enabled: true,
+    });
+    itemId = a.id;
+    const b = await Product.create({
+      tenant_id: tenantA.id,
+      name: 'Branch Pasta',
+      price: 180,
+      weight_gm: 250,
+      enabled: true,
+    });
+    itemId2 = b.id;
+  });
+
+  it('GET /:id/menu lists central items with empty overrides', async () => {
+    const res = await request(app)
+      .get(`/api/outlets/${outletId}/menu`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .set('X-Tenant', String(tenantA.id));
+    expect(res.status).toBe(200);
+    expect(res.body.outlet.id).toBe(outletId);
+    const item = res.body.items.find((i) => i.id === itemId);
+    expect(item).toBeDefined();
+    expect(item.effectivePrice).toBe(300);
+    expect(item.effectiveAvailable).toBe(true);
+    expect(item.override.priceOverride).toBeNull();
+  });
+
+  it('PUT /:id/menu/items/:itemId sets a price override', async () => {
+    const res = await request(app)
+      .put(`/api/outlets/${outletId}/menu/items/${itemId}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .set('X-Tenant', String(tenantA.id))
+      .send({ price_override: 350 }, {});
+    expect(res.status).toBe(200);
+    expect(Number(res.body.price_override)).toBe(350);
+  });
+
+  it('GET /:id/menu reflects the price override as the effective price', async () => {
+    const res = await request(app)
+      .get(`/api/outlets/${outletId}/menu`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .set('X-Tenant', String(tenantA.id));
+    const item = res.body.items.find((i) => i.id === itemId);
+    expect(Number(item.effectivePrice)).toBe(350);
+    expect(item.override.priceOverride).toBe(350);
+  });
+
+  it('isolation: the override lives only in the table, not on the product', async () => {
+    const p = await Product.findByPk(itemId);
+    expect(Number(p.price)).toBe(300);
+  });
+
+  it('PUT sets availability + visibility override', async () => {
+    const res = await request(app)
+      .put(`/api/outlets/${outletId}/menu/items/${itemId2}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .set('X-Tenant', String(tenantA.id))
+      .send({ is_available: false, visible: false });
+    expect(res.status).toBe(200);
+    expect(res.body.is_available).toBe(false);
+    expect(res.body.visible).toBe(false);
+  });
+
+  it('DELETE /:id/menu/items/:itemId clears the override', async () => {
+    const res = await request(app)
+      .delete(`/api/outlets/${outletId}/menu/items/${itemId}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .set('X-Tenant', String(tenantA.id));
+    expect(res.status).toBe(204);
+    const gone = await OutletMenuOverride.findOne({
+      where: { outlet_id: outletId, menu_item_id: itemId },
+    });
+    expect(gone).toBeNull();
+  });
+
+  it('DELETE with no override returns 404', async () => {
+    const res = await request(app)
+      .delete(`/api/outlets/${outletId}/menu/items/999999`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .set('X-Tenant', String(tenantA.id));
+    expect(res.status).toBe(404);
+  });
+
+  it('404s for outlets outside the workspace', async () => {
+    const other = await Outlet.findOne({ where: { tenant_id: tenantB.id } });
+    const res = await request(app)
+      .get(`/api/outlets/${other.id}/menu`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .set('X-Tenant', String(tenantA.id));
     expect(res.status).toBe(404);
