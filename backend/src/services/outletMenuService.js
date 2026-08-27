@@ -82,14 +82,28 @@ export async function replaceOutletMenuOverrides(tenantId, outletId, menuItemId,
     fields.visible = Boolean(body.visible);
   }
 
-  const [res, created] = await OutletMenuOverride.upsert({
-    outlet_id: outletId,
-    menu_item_id: menuItemId,
-    tenant_id: tenantId,
-    ...fields,
-  });
+  const [res, created] = await upsertOverride(tenantId, outletId, menuItemId, fields);
 
   return { override: res, created };
+}
+
+// upsert is unreliable across dialects for composite unique indexes, so an
+// explicit findOne + create/update keeps behaviour identical on SQLite/Postgres.
+async function upsertOverride(tenantId, outletId, menuItemId, fields) {
+  let row = await OutletMenuOverride.findOne({
+    where: { outlet_id: outletId, menu_item_id: menuItemId },
+  });
+  if (!row) {
+    row = await OutletMenuOverride.create({
+      tenant_id: tenantId,
+      outlet_id: outletId,
+      menu_item_id: menuItemId,
+      ...fields,
+    });
+    return [row, true];
+  }
+  await row.update(fields);
+  return [row, false];
 }
 
 /** Removes any override row for a single outlet/menu-item pair. */
