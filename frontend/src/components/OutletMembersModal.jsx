@@ -29,6 +29,9 @@ export default function OutletMembersModal({ outlet, onClose }) {
   const [adding, setAdding] = useState(false);
   const toast = useToast();
   const mounted = useRef(true);
+  // A scoped outlet_manager member manages their branch but may only add /
+  // manage staff — they cannot grant outlet_manager or touch managers.
+  const isScopedManager = outlet.my_role === 'outlet_manager';
 
   useEffect(() => {
     mounted.current = true;
@@ -146,7 +149,7 @@ export default function OutletMembersModal({ outlet, onClose }) {
           <Field label="Role" style={{ width: 130, marginBottom: 0 }}>
             <Select value={selectedRole} onChange={(e) => setSelectedRole(e.target.value)}>
               <option value="staff">Staff</option>
-              <option value="outlet_manager">Manager</option>
+              {!isScopedManager && <option value="outlet_manager">Manager</option>}
             </Select>
           </Field>
           <Button variant="primary" size="sm" disabled={!selectedUser || adding} onClick={addMember}>
@@ -208,17 +211,26 @@ export default function OutletMembersModal({ outlet, onClose }) {
                 {m.name && <div className="outlet-member-email">{m.email}</div>}
               </div>
               <div className="outlet-member-actions">
-                <Select
-                  value={m.role}
-                  onChange={(e) => changeRole(m, e.target.value)}
-                  style={{ height: 30, fontSize: 12, padding: '0 24px 0 8px', borderRadius: 'var(--radius-xs)' }}
-                >
-                  <option value="outlet_manager">Manager</option>
-                  <option value="staff">Staff</option>
-                </Select>
-                <Button variant="danger-ghost" size="sm" onClick={() => removeMember(m)}>
-                  Remove
-                </Button>
+                {isScopedManager && m.role === 'outlet_manager' ? (
+                  <>
+                    <span className="outlet-role-badge outlet_manager">Manager</span>
+                    <span className="outlet-readonly">locked</span>
+                  </>
+                ) : (
+                  <>
+                    <Select
+                      value={m.role}
+                      onChange={(e) => changeRole(m, e.target.value)}
+                      style={{ height: 30, fontSize: 12, padding: '0 24px 0 8px', borderRadius: 'var(--radius-xs)' }}
+                    >
+                      <option value="staff">Staff</option>
+                      {!isScopedManager && <option value="outlet_manager">Manager</option>}
+                    </Select>
+                    <Button variant="danger-ghost" size="sm" onClick={() => removeMember(m)}>
+                      Remove
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
           ))}

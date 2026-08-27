@@ -19,7 +19,9 @@ import { authMiddleware } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { requirePermission } from '../middleware/rbac.js';
+import { requireOutletAccess } from '../middleware/outletAccess.js';
 import { resolveTenant, requireTenant } from '../middleware/tenant.js';
+import { hasPermission } from '../config/roles.js';
 import { parsePagination } from '../utils/pagination.js';
 
 const router = express.Router();
@@ -60,14 +62,35 @@ const addMemberSchema = z.object({
 
 // ── Outlet CRUD ─────────────────────────────────────────────────────
 
-/** GET /api/outlets — list outlets for this tenant. */
+/** GET /api/outlets — list outlets for this tenant. Managers see all; outlet
+ *  members see only the outlets they belong to (with their role attached). */
 router.get(
   '/',
-  canManageOutlets,
   asyncHandler(async (req, res) => {
     const { limit, offset } = parsePagination(req.query);
+    const where = { tenant_id: req.tenant.id };
+
+    // Global 'manage:outlets' readers (and wildcard staff/platform_admin) can
+    // see every outlet; scoped members only see their branches.
+    const scoped = !hasPermission(req.user, 'manage:outlets');
+    let myRoleByOutlet = new Map();
+    if (scoped) {
+      const memberships = await OutletMembership.findAll({
+        where: { user_id: req.user.id, tenant_id: req.tenant.id },
+        attributes: ['outlet_id', 'role'],
+      });
+      const ids = memberships.map((m) => m.outlet_id);
+      myRoleByOutlet = new Map(memberships.map((m) => [String(m.outlet_id), m.role]));
+      if (ids.length === 0) {
+        res.set('X-Total-Count', '0');
+        res.json([]);
+        return;
+      }
+      where.id = ids;
+    }
+
     const { rows, count } = await Outlet.findAndCountAll({
-      where: { tenant_id: req.tenant.id },
+      where,
       attributes: {
         include: [
           [
@@ -85,8 +108,14 @@ router.get(
       limit,
       offset,
     });
+
     res.set('X-Total-Count', String(count));
-    res.json(rows);
+    res.json(
+      rows.map((o) => ({
+        ...o.toJSON ? o.toJSON() : o,
+        my_role: scoped ? myRoleByOutlet.get(String(o.id)) || null : null,
+      }))
+    );
   })
 );
 
@@ -133,22 +162,16 @@ router.post(
   })
 );
 
-/** GET /api/outlets/:id — get a single outlet. */
+/** GET /api/outlets/:id — get a single outlet (read access). */
 router.get(
   '/:id',
-  canManageOutlets,
+  requireOutletAccess(),
   asyncHandler(async (req, res) => {
-    const outlet = await Outlet.findOne({
-      where: { id: req.params.id, tenant_id: req.tenant.id },
-    });
-    if (!outlet) {
-      throw new AppError(404, 'NOT_FOUND', 'Outlet not found');
-    }
-    res.json(outlet);
+    res.json(req.outlet);
   })
 );
 
-/** PUT /api/outlets/:id — update an outlet. */
+/** PUT /api/outlets/:id — update an outlet (global outlet managers only). */
 router.put(
   '/:id',
   canManageOutlets,
@@ -173,7 +196,7 @@ router.put(
   })
 );
 
-/** DELETE /api/outlets/:id — delete an outlet. */
+/** DELETE /api/outlets/:id — delete an outlet (global outlet managers only). */
 router.delete(
   '/:id',
   canManageOutlets,
@@ -203,14 +226,9 @@ router.delete(
 /** GET /api/outlets/:id/members — list members of an outlet. */
 router.get(
   '/:id/members',
-  canManageOutlets,
+  requireOutletAccess({ manage: true }),
   asyncHandler(async (req, res) => {
-    const outlet = await Outlet.findOne({
-      where: { id: req.params.id, tenant_id: req.tenant.id },
-    });
-    if (!outlet) {
-      throw new AppError(404, 'NOT_FOUND', 'Outlet not found');
-    }
+    const outlet = req.outlet;
 
     const members = await OutletMembership.findAll({
       where: { outlet_id: outlet.id, tenant_id: req.tenant.id },
@@ -236,14 +254,9 @@ router.get(
 /** GET /api/outlets/:id/members/candidates — tenant members not yet assigned to this outlet. */
 router.get(
   '/:id/members/candidates',
-  canManageOutlets,
+  requireOutletAccess({ manage: true }),
   asyncHandler(async (req, res) => {
-    const outlet = await Outlet.findOne({
-      where: { id: req.params.id, tenant_id: req.tenant.id },
-    });
-    if (!outlet) {
-      throw new AppError(404, 'NOT_FOUND', 'Outlet not found');
-    }
+    const outlet = req.outlet;
 
     const assigned = await OutletMembership.findAll({
       where: { outlet_id: outlet.id, tenant_id: req.tenant.id },
@@ -272,14 +285,9 @@ router.get(
 /** POST /api/outlets/:id/members — add a user to an outlet. */
 router.post(
   '/:id/members',
-  canManageOutlets,
+  requireOutletAccess({ manage: true }),
   asyncHandler(async (req, res) => {
-    const outlet = await Outlet.findOne({
-      where: { id: req.params.id, tenant_id: req.tenant.id },
-    });
-    if (!outlet) {
-      throw new AppError(404, 'NOT_FOUND', 'Outlet not found');
-    }
+    const outlet = req.outlet;
 
     const parsed = addMemberSchema.parse(req.body);
 
@@ -300,6 +308,27 @@ router.post(
         tenant_id: req.tenant.id,
       },
     });
+
+    // Scoped outlet_manager members may only manage staff — never themselves,
+    // never another outlet_manager, and they cannot grant the outlet_manager
+    // role (prevents self-demotion locking a branch and privilege escalation).
+    if (req.outletAccess === 'manage') {
+      const targetRole = existing?.role;
+      const wantsManager = parsed.role === 'outlet_manager';
+      if (existing && targetRole === 'outlet_manager') {
+        throw new AppError(403, 'FORBIDDEN', 'You cannot modify another outlet manager');
+      }
+      if (existing && existing.user_id === req.user.id) {
+        throw new AppError(403, 'FORBIDDEN', 'You cannot change your own outlet role');
+      }
+      if (!existing && wantsManager) {
+        throw new AppError(403, 'FORBIDDEN', 'Scoped outlet managers can only add staff');
+      }
+      if (existing && wantsManager) {
+        throw new AppError(403, 'FORBIDDEN', 'Scoped outlet managers cannot promote members to outlet_manager');
+      }
+    }
+
     if (existing) {
       const member = await existing.update({ role: parsed.role || existing.role });
       res.json(member);
@@ -320,14 +349,9 @@ router.post(
 /** DELETE /api/outlets/:id/members/:userId — remove a user from an outlet. */
 router.delete(
   '/:id/members/:userId',
-  canManageOutlets,
+  requireOutletAccess({ manage: true }),
   asyncHandler(async (req, res) => {
-    const outlet = await Outlet.findOne({
-      where: { id: req.params.id, tenant_id: req.tenant.id },
-    });
-    if (!outlet) {
-      throw new AppError(404, 'NOT_FOUND', 'Outlet not found');
-    }
+    const outlet = req.outlet;
 
     const member = await OutletMembership.findOne({
       where: {
@@ -340,6 +364,16 @@ router.delete(
       throw new AppError(404, 'NOT_FOUND', 'Member not found in this outlet');
     }
 
+    // Scoped outlet_manager members cannot remove themselves or an outlet_manager.
+    if (req.outletAccess === 'manage') {
+      if (member.user_id === req.user.id) {
+        throw new AppError(403, 'FORBIDDEN', 'You cannot remove yourself from the outlet');
+      }
+      if (member.role === 'outlet_manager') {
+        throw new AppError(403, 'FORBIDDEN', 'You cannot remove another outlet manager');
+      }
+    }
+
     await member.destroy();
     res.status(204).send();
   })
@@ -350,14 +384,9 @@ router.delete(
 /** GET /api/outlets/:id/menu — the central menu annotated with this outlet's overrides. */
 router.get(
   '/:id/menu',
-  canManageOutlets,
+  requireOutletAccess(),
   asyncHandler(async (req, res) => {
-    const outlet = await Outlet.findOne({
-      where: { id: req.params.id, tenant_id: req.tenant.id },
-    });
-    if (!outlet) {
-      throw new AppError(404, 'NOT_FOUND', 'Outlet not found');
-    }
+    const outlet = req.outlet;
 
     const [categories, items, overrideMap] = await Promise.all([
       MenuCategory.findAll({
@@ -406,14 +435,9 @@ router.get(
 /** PUT /api/outlets/:id/menu/items/:itemId — upsert one item's override for this outlet. */
 router.put(
   '/:id/menu/items/:itemId',
-  canManageOutlets,
+  requireOutletAccess({ manage: true }),
   asyncHandler(async (req, res) => {
-    const outlet = await Outlet.findOne({
-      where: { id: req.params.id, tenant_id: req.tenant.id },
-    });
-    if (!outlet) {
-      throw new AppError(404, 'NOT_FOUND', 'Outlet not found');
-    }
+    const outlet = req.outlet;
 
     const menuItemId = Number(req.params.itemId);
     const product = await Product.findOne({
@@ -437,14 +461,9 @@ router.put(
 /** DELETE /api/outlets/:id/menu/items/:itemId — clear the override for this outlet+item. */
 router.delete(
   '/:id/menu/items/:itemId',
-  canManageOutlets,
+  requireOutletAccess({ manage: true }),
   asyncHandler(async (req, res) => {
-    const outlet = await Outlet.findOne({
-      where: { id: req.params.id, tenant_id: req.tenant.id },
-    });
-    if (!outlet) {
-      throw new AppError(404, 'NOT_FOUND', 'Outlet not found');
-    }
+    const outlet = req.outlet;
 
     const removed = await clearOutletMenuOverride(
       req.tenant.id,
