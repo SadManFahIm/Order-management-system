@@ -39,6 +39,7 @@ import { sendOrderStatusEmail } from '../services/notifications/orderConfirmatio
 import { withIdempotency } from '../services/idempotency.js';
 import { publishOrderEvent } from '../services/realtime.js';
 import { DELIVERY_TYPES, validateSchedule, deliveryConfig, normalizeTip } from '../services/checkoutService.js';
+import { resolveOutletMenuOverrides, overridePrice } from '../services/outletMenuService.js';
 import { assertMethodEnabled, createPaymentForOrder, validateSplits } from '../services/paymentsService.js';
 import { createOnlinePayment } from '../services/paymentGateway.js';
 import { RECONCILIATION_TTL_MS } from '../services/paymentReconciliation.js';
@@ -887,6 +888,19 @@ async function placeStaffOrder(req, {
 
     const productMap = {};
     products.forEach((p) => (productMap[p.id] = p));
+
+    // Outlet menu overrides (sector): when this order targets a specific
+    // outlet, apply that outlet's price overrides to the products before
+    // pricing. The loaded instances are request-scoped, so mutating price
+    // here keeps applyPromotionsToCart + unit_price consistent and outlet-aware.
+    if (resolvedOutletId) {
+      const outletPriceOverrides = await resolveOutletMenuOverrides(req.tenant.id, resolvedOutletId);
+      if (outletPriceOverrides.size > 0) {
+        for (const p of Object.values(productMap)) {
+          p.price = overridePrice(p.price, outletPriceOverrides, p.id);
+        }
+      }
+    }
 
     // Reject if any requested product is unknown or disabled
     const missing = items.filter((i) => !productMap[i.product_id]);

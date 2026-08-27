@@ -3,6 +3,7 @@ import api from '../api';
 import { useI18n } from '../i18n';
 import OutletForm from '../components/OutletForm';
 import OutletMembersModal from '../components/OutletMembersModal';
+import OutletMenuOverridesModal from '../components/OutletMenuOverridesModal';
 import { PageHeader, Card, Table, Button, Skeleton, EmptyState, Switch, useToast } from '../components/ui';
 import './Outlets.css';
 
@@ -41,6 +42,7 @@ export default function OutletsPage() {
   const [editing, setEditing] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [membersOutlet, setMembersOutlet] = useState(null);
+  const [menuOutlet, setMenuOutlet] = useState(null);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const toast = useToast();
@@ -352,6 +354,11 @@ export default function OutletsPage() {
                       </td>
                       <td className="oms-table__num">
                         <div className="oms-table__actions">
+                          <Button variant="ghost" size="sm" onClick={() => setMenuOutlet(o)} title="Menu overrides">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
+                            </svg>
+                          </Button>
                           <Button variant="ghost" size="sm" onClick={() => setMembersOutlet(o)} title="Manage members">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                               <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
@@ -425,6 +432,13 @@ export default function OutletsPage() {
         <OutletMembersModal
           outlet={membersOutlet}
           onClose={() => setMembersOutlet(null)}
+        />
+      )}
+
+      {menuOutlet && (
+        <OutletMenuOverridesModal
+          outlet={menuOutlet}
+          onClose={() => setMenuOutlet(null)}
         />
       )}
     </div>

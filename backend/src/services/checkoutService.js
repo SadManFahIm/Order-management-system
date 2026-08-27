@@ -6,6 +6,7 @@ import Promotion from '../models/Promotion.js';
 import PromotionSlab from '../models/PromotionSlab.js';
 import { applyPromotionsToCart } from '../utils/promotionEngine.js';
 import { buildAvailabilityContext, isAvailableAt } from './menuService.js';
+import { resolveOutletMenuOverrides, overridePrice, overrideAvailable } from './outletMenuService.js';
 
 /**
  * Storefront checkout core (Phase 5) — shared by the public checkout route.
@@ -81,7 +82,7 @@ export function normalizeTip(rawTip, isDelivery) {
  * addons, unitPrice (incl. uplift), baseTotal, discount, lineTotal,
  * totalWeightGm, itemName }.
  */
-export async function priceCart(tenant, rawItems, at = new Date()) {
+export async function priceCart(tenant, rawItems, at = new Date(), outletId = null) {
   if (!Array.isArray(rawItems) || rawItems.length === 0) {
     throw new AppError(400, 'VALIDATION_ERROR', 'Order must contain at least one item');
   }
@@ -105,10 +106,19 @@ export async function priceCart(tenant, rawItems, at = new Date()) {
   });
   const productMap = new Map(products.map((p) => [p.id, p]));
 
+  // Per-outlet menu overrides (outlet overrides sector): load once for the
+  // cart's outlet and apply price/availability/stock to each line.
+  const overrideMap = await resolveOutletMenuOverrides(tenant.id, outletId);
+
   const lines = rawItems.map((raw) => {
     const product = productMap.get(raw.product_id);
     if (!product) {
       throw new AppError(400, 'PRODUCT_UNAVAILABLE', `Product ${raw.product_id} is unavailable`);
+    }
+    // Outlet availability override can hide an item even when the catalog
+    // price/logic is fine (NULL = inherit catalog availability).
+    if (!overrideAvailable(true, overrideMap, product.id)) {
+      throw new AppError(400, 'PRODUCT_UNAVAILABLE', `${product.name} is unavailable at this outlet`);
     }
     // Full availability resolution (restaurant closures, weekday rules,
     // per-day overrides, base window) — an item outside its effective
@@ -149,8 +159,9 @@ export async function priceCart(tenant, rawItems, at = new Date()) {
     const upliftPerUnit = round2(
       (variant?.price_adjustment || 0) + addons.reduce((s, a) => s + Number(a.price || 0), 0)
     );
-    const unitPrice = round2(Number(product.price) + upliftPerUnit);
-    const baseTotal = round2(Number(product.price) * quantity);
+    const effectiveBase = overridePrice(product.price, overrideMap, product.id);
+    const unitPrice = round2(Number(effectiveBase) + upliftPerUnit);
+    const baseTotal = round2(Number(effectiveBase) * quantity);
     const nameParts = [product.name];
     if (variant) nameParts.push(`(${variant.name})`);
     if (addons.length > 0) nameParts.push(`+ ${addons.map((a) => a.name).join(', ')}`);
