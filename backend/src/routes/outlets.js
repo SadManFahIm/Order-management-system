@@ -208,7 +208,54 @@ router.get(
       order: [['id', 'ASC']],
     });
 
-    res.json(members);
+    // Flatten the eager-loaded user so the UI can read m.name / m.email
+    // directly (matches the shape used by the tenant members API).
+    res.json(
+      members.map((m) => ({
+        id: m.id,
+        user_id: m.user_id,
+        outlet_id: m.outlet_id,
+        name: m.User?.name || null,
+        email: m.User?.email || null,
+        role: m.role,
+      }))
+    );
+  })
+);
+
+/** GET /api/outlets/:id/members/candidates — tenant members not yet assigned to this outlet. */
+router.get(
+  '/:id/members/candidates',
+  canManageOutlets,
+  asyncHandler(async (req, res) => {
+    const outlet = await Outlet.findOne({
+      where: { id: req.params.id, tenant_id: req.tenant.id },
+    });
+    if (!outlet) {
+      throw new AppError(404, 'NOT_FOUND', 'Outlet not found');
+    }
+
+    const assigned = await OutletMembership.findAll({
+      where: { outlet_id: outlet.id, tenant_id: req.tenant.id },
+      attributes: ['user_id'],
+    });
+    const assignedIds = new Set(assigned.map((a) => a.user_id));
+
+    const tenantMembers = await UserTenant.findAll({
+      where: { tenant_id: req.tenant.id },
+      include: [{ model: User, attributes: ['id', 'name', 'email'] }],
+      order: [['id', 'ASC']],
+    });
+
+    const candidates = tenantMembers
+      .filter((ut) => !assignedIds.has(ut.user_id))
+      .map((ut) => ({
+        id: ut.user_id,
+        name: ut.User?.name || null,
+        email: ut.User?.email || null,
+      }));
+
+    res.json(candidates);
   })
 );
 
@@ -234,7 +281,8 @@ router.post(
       throw new AppError(400, 'INVALID_USER', 'User is not a member of this workspace');
     }
 
-    // Check for existing outlet membership
+    // Check for existing outlet membership — if present, update the role
+    // (used by the UI to change a member's role) and return the member.
     const existing = await OutletMembership.findOne({
       where: {
         user_id: parsed.user_id,
@@ -243,7 +291,9 @@ router.post(
       },
     });
     if (existing) {
-      throw new AppError(409, 'DUPLICATE', 'User is already a member of this outlet');
+      const member = await existing.update({ role: parsed.role || existing.role });
+      res.json(member);
+      return;
     }
 
     const member = await OutletMembership.create({

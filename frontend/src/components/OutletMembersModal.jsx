@@ -42,12 +42,12 @@ export default function OutletMembersModal({ outlet, onClose }) {
     try {
       const [membersRes, usersRes] = await Promise.all([
         api.get(`/outlets/${outlet.id}/members`),
-        api.get('/users', { params: { page_size: 200 } }),
+        api.get(`/outlets/${outlet.id}/members/candidates`),
       ]);
       if (!mounted.current) return;
       setMembers(membersRes.data);
-      const memberIds = new Set(membersRes.data.map((m) => m.user_id));
-      setUsers(usersRes.data.filter((u) => !memberIds.has(u.id)));
+      // Candidates endpoint already excludes users assigned to this outlet.
+      setUsers(usersRes.data);
     } catch {
       if (mounted.current) toast?.error('Could not load members');
     } finally {
