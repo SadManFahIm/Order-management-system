@@ -318,7 +318,8 @@ export function effectiveWindowSegments(item, ctx) {
  */
 export async function closureCalendar(tenantId, month) {
   const lo = `${month}-01`;
-  const hi = `${month}-31`; // lexical upper bound — valid for every month
+  const [y, m] = month.split('-').map(Number);
+  const hi = `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`;
   const [closures, weekdayRules, overrides] = await Promise.all([
     TenantClosureDate.findAll({
       where: { tenant_id: tenantId, date: { [Op.gte]: lo, [Op.lte]: hi } },

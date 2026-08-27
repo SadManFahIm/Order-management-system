@@ -14,6 +14,8 @@ import { User, Tenant, UserTenant, Outlet, OutletMembership, Product, OutletMenu
 let ownerToken;
 let managerToken;
 let cashierToken;
+let omScopedToken;
+let staffScopedToken;
 let tenantA;
 let tenantB;
 
@@ -54,6 +56,24 @@ beforeAll(async () => {
   });
   await UserTenant.create({ user_id: cashier.id, tenant_id: tenantA.id, role: 'cashier' });
 
+  // Scoped outlet members (Sector 2): tenant role 'cashier' so neither has
+  // 'manage:outlets'; their branch access comes only from OutletMembership.
+  const omScoped = await User.create({
+    name: 'Branch Manager',
+    email: 'branchmanager@example.com',
+    password: await bcrypt.hash('password123', 10),
+    platform_role: 'member',
+  });
+  await UserTenant.create({ user_id: omScoped.id, tenant_id: tenantA.id, role: 'cashier' });
+
+  const staffScoped = await User.create({
+    name: 'Branch Staff',
+    email: 'branchstaff@example.com',
+    password: await bcrypt.hash('password123', 10),
+    platform_role: 'member',
+  });
+  await UserTenant.create({ user_id: staffScoped.id, tenant_id: tenantA.id, role: 'cashier' });
+
   // Seed a second user on tenant B for isolation tests.
   const ownerB = await User.create({
     name: 'Outlet Owner B',
@@ -74,6 +94,8 @@ beforeAll(async () => {
   ownerToken = await login('outletowner@example.com');
   managerToken = await login('outletmanager@example.com');
   cashierToken = await login('outletcashier@example.com');
+  omScopedToken = await login('branchmanager@example.com');
+  staffScopedToken = await login('branchstaff@example.com');
 });
 
 afterAll(async () => {
@@ -177,12 +199,15 @@ describe('GET /api/outlets', () => {
     expect(res.body.some((o) => o.code === 'TENB')).toBe(false);
   });
 
-  it('a cashier cannot list outlets (no manage:outlets)', async () => {
+  it('a cashier with no outlet membership sees an empty scoped list', async () => {
     const res = await request(app)
       .get('/api/outlets')
       .set('Authorization', `Bearer ${cashierToken}`)
       .set('X-Tenant', String(tenantA.id));
-    expect(res.status).toBe(403);
+    // Role-scoped access: no manage:outlets and no outlet membership → the
+    // cashier can open the page but only sees their (empty) outlet scope.
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
   });
 });
 
@@ -626,5 +651,216 @@ describe('Outlet menu overrides', () => {
       .set('Authorization', `Bearer ${ownerToken}`)
       .set('X-Tenant', String(tenantA.id));
     expect(res.status).toBe(404);
+  });
+});
+
+describe('Role-scoped outlet access (Sector 2)', () => {
+  let outletId;
+  let omUserId;
+  let staffUserId;
+  let om2Token;
+  let om2UserId;
+  let menuItemId;
+  let freshUserId;
+
+  beforeAll(async () => {
+    const outlet = await Outlet.findOne({
+      where: { tenant_id: tenantA.id, code: 'KEEP' },
+    });
+    outletId = outlet.id;
+
+    const om = await User.findOne({ where: { email: 'branchmanager@example.com' } });
+    const staff = await User.findOne({ where: { email: 'branchstaff@example.com' } });
+    omUserId = om.id;
+    staffUserId = staff.id;
+
+    // A tenant member who is NOT yet an outlet member (for the "add staff" path).
+    const fresh = await User.create({
+      name: 'Fresh Staff',
+      email: 'freshstaff@example.com',
+      password: await bcrypt.hash('password123', 10),
+      platform_role: 'member',
+    });
+    await UserTenant.create({ user_id: fresh.id, tenant_id: tenantA.id, role: 'cashier' });
+    freshUserId = fresh.id;
+
+    await OutletMembership.create({
+      user_id: omUserId,
+      outlet_id: outletId,
+      tenant_id: tenantA.id,
+      role: 'outlet_manager',
+    });
+    await OutletMembership.create({
+      user_id: staffUserId,
+      outlet_id: outletId,
+      tenant_id: tenantA.id,
+      role: 'staff',
+    });
+
+    // A second outlet_manager to test the "cannot modify another manager" guard.
+    const om2 = await User.create({
+      name: 'Branch Manager 2',
+      email: 'branchmanager2@example.com',
+      password: await bcrypt.hash('password123', 10),
+      platform_role: 'member',
+    });
+    await UserTenant.create({ user_id: om2.id, tenant_id: tenantA.id, role: 'cashier' });
+    await OutletMembership.create({
+      user_id: om2.id,
+      outlet_id: outletId,
+      tenant_id: tenantA.id,
+      role: 'outlet_manager',
+    });
+    om2UserId = om2.id;
+    om2Token = await login('branchmanager2@example.com');
+
+    const item = await Product.create({
+      tenant_id: tenantA.id,
+      name: 'Branch Scoped Item',
+      price: 100,
+      weight_gm: 100,
+      enabled: true,
+    });
+    menuItemId = item.id;
+  });
+
+  const get = (token, path) =>
+    request(app).get(`/api/outlets/${path}`).set('Authorization', `Bearer ${token}`).set('X-Tenant', String(tenantA.id));
+
+  it('a scoped outlet_manager sees only their outlets with my_role', async () => {
+    const res = await get(omScopedToken, '');
+    expect(res.status).toBe(200);
+    const mine = res.body.filter((o) => String(o.id) === String(outletId));
+    expect(mine.length).toBe(1);
+    expect(mine[0].my_role).toBe('outlet_manager');
+    // Scoped users never see the tenant's other outlets.
+    expect(res.body.some((o) => o.code === 'MAIN' || o.code === 'DHAN')).toBe(false);
+  });
+
+  it('a scoped outlet_manager can read their outlet and its menu', async () => {
+    const one = await get(omScopedToken, outletId);
+    expect(one.status).toBe(200);
+    const menu = await get(omScopedToken, `${outletId}/menu`);
+    expect(menu.status).toBe(200);
+  });
+
+  it('a scoped outlet_manager can manage menu overrides within their outlet', async () => {
+    const put = await request(app)
+      .put(`/api/outlets/${outletId}/menu/items/${menuItemId}`)
+      .set('Authorization', `Bearer ${omScopedToken}`)
+      .set('X-Tenant', String(tenantA.id))
+      .send({ price_override: 125 });
+    expect(put.status).toBe(200);
+    expect(Number(put.body.price_override)).toBe(125);
+  });
+
+  it('a scoped outlet_manager CANNOT create outlets', async () => {
+    const res = await request(app)
+      .post('/api/outlets')
+      .set('Authorization', `Bearer ${omScopedToken}`)
+      .set('X-Tenant', String(tenantA.id))
+      .send({ name: 'Nope', code: 'NOPE2', slug: 'nope2' });
+    expect(res.status).toBe(403);
+  });
+
+  it('a scoped outlet_manager CANNOT edit or delete the outlet itself', async () => {
+    const edit = await request(app)
+      .put(`/api/outlets/${outletId}`)
+      .set('Authorization', `Bearer ${omScopedToken}`)
+      .set('X-Tenant', String(tenantA.id))
+      .send({ name: 'Renamed' });
+    expect(edit.status).toBe(403);
+    const del = await request(app)
+      .delete(`/api/outlets/${outletId}`)
+      .set('Authorization', `Bearer ${omScopedToken}`)
+      .set('X-Tenant', String(tenantA.id));
+    expect(del.status).toBe(403);
+  });
+
+  it('a scoped outlet_manager can add and manage staff but NOT another outlet_manager', async () => {
+    // Add a fresh tenant member as staff (allowed).
+    const add = await request(app)
+      .post(`/api/outlets/${outletId}/members`)
+      .set('Authorization', `Bearer ${omScopedToken}`)
+      .set('X-Tenant', String(tenantA.id))
+      .send({ user_id: freshUserId, role: 'staff' });
+    expect(add.status).toBe(201);
+
+    // Cannot promote a staff member to outlet_manager.
+    const promote = await request(app)
+      .post(`/api/outlets/${outletId}/members`)
+      .set('Authorization', `Bearer ${omScopedToken}`)
+      .set('X-Tenant', String(tenantA.id))
+      .send({ user_id: freshUserId, role: 'outlet_manager' });
+    expect(promote.status).toBe(403);
+
+    // Cannot modify another outlet_manager's membership.
+    const touchOm2 = await request(app)
+      .post(`/api/outlets/${outletId}/members`)
+      .set('Authorization', `Bearer ${omScopedToken}`)
+      .set('X-Tenant', String(tenantA.id))
+      .send({ user_id: om2UserId, role: 'staff' });
+    expect(touchOm2.status).toBe(403);
+
+    // Cannot change their own membership.
+    const self = await request(app)
+      .post(`/api/outlets/${outletId}/members`)
+      .set('Authorization', `Bearer ${omScopedToken}`)
+      .set('X-Tenant', String(tenantA.id))
+      .send({ user_id: omUserId, role: 'staff' });
+    expect(self.status).toBe(403);
+
+    // Cannot remove another outlet_manager.
+    const rmOm2 = await request(app)
+      .delete(`/api/outlets/${outletId}/members/${om2UserId}`)
+      .set('Authorization', `Bearer ${omScopedToken}`)
+      .set('X-Tenant', String(tenantA.id));
+    expect(rmOm2.status).toBe(403);
+
+    // Cannot remove themselves.
+    const rmSelf = await request(app)
+      .delete(`/api/outlets/${outletId}/members/${omUserId}`)
+      .set('Authorization', `Bearer ${omScopedToken}`)
+      .set('X-Tenant', String(tenantA.id));
+    expect(rmSelf.status).toBe(403);
+  });
+
+  it('a scoped staff member can read but NOT manage their outlet', async () => {
+    const one = await get(staffScopedToken, outletId);
+    expect(one.status).toBe(200);
+    const menu = await get(staffScopedToken, `${outletId}/menu`);
+    expect(menu.status).toBe(200);
+
+    const put = await request(app)
+      .put(`/api/outlets/${outletId}/menu/items/${menuItemId}`)
+      .set('Authorization', `Bearer ${staffScopedToken}`)
+      .set('X-Tenant', String(tenantA.id))
+      .send({ price_override: 999 });
+    expect(put.status).toBe(403);
+
+    const addMember = await request(app)
+      .post(`/api/outlets/${outletId}/members`)
+      .set('Authorization', `Bearer ${staffScopedToken}`)
+      .set('X-Tenant', String(tenantA.id))
+      .send({ user_id: omUserId, role: 'staff' });
+    expect(addMember.status).toBe(403);
+  });
+
+  it('a tenant member with no outlet membership is denied (403)', async () => {
+    const one = await get(cashierToken, outletId);
+    expect(one.status).toBe(403);
+    const menu = await get(cashierToken, `${outletId}/menu`);
+    expect(menu.status).toBe(403);
+  });
+
+  it('a manager (manage:outlets) still manages all outlets and sees my_role null', async () => {
+    const res = await request(app)
+      .get('/api/outlets')
+      .set('Authorization', `Bearer ${managerToken}`)
+      .set('X-Tenant', String(tenantA.id));
+    expect(res.status).toBe(200);
+    const keep = res.body.find((o) => String(o.id) === String(outletId));
+    expect(keep).toBeDefined();
+    expect(keep.my_role).toBeNull();
   });
 });

@@ -79,6 +79,10 @@ export default function OutletsPage() {
     };
   }, [outlets]);
 
+  // Global outlet managers see every outlet with my_role null. Scoped members
+  // (outlet_manager / staff) are narrowed to their branches via the API.
+  const isGlobalManager = !!outlets && outlets.length > 0 && outlets.some((o) => o.my_role == null);
+
   const filtered = useMemo(() => {
     if (!outlets) return null;
     let list = outlets;
@@ -163,12 +167,14 @@ export default function OutletsPage() {
         title={t('pages.outlets')}
         desc={t('pages.outletsDesc')}
         actions={
-          <Button variant="primary" onClick={openCreate}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-            Add Outlet
-          </Button>
+          isGlobalManager && (
+            <Button variant="primary" onClick={openCreate}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              Add Outlet
+            </Button>
+          )
         }
       />
 
@@ -223,20 +229,22 @@ export default function OutletsPage() {
       )}
 
       <div className="oms-grid oms-grid--2col">
-        {/* Left: form */}
-        <Card
-          title={editing ? t('pages.outletEdit') : t('pages.outletAdd')}
-          subtitle={editing ? `Editing "${editing.name}"` : 'Set up a new franchise location.'}
-          actions={
-            editing && (
-              <Button variant="ghost" size="sm" onClick={closeForm}>
-                Cancel
-              </Button>
-            )
-          }
-        >
-          <OutletForm key={editing?.id ?? 'new'} initial={editing} onSave={editing ? onUpdate : onCreate} />
-        </Card>
+        {/* Left: form (only reachable for global outlet managers) */}
+        {isGlobalManager && (
+          <Card
+            title={editing ? t('pages.outletEdit') : t('pages.outletAdd')}
+            subtitle={editing ? `Editing "${editing.name}"` : 'Set up a new franchise location.'}
+            actions={
+              editing && (
+                <Button variant="ghost" size="sm" onClick={closeForm}>
+                  Cancel
+                </Button>
+              )
+            }
+          >
+            <OutletForm key={editing?.id ?? 'new'} initial={editing} onSave={editing ? onUpdate : onCreate} />
+          </Card>
+        )}
 
         {/* Right: list */}
         <Card bodyPadding={false}>
@@ -254,12 +262,14 @@ export default function OutletsPage() {
               title="No outlets yet"
               description="Create your first outlet to start managing franchise locations and assigning staff."
               action={
-                <Button variant="primary" size="sm" onClick={openCreate}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 5v14M5 12h14" />
-                  </svg>
-                  Create first outlet
-                </Button>
+                isGlobalManager && (
+                  <Button variant="primary" size="sm" onClick={openCreate}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 5v14M5 12h14" />
+                    </svg>
+                    Create first outlet
+                  </Button>
+                )
               }
             />
           ) : (
@@ -345,36 +355,48 @@ export default function OutletsPage() {
                         </span>
                       </td>
                       <td>
-                        <Switch
-                          id={`outlet-status-${o.id}`}
-                          checked={o.status === 'active'}
-                          onChange={() => onToggleStatus(o)}
-                          label={o.status === 'active' ? 'Active' : 'Inactive'}
-                        />
+                        {o.my_role == null ? (
+                          <Switch
+                            id={`outlet-status-${o.id}`}
+                            checked={o.status === 'active'}
+                            onChange={() => onToggleStatus(o)}
+                            label={o.status === 'active' ? 'Active' : 'Inactive'}
+                          />
+                        ) : (
+                          <span className={`outlet-role-badge ${o.my_role}`}>{o.my_role}</span>
+                        )}
                       </td>
                       <td className="oms-table__num">
-                        <div className="oms-table__actions">
-                          <Button variant="ghost" size="sm" onClick={() => setMenuOutlet(o)} title="Menu overrides">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
-                            </svg>
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => setMembersOutlet(o)} title="Manage members">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                            </svg>
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => openEdit(o)} title="Edit outlet">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-                            </svg>
-                          </Button>
-                          <Button variant="danger-ghost" size="sm" onClick={() => onDelete(o)} title="Delete outlet">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                            </svg>
-                          </Button>
-                        </div>
+                        {o.my_role != null && o.my_role !== 'outlet_manager' ? (
+                          <span className="outlet-readonly">Read-only</span>
+                        ) : (
+                          <div className="oms-table__actions">
+                            <Button variant="ghost" size="sm" onClick={() => setMenuOutlet(o)} title="Menu overrides">
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
+                              </svg>
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => setMembersOutlet(o)} title="Manage members">
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                              </svg>
+                            </Button>
+                            {o.my_role == null && (
+                              <>
+                                <Button variant="ghost" size="sm" onClick={() => openEdit(o)} title="Edit outlet">
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                                  </svg>
+                                </Button>
+                                <Button variant="danger-ghost" size="sm" onClick={() => onDelete(o)} title="Delete outlet">
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                                  </svg>
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}
