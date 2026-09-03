@@ -61,9 +61,9 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
-    "@eslint/js": "^9.9.0",
+    "@eslint/js": "^10.0.1",
     "@vitest/coverage-v8": "^4.1.10",
-    "eslint": "^9.9.0",
+    "eslint": "^10.9.1",
     "globals": "^17.11.0",
     "nodemon": "^3.1.0",
     "smtp-server": "^3.19.3",

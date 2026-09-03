@@ -140,8 +140,8 @@ async function verifyAndExtract({ xml, config }) {
   }
 
   // Email — NameID (email format) or the configured attribute.
-  let email = null;
-  let name = null;
+  let email;
+  let name;
   const subject = assertion['saml:Subject'] || assertion.Subject || {};
   const nameId = (subject['saml:NameID'] || subject.NameID || {});
   const nameIdText = typeof nameId === 'string' ? nameId : nameId._ || nameId['#text'] || '';
