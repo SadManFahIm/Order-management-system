@@ -16,7 +16,7 @@ import {
   RefreshToken,
 } from '../models/index.js';
 import { audit } from './auditService.js';
-import { issueSession, publicUser, sha256, REFRESH_COOKIE_NAME } from './authService.js';
+import { issueSession, sha256, REFRESH_COOKIE_NAME } from './authService.js';
 
 /**
  * SAML 2.0 SSO (enterprise auth, Phase 3).
@@ -266,7 +266,6 @@ export function serializeSamlConfig(config) {
 // ── SP identity, metadata & single logout (SLO) ──────────────────────────
 
 const SP_ENTITY_ID = 'orderly.app';
-const SLO_URL = () => `${env.APP_BASE_URL.replace(/\/$/, '')}/api/auth/saml/slo`;
 
 /**
  * Ensures the SP signing identity exists (singleton `saml_sp_config`).
@@ -479,7 +478,7 @@ export async function handleSlo({ samlRequest, samlResponse, relayState }, req) 
     if (!config.idp_slo_url) {
       return { redirectTo: `${env.APP_BASE_URL.replace(/\/$/, '')}/login?logged_out=1` };
     }
-    const sp = await ensureSpConfig();
+    await ensureSpConfig();
     const responseId = `_${crypto.randomBytes(16).toString('hex')}`;
     const inResponseTo = parsed?.['samlp:LogoutRequest']?.$?.ID || parsed?.LogoutRequest?.$?.ID || '';
     const xmlOut = [

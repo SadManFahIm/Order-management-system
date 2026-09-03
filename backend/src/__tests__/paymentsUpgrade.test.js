@@ -80,7 +80,7 @@ process.env.SSLCOMMERZ_FAIL_URL = 'http://localhost:5173/orders?failed=1';
 const { default: app } = await import('../app.js');
 const sequelize = (await import('../config/db.js')).default;
 const { resetTestDb } = await import('../test/resetDb.js');
-const { User, Tenant, UserTenant, Product, Order, Payment, PaymentRefund, Settlement } =
+const { User, Tenant, UserTenant, Product, Order, Payment, PaymentRefund } =
   await import('../models/index.js');
 
 let token;

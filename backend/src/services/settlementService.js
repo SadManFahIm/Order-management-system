@@ -101,7 +101,7 @@ export async function createSettlement(tenantId, input, actorId) {
 }
 
 /** Updates a settlement's progress (status, settled amounts, bank ref). */
-export async function updateSettlement(tenantId, id, input, actorId) {
+export async function updateSettlement(tenantId, id, input, _actorId) {
   const settlement = await Settlement.findOne({ where: { id, tenant_id: tenantId } });
   if (!settlement) throw new AppError(404, 'NOT_FOUND', 'Settlement not found');
 

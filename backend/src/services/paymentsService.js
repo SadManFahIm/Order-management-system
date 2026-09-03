@@ -214,7 +214,7 @@ export async function recomputeOrderPaymentStatus(order, options = {}) {
  * Supports multiple partial refunds (each adds to the ledger). Returns the
  * updated `{ payment, order }`.
  */
-export async function applyRefund({ payment, order, amount, reason, actorId, req }) {
+export async function applyRefund({ payment, order, amount, reason, actorId }) {
   const refundAmount = amount === undefined ? Number(payment.amount) : Number(amount);
   if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
     throw new AppError(400, 'VALIDATION_ERROR', 'Refund amount must be a positive number');

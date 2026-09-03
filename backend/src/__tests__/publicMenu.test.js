@@ -14,7 +14,6 @@ import { User, Tenant, UserTenant, Product, MenuCategory, ItemVariant, ItemAddon
 
 let tenantA;
 let tenantB;
-let tenantWallet;
 let categoryBurgers;
 let categoryDrinks;
 let itemAvailable;
@@ -28,7 +27,7 @@ beforeAll(async () => {
   // Wallet receiving numbers (Phase 6 UX): a tenant with bKash + Nagad
   // enabled and numbered — the public API must expose these (customers need
   // them to pay), but never any gateway/internal settings.
-  tenantWallet = await Tenant.create({
+  await Tenant.create({
     name: 'Wallet Cafe',
     slug: 'wallet-cafe',
     settings: {

@@ -658,7 +658,6 @@ describe('Role-scoped outlet access (Sector 2)', () => {
   let outletId;
   let omUserId;
   let staffUserId;
-  let om2Token;
   let om2UserId;
   let menuItemId;
   let freshUserId;
@@ -712,7 +711,6 @@ describe('Role-scoped outlet access (Sector 2)', () => {
       role: 'outlet_manager',
     });
     om2UserId = om2.id;
-    om2Token = await login('branchmanager2@example.com');
 
     const item = await Product.create({
       tenant_id: tenantA.id,

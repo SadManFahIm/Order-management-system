@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import bcrypt from 'bcryptjs';
 import forge from 'node-forge';
 import crypto from 'node:crypto';
-import { deflateRawSync, inflateRawSync } from 'node:zlib';
+import { inflateRawSync } from 'node:zlib';
 import app from '../app.js';
 import sequelize from '../config/db.js';
 import { resetTestDb } from '../test/resetDb.js';
@@ -18,10 +18,8 @@ import {
 } from '../models/index.js';
 import { SignedXml } from 'xml-crypto';
 import {
-  buildSpMetadata,
   ensureSpConfig,
   buildSloInitUrl,
-  handleSlo,
 } from '../services/samlService.js';
 import {
   getBillingMeter,
@@ -40,7 +38,6 @@ const PASSWORD = 'Str0ngPass!42';
 let tenant;
 let ownerToken;
 let platformToken;
-let idpCertPem;
 let idpKeyPem;
 
 /** Generate a self-signed IdP certificate (node-forge, PKCS#1 private key). */
@@ -115,7 +112,7 @@ beforeAll(async () => {
   });
   await UserTenant.create({ user_id: owner.id, tenant_id: tenant.id, role: 'owner' });
 
-  const platformAdmin = await User.create({
+  await User.create({
     name: 'SSO2 Admin',
     email: 'sso2admin@example.com',
     password: await bcrypt.hash(PASSWORD, 10),
@@ -133,7 +130,6 @@ beforeAll(async () => {
   platformToken = adminLogin.body.accessToken;
 
   const idp = makeIdpCert();
-  idpCertPem = idp.certPem;
   idpKeyPem = idp.keyPem;
   await TenantSamlConfig.create({
     tenant_id: tenant.id,
@@ -348,7 +344,6 @@ describe('usage billing meter', () => {
   it('is a no-op when the billing webhook is unset', async () => {
     const before = env.BILLING_WEBHOOK_URL;
     process.env.BILLING_WEBHOOK_URL = '';
-    const { getBillingMeter: gm } = await import('../services/billingService.js');
     const result = await reportTenantMeter(tenant.id);
     expect(result.sent).toBe(false);
     expect(result.reason).toBe('disabled');

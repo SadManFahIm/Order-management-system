@@ -25,7 +25,7 @@ const login = async (email) =>
 beforeAll(async () => {
   await resetTestDb();
 
-  const admin = await User.create({
+  await User.create({
     name: 'Platform Admin',
     email: 'platform@oms.dev',
     password: await bcrypt.hash('password123', 10),

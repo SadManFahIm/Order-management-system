@@ -10,7 +10,6 @@ import {
   UserTenant,
   Plan,
   Subscription,
-  Product,
   UsageCounter,
 } from '../models/index.js';
 import { LIFETIME_PERIOD } from '../services/planService.js';
@@ -274,7 +273,7 @@ describe('tenant invites (expiry + accept)', () => {
       .set(auth(ownerToken))
       .send({ email: 'p3manager@example.com', role: 'manager' });
 
-    const login = await request(app)
+    await request(app)
       .post('/api/auth/login')
       .send({ email: 'p3manager@example.com', password: PASSWORD });
 

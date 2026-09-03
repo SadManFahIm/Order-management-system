@@ -549,9 +549,6 @@ export async function buildFunnel(tenantId, filters) {
 }
 
 // ── Rider performance ──────────────────────────────────────────────────────
-
-const DELIVERY_TYPES = ['delivery', 'scheduled_delivery'];
-
 /**
  * Per-rider delivery performance for the window.
  *

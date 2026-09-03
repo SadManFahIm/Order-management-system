@@ -9,7 +9,6 @@ import Product from '../models/Product.js';
 import MenuCategory from '../models/MenuCategory.js';
 import ItemVariant from '../models/ItemVariant.js';
 import ItemAddon from '../models/ItemAddon.js';
-import OutletMenuOverride from '../models/OutletMenuOverride.js';
 import {
   resolveOutletMenuOverrides,
   replaceOutletMenuOverrides,

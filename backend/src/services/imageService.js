@@ -137,7 +137,7 @@ export async function optimizeImageObject({ url, quality, crop }) {
   let buffer;
   try {
     buffer = await getObject(url);
-  } catch (error) {
+  } catch {
     throw new AppError(404, 'IMAGE_NOT_FOUND', 'Could not read the source image');
   }
 

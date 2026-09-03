@@ -12,12 +12,9 @@ import {
   Order,
   OrderItem,
   Product,
-  ItemVariant,
   OrderEditRequest,
-  DeliveryZone,
 } from '../models/index.js';
 import { autoAssign, autoAssignTenant, deliveryMembers } from '../services/assignmentService.js';
-import { createEditRequest, approveEditRequest, rejectEditRequest } from '../services/editRequestService.js';
 
 /**
  * Phase 5 follow-up — ordering & fulfillment: order editing with an approval
@@ -530,7 +527,7 @@ describe('order editing — approval flow edge cases', () => {
   });
 
   it('approving a delivery order adds the delivery fee to the new total', async () => {
-    const rider = await makeUser('Rider Fee', 'rider.fee@example.com', 'delivery', {
+    await makeUser('Rider Fee', 'rider.fee@example.com', 'delivery', {
       delivery_zones: ['FeeZone'],
     });
     const placed = await placeOrder({

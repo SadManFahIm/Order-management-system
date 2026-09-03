@@ -17,11 +17,10 @@ import {
 import { SignedXml } from 'xml-crypto';
 import {
   buildSsoInitUrl,
-  handleAcs,
   serializeSamlConfig,
 } from '../services/samlService.js';
 import { runTrialExpirySweep } from '../services/trialService.js';
-import { notifyQuotaIfCrossed, getPlanUsage } from '../services/planService.js';
+import { notifyQuotaIfCrossed } from '../services/planService.js';
 
 /**
  * Phase 3 follow-ups — SAML SSO (signed-assertion round trip), quota
@@ -31,7 +30,6 @@ import { notifyQuotaIfCrossed, getPlanUsage } from '../services/planService.js';
 const PASSWORD = 'Str0ngPass!42';
 
 let tenant;
-let ownerToken;
 let samlConfig;
 let idpCertPem;
 let idpKeyPem;
@@ -55,7 +53,7 @@ function makeIdpCert(commonName = 'idp.example.com') {
 }
 
 /** Build a signed SAMLResponse (IdP side) for the given email. */
-function buildSignedSamlResponse({ email, name = 'SSO User', certPem, keyPem }) {
+function buildSignedSamlResponse({ email, name = 'SSO User', keyPem }) {
   const assertionId = `_${crypto.randomBytes(12).toString('hex')}`;
   const now = new Date();
   const notOnOrAfter = new Date(now.getTime() + 5 * 60000).toISOString();
@@ -134,11 +132,6 @@ beforeAll(async () => {
     platform_role: 'member',
   });
   await UserTenant.create({ user_id: owner.id, tenant_id: tenant.id, role: 'owner' });
-
-  const login = await request(app)
-    .post('/api/auth/login')
-    .send({ email: 'ssoowner@example.com', password: PASSWORD });
-  ownerToken = login.body.accessToken;
 
   const idp = makeIdpCert();
   idpCertPem = idp.certPem;

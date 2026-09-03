@@ -4,7 +4,6 @@ import Order from '../models/Order.js';
 import OrderItem from '../models/OrderItem.js';
 import Product from '../models/Product.js';
 import ItemVariant from '../models/ItemVariant.js';
-import Payment from '../models/Payment.js';
 import Tenant from '../models/Tenant.js';
 import OrderEditRequest from '../models/OrderEditRequest.js';
 import { priceCart, deliveryConfig } from './checkoutService.js';
@@ -136,7 +135,7 @@ export async function approveEditRequest({ tenant, orderId, reqId, actorId }) {
     throw new AppError(409, 'EDIT_ALREADY_DECIDED', `Edit request is already ${edit.status}`);
   }
 
-  const result = await sequelize.transaction(async (transaction) => {
+  await sequelize.transaction(async (transaction) => {
     // Fresh tenant (settings drive the delivery fee + availability timezone).
     const tenantRow = await Tenant.findByPk(tenant.id, { transaction });
     // Re-price the requested cart from the DB (never trust stored totals).
@@ -146,7 +145,6 @@ export async function approveEditRequest({ tenant, orderId, reqId, actorId }) {
       : 0;
     const grandTotal = pricing.grandTotal + deliveryFee;
 
-    // Item delta for stock accounting: what we currently hold vs the new list.
     const oldLines = await OrderItem.findAll({
       where: { order_id: order.id },
       transaction,
