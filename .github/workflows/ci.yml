@@ -21,6 +21,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege: read-only token by default for every job. Scopes that need
+# more are granted per-job below (only the e2e report upload writes).
+permissions:
+  contents: read
+
 jobs:
   backend:
     name: Backend — lint, test, audit
@@ -130,6 +135,10 @@ jobs:
     # public storefront menu, and the full guest checkout journey).
     name: E2E — Playwright (browser, PostgreSQL)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The failure-only report artifact is uploaded via the Actions API.
+      actions: write
     services:
       postgres:
         image: postgres:16-alpine

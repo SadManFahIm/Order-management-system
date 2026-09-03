@@ -1,0 +1,100 @@
+# Dependabot — dependency and action update automation.
+#
+# NOTE: this file only *configures* updates. Dependabot must also be enabled
+# for the repository in GitHub → Settings → Code security & analysis
+# (Dependabot alerts, Dependabot security updates, and Dependabot version
+# updates) before any of it takes effect.
+#
+# Groups keep weekly PRs reviewable: production and development dependencies
+# are updated in separate PRs, minor/patch bumps grouped per dependency type.
+version: 2
+
+updates:
+  # Backend npm dependencies (Express API).
+  - package-ecosystem: npm
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Dhaka
+    versioning-strategy: increase-if-necessary
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - backend
+    groups:
+      backend-production-minor-patch:
+        applies-to: version-updates
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+      backend-development-minor-patch:
+        applies-to: version-updates
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Sequelize 7 is a breaking-major upgrade; evaluate deliberately, not
+      # via an automated major bump.
+      - dependency-name: "sequelize"
+        update-types: ["version-update:semver-major"]
+
+  # Frontend npm dependencies (React SPA).
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Dhaka
+    versioning-strategy: increase-if-necessary
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - frontend
+    groups:
+      frontend-production-minor-patch:
+        applies-to: version-updates
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+      frontend-development-minor-patch:
+        applies-to: version-updates
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+
+  # GitHub Actions — keeps the pinned @vN tags in every workflow current.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Dhaka
+    labels:
+      - dependencies
+      - ci
+
+  # Backend image (node:20-alpine base).
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: monthly
+    labels:
+      - dependencies
+      - docker
+
+  # Frontend image (node:20-alpine build stage, nginx runtime).
+  - package-ecosystem: docker
+    directory: /frontend
+    schedule:
+      interval: monthly
+    labels:
+      - dependencies
+      - docker

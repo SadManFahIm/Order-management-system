@@ -1,0 +1,64 @@
+# CodeQL — GitHub code scanning (static analysis).
+#
+# Runs on pushes to master, pull requests targeting master, weekly (Mon 04:00
+# UTC) against the default branch, and manually via workflow_dispatch.
+# Findings surface in GitHub → Security → Code scanning.
+#
+# NOTE: code scanning must also be enabled in GitHub → Settings → Code
+# security & analysis (Code scanning) for results to appear and to be able
+# to block merges on them.
+name: CodeQL
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+# Read-only by default; only the analyze job may write security results.
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write # upload-sarif action
+      actions: read # pull actions metadata for autobuild
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          - javascript-typescript
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # Standard + security-and-quality query suites. Findings appear in
+          # GitHub → Security → Code scanning and can be enforced as a
+          # required status check via branch protection.
+          queries: security-and-quality
+
+      # JavaScript/TypeScript extraction needs no build step; autobuild is a
+      # no-op that keeps the workflow portable if languages are added later.
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:${{ matrix.language }}'

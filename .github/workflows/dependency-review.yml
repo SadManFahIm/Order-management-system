@@ -1,0 +1,29 @@
+# Dependency Review — blocks PRs that introduce vulnerable dependencies.
+#
+# Runs on every pull request targeting master and fails the build when a
+# newly introduced dependency has a published advisory at or above the
+# configured severity. Requires GitHub Advanced Security to be enabled in
+# repository settings to read dependency data.
+name: Dependency Review
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    name: Review changed dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Dependency review
+        uses: actions/dependency-review-action@v4
+        with:
+          # Any newly-added dependency with a High/Critical advisory fails the
+          # PR; Medium and below warn but pass (avoids noisy false gates).
+          fail-on-severity: high
