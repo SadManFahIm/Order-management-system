@@ -12,8 +12,8 @@ them.
 
 ![CI — main workflow](https://github.com/SadManFahIm/Order-management-system/actions/workflows/ci.yml/badge.svg)
 
-> Status: actively developed. The repository is private; no open-source
-> license is granted (see [License](#license)).
+> Status: actively developed. No open-source license is granted (see
+> [License](#license)).
 
 ---
 
@@ -575,8 +575,8 @@ migrations, tests on SQLite **and** PostgreSQL, and a UI.
 
 ## Contributing
 
-This is a private repository; outside contributions are by invitation only.
-For invited contributors:
+Outside contributions are currently by invitation only. For invited
+contributors:
 
 1. Branch from `master` — never commit to it directly.
 2. Match existing conventions (ESLint configs, `docs/` updates for new
@@ -599,8 +599,9 @@ reporting process.
 
 ## License
 
-Private / internal — **all rights reserved**. No license is granted to copy,
-modify, or redistribute this code. This repository is not open source.
+**All rights reserved.** The repository carries no license file, so no rights
+to copy, modify, or redistribute are granted — this project is not open
+source.
 
 ## Author
 

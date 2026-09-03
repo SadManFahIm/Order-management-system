@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import api, { setAccessToken } from '../api';
+import { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { useI18n } from '../i18n';
 import AuthTicket from '../components/AuthTicket';
 
@@ -7,30 +8,25 @@ import AuthTicket from '../components/AuthTicket';
  * SSO callback landing (Phase 3 enterprise auth).
  *
  * The IdP POSTs the SAMLResponse to the backend ACS, which verifies it and
- * sets the httpOnly refresh cookie, then redirects here. This page calls
- * `/auth/refresh` to turn the cookie into an access token, then does a full
- * reload so AuthProvider boots with the session and the app opens the
- * workspace.
+ * sets the httpOnly refresh cookie, then redirects here. This page does NOT
+ * call /auth/refresh itself: AuthProvider's mount bootstrap already probes
+ * /auth/me, and the 401 interceptor performs exactly one cookie rotation to
+ * restore the session. A second concurrent refresh here would race that
+ * rotation and trip the backend's reuse detection (revoking the family).
+ * Once the bootstrap resolves, the app simply opens the workspace.
  */
 export default function SsoSuccessPage() {
   const { t } = useI18n();
-  const [failed, setFailed] = useState(false);
+  const nav = useNavigate();
+  const { user, loading } = useAuth();
 
   useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const res = await api.post('/auth/refresh');
-        setAccessToken(res.data.accessToken);
-        window.location.assign('/products');
-      } catch {
-        if (active) setFailed(true);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, []);
+    if (!loading && user) nav('/products', { replace: true });
+  }, [user, loading, nav]);
+
+  // Bootstrap finished with no session — the ACS did not establish a cookie
+  // (failed assertion, expired flow, etc.).
+  const failed = !loading && !user;
 
   return (
     <AuthTicket title={t('settings.ssoSuccess')} desc={t('settings.ssoSuccessDesc')}>

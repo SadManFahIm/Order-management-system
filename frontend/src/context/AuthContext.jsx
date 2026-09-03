@@ -5,37 +5,36 @@ const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(() => getAccessToken());
+  const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
   const [twoFactorPending, setTwoFactorPending] = useState(null);
   const [tenants, setTenants] = useState([]);
   const [activeTenantId, setActiveTenantId] = useState(() => getTenantId());
 
-  // Validate the stored access token against the server on first load.
+  // Establish the session on first load. The access token is intentionally
+  // memory-only (never localStorage), so every reload starts with no token
+  // and this probe decides the outcome through the 401 interceptor:
+  //   - valid refresh cookie  → the interceptor rotates an access token and
+  //     retries GET /auth/me → the session is restored silently.
+  //   - no cookie / revoked   → the probe fails quietly and the app renders
+  //     logged-out (anonymous storefront visitors are never redirected).
   useEffect(() => {
     let active = true;
-    const stored = getAccessToken();
-    if (!stored) {
-      setLoading(false);
-      return undefined;
-    }
-    setAccessToken(stored);
     api
       .get('/auth/me')
       .then((res) => {
-        if (active) {
-          setUser(res.data.user);
-          setLoading(false);
-        }
+        if (!active) return;
+        setUser(res.data.user);
+        // The interceptor already attached the rotated access token.
+        setToken(getAccessToken());
+        setLoading(false);
       })
       .catch(() => {
-        if (active) {
-          // The interceptor will have tried a refresh already; clear the session.
-          setUser(null);
-          setToken(null);
-          setAccessToken(null);
-          setLoading(false);
-        }
+        if (!active) return;
+        setUser(null);
+        setToken(null);
+        setAccessToken(null);
+        setLoading(false);
       });
     return () => {
       active = false;

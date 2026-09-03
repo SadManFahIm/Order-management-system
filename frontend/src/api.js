@@ -5,7 +5,6 @@ const api = axios.create({
   withCredentials: true, // send/receive the httpOnly refresh-token cookie
 });
 
-const STORAGE_KEY = 'access_token';
 const TENANT_KEY = 'active_tenant_id';
 let accessToken = null;
 let tenantId = null;
@@ -44,7 +43,7 @@ export function getTenantId() {
   }
 }
 
-// Restore the last-used workspace across reloads.
+// Restore the last-used workspace across reloads (a non-secret preference).
 const restoredTenant = getTenantId();
 if (restoredTenant) {
   api.defaults.headers.common['X-Tenant'] = String(restoredTenant);
@@ -54,28 +53,21 @@ export function setAccessToken(token) {
   accessToken = token;
   if (token) {
     api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    try {
-      window.localStorage.setItem(STORAGE_KEY, token);
-    } catch {
-      /* storage unavailable */
-    }
   } else {
     delete api.defaults.headers.common['Authorization'];
-    try {
-      window.localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      /* storage unavailable */
-    }
   }
 }
 
+/**
+ * The access token is held in MEMORY ONLY — it is never written to
+ * localStorage — so a cross-site scripting hole or a malicious browser
+ * extension cannot lift a live credential out of storage. Sessions survive
+ * page reloads through the httpOnly refresh cookie instead: on boot
+ * AuthContext probes GET /auth/me, and the 401 interceptor below rotates a
+ * fresh access token whenever the cookie is still valid.
+ */
 export function getAccessToken() {
-  if (accessToken) return accessToken;
-  try {
-    return window.localStorage.getItem(STORAGE_KEY);
-  } catch {
-    return null;
-  }
+  return accessToken;
 }
 
 const isAuthEndpoint = (url = '') =>
@@ -91,6 +83,11 @@ api.interceptors.response.use(
   async (error) => {
     const { config, response } = error;
     const url = config?.url || '';
+    // Authenticated intent = the request carried a Bearer token. Requests
+    // WITHOUT one are the anonymous cookie bootstrap (GET /auth/me): when
+    // that fails it simply means "no session", and guests (e.g. public
+    // storefront visitors) must never be hard-redirected to /login.
+    const hadSession = Boolean(config?.headers?.Authorization);
 
     if (response?.status === 401 && !isAuthEndpoint(url) && !config?._retry) {
       config._retry = true;
@@ -107,7 +104,7 @@ api.interceptors.response.use(
 
     if (response?.status === 401) {
       setAccessToken(null);
-      if (!isAuthEndpoint(url) && window.location.pathname !== '/login') {
+      if (hadSession && !isAuthEndpoint(url) && window.location.pathname !== '/login') {
         window.location.assign('/login');
       }
     }
