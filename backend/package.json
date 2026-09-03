@@ -48,7 +48,7 @@
     "node-forge": "^1.4.0",
     "nodemailer": "^9.0.5",
     "otplib": "^13.4.1",
-    "pdfkit": "^0.19.1",
+    "pdfkit": "^0.20.2",
     "pg": "^8.22.0",
     "pg-hstore": "^2.3.4",
     "qrcode": "^1.5.4",
