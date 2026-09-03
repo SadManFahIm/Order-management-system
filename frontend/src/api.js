@@ -49,6 +49,16 @@ if (restoredTenant) {
   api.defaults.headers.common['X-Tenant'] = String(restoredTenant);
 }
 
+// One-time sweep: pre-memory-only-session builds persisted the access token
+// under this key. Remove any leftover so a stale credential can never be
+// lifted from storage (the current token is never written here). Harmless
+// when absent — surviving sessions restore through the refresh cookie.
+try {
+  window.localStorage.removeItem('access_token');
+} catch {
+  /* storage unavailable */
+}
+
 export function setAccessToken(token) {
   accessToken = token;
   if (token) {
