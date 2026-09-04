@@ -74,7 +74,7 @@ export default function LandingPage() {
       {/* ---------- Nav ---------- */}
       <header className="landing__nav">
         <Link to="/" className="landing__brand">
-          <Logo mark="O" />
+          <Logo mark="O" compact />
           <span className="landing__brand-name">Orderly</span>
         </Link>
         <nav className="landing__links">
