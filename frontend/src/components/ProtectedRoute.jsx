@@ -12,7 +12,7 @@ export default function ProtectedRoute({ children }) {
       <div className="oms-shell">
         <div className="oms-nav">
           <span className="oms-nav__brand">
-            <Logo />
+            <Logo mark="O" />
           </span>
         </div>
         <div className="oms-page" style={{ maxWidth: 720 }}>
