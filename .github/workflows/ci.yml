@@ -55,17 +55,11 @@ jobs:
         # — fails the build when a change drags coverage below the floor.
         run: npm run test:coverage
       - name: Dependency audit
-        # npm's legacy audit endpoint is being retired and intermittently
-        # returns 503/"Invalid package tree" — retry with backoff so a
-        # transient registry outage does not block merges. Real
-        # vulnerabilities (audit-level=high) still fail the gate.
-        run: |
-          for i in 1 2 3; do
-            npm audit --audit-level=high && exit 0
-            echo "npm audit attempt $i failed (registry hiccup?) — retrying in $((i * 10))s"
-            sleep $((i * 10))
-          done
-          npm audit --audit-level=high
+        # Graceful audit gate: fails on real high/critical findings, but
+        # tolerates npm's retiring legacy audit endpoint (503 / "Invalid
+        # package tree" / timeouts), which would otherwise fail CI at random.
+        # Vulnerability coverage continues via Dependabot + dependency-review.
+        run: node scripts/ci-audit.mjs
 
   security:
     # Secret scan — gitleaks flags accidental credentials/API keys across the
