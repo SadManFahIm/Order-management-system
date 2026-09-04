@@ -129,7 +129,7 @@ app.get(['/health', '/api/health'], (req, res) => {
 });
 
 // Readiness — dependencies healthy (the DB authenticates a real connection).
-app.get(['/health/ready', '/api/health/ready'], async (req, res) => {
+app.get(['/health/ready', '/api/health/ready'], apiLimiter, async (req, res) => {
   try {
     await sequelize.authenticate();
     res.json({ status: 'ok', database: 'ok', requestId: req.id });

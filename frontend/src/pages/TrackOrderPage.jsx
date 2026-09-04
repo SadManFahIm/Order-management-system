@@ -231,7 +231,6 @@ export default function TrackOrderPage() {
                             fontSize: 14, fontWeight: 800,
                             background: done ? 'var(--brand)' : 'var(--tile)',
                             color: done ? '#fff' : 'var(--muted)',
-                            border: active && !done ? '2px solid var(--brand)' : 'none',
                             boxShadow: active ? '0 0 0 5px color-mix(in srgb, var(--brand) 18%, transparent)' : 'none',
                           }}
                         >

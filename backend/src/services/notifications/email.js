@@ -28,12 +28,16 @@ export async function sendEmail({ to, subject, html, attachments = [] }) {
   }
 
   if (env.NODE_ENV !== 'production') {
+    // Dev stub — sanitize interpolated values so a crafted recipient or
+    // subject cannot forge log entries (log injection). CodeQL recognizes
+    // newline-removal (replace \n with '') as the sanitizer for this sink.
+    const sanitizeLogLine = (v) => String(v).replace(/\n/g, '').replace(/\r/g, '');
     console.log(
-      `\n[email:stub] To: ${to}\n[email:stub] Subject: ${subject}\n[email:stub] Body:\n${html}\n`
+      `\n[email:stub] To: ${sanitizeLogLine(to)}\n[email:stub] Subject: ${sanitizeLogLine(subject)}\n[email:stub] Body:\n${sanitizeLogLine(html)}\n`
     );
     for (const a of attachments) {
       console.log(
-        `[email:stub] Attachment: ${a.filename} (${a.contentType}, ${Buffer.byteLength(a.content)} bytes)`
+        `[email:stub] Attachment: ${sanitizeLogLine(a.filename)} (${a.contentType}, ${Buffer.byteLength(a.content)} bytes)`
       );
     }
   }

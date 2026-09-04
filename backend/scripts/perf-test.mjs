@@ -19,7 +19,7 @@ const { default: sequelize } = await import('../src/config/db.js');
 const { migrateUp } = await import('./migrate.js');
 const { ensureBootstrapData } = await import('../src/config/schemaSync.js');
 const { default: request } = await import('supertest');
-const { Tenant, UserTenant } = await import('../src/models/index.js');
+const { UserTenant } = await import('../src/models/index.js');
 const { backfillRollup } = await import('../src/services/rollupService.js');
 
 await migrateUp(sequelize);

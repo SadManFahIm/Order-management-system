@@ -140,8 +140,8 @@ async function verifyAndExtract({ xml, config }) {
   }
 
   // Email — NameID (email format) or the configured attribute.
-  let email = null;
-  let name = null;
+  let email;
+  let name;
   const subject = assertion['saml:Subject'] || assertion.Subject || {};
   const nameId = (subject['saml:NameID'] || subject.NameID || {});
   const nameIdText = typeof nameId === 'string' ? nameId : nameId._ || nameId['#text'] || '';
@@ -433,12 +433,18 @@ export async function handleSlo({ samlRequest, samlResponse, relayState }, req) 
     : null;
   const userId = tokenRecord?.user_id ?? null;
 
+  // Verify the message signature BEFORE branching on its type — the check
+  // must never be conditional on which message the caller supplied.
+  if (!samlResponse && !samlRequest) {
+    throw new AppError(400, 'SAML_MESSAGE_REQUIRED', 'A SAMLRequest or SAMLResponse is required');
+  }
+  const xml = decodeSamlResponse(String(samlResponse || samlRequest).trim());
+  const parsed = await parseStringPromise(xml, { explicitArray: false, trim: true }).catch(() => null);
+  const config = await findConfigForMessage(xml, parsed, relayState);
+  verifySamlSignature(xml, config.idp_cert);
+
   if (samlResponse) {
     // SP-initiated return: LogoutResponse from the IdP.
-    const xml = decodeSamlResponse(String(samlResponse).trim());
-    const parsed = await parseStringPromise(xml, { explicitArray: false, trim: true }).catch(() => null);
-    const config = await findConfigForMessage(xml, parsed, relayState);
-    verifySamlSignature(xml, config.idp_cert);
     if (userId && tokenRecord && !tokenRecord.revoked_at) {
       await tokenRecord.update({ revoked_at: new Date() });
       await audit({
@@ -454,14 +460,9 @@ export async function handleSlo({ samlRequest, samlResponse, relayState }, req) 
     return { redirectTo: `${env.APP_BASE_URL.replace(/\/$/, '')}/login?logged_out=1` };
   }
 
-  if (samlRequest) {
-    // IdP-initiated: LogoutRequest from the IdP — verify, revoke, reply.
-    const xml = decodeSamlResponse(String(samlRequest).trim());
-    const parsed = await parseStringPromise(xml, { explicitArray: false, trim: true }).catch(() => null);
-    const config = await findConfigForMessage(xml, parsed, relayState);
-    verifySamlSignature(xml, config.idp_cert);
-
-    if (userId && tokenRecord && !tokenRecord.revoked_at) {
+  // IdP-initiated: LogoutRequest from the IdP — revoke, reply. (Only reached
+  // when samlRequest is present — both-empty already threw above.)
+  if (userId && tokenRecord && !tokenRecord.revoked_at) {
       await tokenRecord.update({ revoked_at: new Date() });
       await audit({
         action: 'auth.slo_logout',
@@ -498,9 +499,6 @@ export async function handleSlo({ samlRequest, samlResponse, relayState }, req) 
     return {
       redirectTo: `${config.idp_slo_url}${sep}SAMLResponse=${encodeURIComponent(encoded)}`,
     };
-  }
-
-  throw new AppError(400, 'SAML_MESSAGE_REQUIRED', 'A SAMLRequest or SAMLResponse is required');
 }
 
 /** Resolves the tenant config for a SLO message (RelayState slug or Issuer). */

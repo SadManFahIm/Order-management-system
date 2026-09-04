@@ -25,7 +25,6 @@ export default function DashboardPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(false);
   const [days, setDays] = useState(7);
-  const [loading, setLoading] = useState(true);
   const mounted = useRef(true);
 
   // Phase 7: custom-range analytics (from/to/channel/order_type) served by
@@ -48,7 +47,6 @@ export default function DashboardPage() {
     mounted.current = true;
     let timer;
     const load = (silent) => {
-      if (!silent) setLoading(true);
       api
         .get('/dashboard', { params: { days } })
         .then((res) => {
@@ -56,9 +54,6 @@ export default function DashboardPage() {
         })
         .catch(() => {
           if (mounted.current && !silent) setError(true);
-        })
-        .finally(() => {
-          if (mounted.current && !silent) setLoading(false);
         });
     };
     load(false);
@@ -434,7 +429,7 @@ export default function DashboardPage() {
             </div>
           }
         >
-          {loading && !data ? (
+          {!data ? (
             <Skeleton height={240} />
           ) : (
             <CloseoutTrendChart data={data.closeoutTrend || []} forecast={data.forecast} />

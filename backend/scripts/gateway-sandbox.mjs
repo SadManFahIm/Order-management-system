@@ -48,6 +48,9 @@ const stripeSecret = process.env.STRIPE_WEBHOOK_SECRET || 'whsec_sandbox';
 
 const md5 = (s) => createHash('md5').update(s).digest('hex');
 const hmac = (secret, payload) => createHmac('sha256', secret).update(payload).digest('hex');
+// CodeQL recognizes newline-removal (replace \n with '') as the sanitizer
+// for the log-injection sink.
+const sanitizeLogLine = (v) => String(v).replace(/\n/g, '').replace(/\r/g, '');
 
 /** Sessions the sandbox knows about. */
 const sessions = new Map(); // key = tranId / cs_xxx
@@ -153,7 +156,7 @@ const server = http.createServer(async (req, res) => {
       const tranId = params.get('tran_id') || `TXN-SANDBOX-${Date.now()}`;
       const amount = Number(params.get('total_amount') || 0);
       sessions.set(tranId, { key: tranId, tranId, amount, gateway: 'sslcommerz', confirmed: false });
-      console.log(`  [sandbox] SSLCommerz session created: ${tranId} (৳${amount})`);
+      console.log(`  [sandbox] SSLCommerz session created: ${sanitizeLogLine(tranId)} (৳${amount})`);
       if (autoConfirm) confirmSslcommerz(sessions.get(tranId)).catch((e) => console.error('  [sandbox] auto-confirm failed:', e.message));
       return send(200, 'application/json', JSON.stringify({
         status: 'SUCCESS',

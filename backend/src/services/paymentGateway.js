@@ -1,4 +1,4 @@
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import { env } from '../config/env.js';
 import { AppError } from '../middleware/errorHandler.js';
 import Payment from '../models/Payment.js';
@@ -86,7 +86,7 @@ const providers = {
 };
 
 async function createSslcommerzSession(tenant, order, payment) {
-  const tranId = `TXN-${order.tenant_id}-${Date.now().toString(36).toUpperCase()}-${Math.floor(Math.random() * 1e4)}`;
+  const tranId = `TXN-${order.tenant_id}-${Date.now().toString(36).toUpperCase()}-${String(randomInt(1e4)).padStart(4, '0')}`;
   const sandbox = env.SSLCOMMERZ_SANDBOX !== false;
   const endpoint =
     env.SSLCOMMERZ_API_URL ||

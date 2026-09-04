@@ -316,7 +316,7 @@ export function CloseoutTrendChart({ data, forecast = null, height = 240 }) {
                     x={x(i) + (slot - barW) / 2}
                     y={yTop}
                     width={barW}
-                    height={Math.max(yBot - yTop, v > 0 ? 2 : 0)}
+                    height={Math.max(yBot - yTop, 2)}
                     rx={2}
                     fill={METHOD_COLORS[m]}
                     opacity={i === active ? 1 : 0.72}

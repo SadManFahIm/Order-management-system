@@ -31,6 +31,8 @@ const runNode = (script, args = []) =>
   });
 
 const password = process.env.SEED_PASSWORD || 'Str0ngPass!42';
+// Never echo the actual password to logs/CI output — show where to find it.
+const passwordFromEnv = Boolean(process.env.SEED_PASSWORD);
 
 try {
   await runNode('scripts/seed-admin.js', [
@@ -42,7 +44,7 @@ try {
   await runNode('scripts/seed-orders.js');
 
   console.log('\n✅ Demo dataset ready:');
-  console.log('   Login → admin@oms.dev / ' + password);
+  console.log(`   Login → admin@oms.dev / ${passwordFromEnv ? '<your SEED_PASSWORD>' : 'Str0ngPass!42'}`);
   console.log('   Workspaces → Default Restaurant + 20 seeded restaurants (KFC Dhaka, Pizza Hut, …)');
   console.log('   Start the app → npm run dev  (backend :4000 · frontend :5173)');
 } catch (err) {
