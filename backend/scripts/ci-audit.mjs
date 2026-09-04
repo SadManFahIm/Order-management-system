@@ -23,12 +23,24 @@ const MAX_ATTEMPTS = 2;
 for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
   let stdout = '';
   let stderr = '';
-  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const NPM_AUDIT_ARGS = ['audit', '--audit-level=high', '--json'];
   try {
-    ({ stdout } = await execFileAsync(npmCmd, ['audit', '--audit-level=high', '--json'], {
-      timeout: 180_000,
-      maxBuffer: 32 * 1024 * 1024,
-    }));
+    if (process.platform === 'win32') {
+      // .cmd shims cannot be spawned directly on Windows (spawn EINVAL), and
+      // `shell: true` with an argv array triggers DEP0190 (unescaped
+      // concatenation). Run the static command line through cmd.exe instead:
+      // no shell option, and nothing in it is user-controlled.
+      const cmd = [process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', ['npm', ...NPM_AUDIT_ARGS].join(' ')]].flat();
+      ({ stdout } = await execFileAsync(cmd[0], cmd.slice(1), {
+        timeout: 180_000,
+        maxBuffer: 32 * 1024 * 1024,
+      }));
+    } else {
+      ({ stdout } = await execFileAsync('npm', NPM_AUDIT_ARGS, {
+        timeout: 180_000,
+        maxBuffer: 32 * 1024 * 1024,
+      }));
+    }
   } catch (err) {
     stdout = err.stdout || '';
     stderr = err.stderr || String(err.message || '');
