@@ -14,6 +14,19 @@ import api from '../api';
 
 const KEY_PREFIX = 'analytics_session:';
 
+let fallbackCounter = 0;
+
+/** Cryptographically random id fragment (analytics session ids). */
+function randomPart() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID().replaceAll('-', '').slice(0, 10);
+  }
+  // Non-secure-context fallback (no crypto API) — a per-tab counter keeps it
+  // unique without resorting to Math.random. Analytics-only, not a secret.
+  fallbackCounter += 1;
+  return `${fallbackCounter.toString(36)}${Date.now().toString(36)}`.slice(0, 10);
+}
+
 export function getSessionId(slug) {
   const key = `${KEY_PREFIX}${slug}`;
   let id = null;
@@ -23,7 +36,7 @@ export function getSessionId(slug) {
     id = null;
   }
   if (!id) {
-    id = `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+    id = `s-${Date.now().toString(36)}-${randomPart()}`;
     try {
       localStorage.setItem(key, id);
     } catch {

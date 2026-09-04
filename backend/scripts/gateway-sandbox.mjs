@@ -153,7 +153,7 @@ const server = http.createServer(async (req, res) => {
       const tranId = params.get('tran_id') || `TXN-SANDBOX-${Date.now()}`;
       const amount = Number(params.get('total_amount') || 0);
       sessions.set(tranId, { key: tranId, tranId, amount, gateway: 'sslcommerz', confirmed: false });
-      console.log(`  [sandbox] SSLCommerz session created: ${tranId} (৳${amount})`);
+      console.log(`  [sandbox] SSLCommerz session created: ${String(tranId).replace(/[\r\n]+/g, ' ')} (৳${amount})`);
       if (autoConfirm) confirmSslcommerz(sessions.get(tranId)).catch((e) => console.error('  [sandbox] auto-confirm failed:', e.message));
       return send(200, 'application/json', JSON.stringify({
         status: 'SUCCESS',

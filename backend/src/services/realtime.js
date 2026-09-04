@@ -95,15 +95,15 @@ export function attachRealtime(server) {
       const tenantId = Number(claimed) || Number(payload.tenant_id);
       if (!Number.isInteger(tenantId) || tenantId <= 0) throw new Error('no tenant context');
 
-      let user = payload;
-      if (payload.platform_role !== 'platform_admin') {
+      let user;
+      if (payload.platform_role === 'platform_admin') {
+        user = { ...payload, tenant_role: 'owner' };
+      } else {
         const membership = await UserTenant.findOne({
           where: { user_id: payload.id, tenant_id: tenantId },
         });
         if (!membership) throw new Error('not a member');
         user = { ...payload, tenant_role: membership.role };
-      } else {
-        user = { ...payload, tenant_role: 'owner' };
       }
 
       if (!hasPermission(user, 'view:orders')) {

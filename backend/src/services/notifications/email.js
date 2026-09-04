@@ -28,12 +28,15 @@ export async function sendEmail({ to, subject, html, attachments = [] }) {
   }
 
   if (env.NODE_ENV !== 'production') {
+    // Dev stub — strip CR/LF from interpolated values so a crafted recipient
+    // or subject cannot forge log entries (log injection).
+    const oneLine = (v) => String(v).replace(/[\r\n]+/g, ' ').trim();
     console.log(
-      `\n[email:stub] To: ${to}\n[email:stub] Subject: ${subject}\n[email:stub] Body:\n${html}\n`
+      `\n[email:stub] To: ${oneLine(to)}\n[email:stub] Subject: ${oneLine(subject)}\n[email:stub] Body:\n${oneLine(html)}\n`
     );
     for (const a of attachments) {
       console.log(
-        `[email:stub] Attachment: ${a.filename} (${a.contentType}, ${Buffer.byteLength(a.content)} bytes)`
+        `[email:stub] Attachment: ${oneLine(a.filename)} (${a.contentType}, ${Buffer.byteLength(a.content)} bytes)`
       );
     }
   }

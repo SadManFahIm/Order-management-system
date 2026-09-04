@@ -186,6 +186,10 @@ export const csvCell = (v) => {
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
+/** Escapes a value for safe interpolation into HTML (reports/email templates). */
+export const htmlEscape = (v) =>
+  String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 /** The closeout day as a CSV document (header + rows). */
 export function buildCloseoutCsv(data) {
   const header = ['order_no', 'time', 'customer_name', 'table_no', 'status', 'payment_status', 'payment_method', 'items', 'amount_bdt'];
@@ -221,12 +225,12 @@ export function renderCloseoutHtml(data, tenantName) {
   const rows = data.orders
     .map(
       (o) => `<tr>
-        <td class="mono">${o.orderNo}</td>
+        <td class="mono">${htmlEscape(o.orderNo)}</td>
         <td class="mono">${new Date(o.time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</td>
-        <td>${csvCell(o.customerName)}</td>
-        <td>${o.tableNo ? `🪑 ${o.tableNo}` : '—'}</td>
-        <td>${o.status}</td>
-        <td>${o.paymentMethod || '—'}</td>
+        <td>${htmlEscape(o.customerName)}</td>
+        <td>${o.tableNo ? `🪑 ${htmlEscape(o.tableNo)}` : '—'}</td>
+        <td>${htmlEscape(o.status)}</td>
+        <td>${htmlEscape(o.paymentMethod) || '—'}</td>
         <td class="num">${Number(o.items)}</td>
         <td class="num">৳ ${Number(o.amount).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
       </tr>`
@@ -235,19 +239,19 @@ export function renderCloseoutHtml(data, tenantName) {
   const methods = (data.byMethod || [])
     .map(
       (m) => `<div class="method">
-        <span>${csvCell(m.label)}</span>
+        <span>${htmlEscape(m.label)}</span>
         <span class="num">${m.orders} · ৳ ${Number(m.amount).toLocaleString('en-IN', { maximumFractionDigits: 2 })}${m.pendingAmount > 0 ? ` <small>(+৳ ${Number(m.pendingAmount).toLocaleString('en-IN')} pending)</small>` : ''}</span>
       </div>`
     )
     .join('');
   const fmt = (n) => `৳ ${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
-  const stamp = `${data.date} · Dhaka (UTC+6) · ${data.orders.length} orders`;
-  const t = (v) => csvCell(v);
+  const stamp = `${htmlEscape(data.date)} · Dhaka (UTC+6) · ${data.orders.length} orders`;
+  const t = (v) => htmlEscape(v);
 
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Closeout — ${data.date} — ${t(tenantName)}</title>
+<title>Closeout — ${htmlEscape(data.date)} — ${t(tenantName)}</title>
 <style>
   :root{--ink:#18342b;--muted:#7d786a;--line:#e6dcc4;--line-strong:#d6c9a6;--chilli:#d2452f;--gold:#c9962e;--brand:#00b3a5;--stub:color-mix(in srgb,var(--brand) 82%,#0c2f23)}
   *{box-sizing:border-box}
@@ -308,11 +312,11 @@ export function renderCloseoutHtml(data, tenantName) {
            ${data.split.parts
              .map(
                (p) => `<tr>
-                 <td class="mono">${p.orderNo}</td>
+                 <td class="mono">${htmlEscape(p.orderNo)}</td>
                  <td>${p.note ? t(p.note) : '—'}</td>
                  <td>${t(p.label)}</td>
                  <td class="num">${fmt(p.amount)}</td>
-                 <td>${p.status}</td>
+                 <td>${htmlEscape(p.status)}</td>
                  <td class="mono">${p.reference ? t(p.reference) : '—'}</td>
                </tr>`
              )
@@ -552,12 +556,12 @@ export async function buildDigest(tenantId, dateStr) {
 export function renderDigestHtml(digest) {
   const sellers = digest.topSellers
     .map(
-      (t, i) => `<tr><td class="rank">${i + 1}</td><td>${csvCell(t.itemName)}</td><td class="num">${t.quantity}</td><td class="num">৳ ${Number(t.revenue).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td></tr>`
+      (t, i) => `<tr><td class="rank">${i + 1}</td><td>${htmlEscape(t.itemName)}</td><td class="num">${t.quantity}</td><td class="num">৳ ${Number(t.revenue).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td></tr>`
     )
     .join('');
   const low = digest.lowStock
     .map(
-      (i) => `<tr><td>${csvCell(i.itemName)}</td><td class="num">${i.stockQty} / ${i.lowStockAt} ${i.unit}</td></tr>`
+      (i) => `<tr><td>${htmlEscape(i.itemName)}</td><td class="num">${i.stockQty} / ${i.lowStockAt} ${i.unit}</td></tr>`
     )
     .join('');
   return `

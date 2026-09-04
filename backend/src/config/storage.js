@@ -75,19 +75,38 @@ const s3Client = (() => {
 
 const localRoot = path.resolve(process.cwd(), env.UPLOAD_DIR);
 
+/**
+ * Containment guard for the local driver. Keys are server-generated and the
+ * uploads route validates them against a strict pattern, but the storage
+ * layer still refuses any key that escapes UPLOAD_DIR — defense in depth
+ * against path traversal.
+ */
+function assertLocalKey(key) {
+  const clean = String(key || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!clean || clean.includes('\0')) {
+    throw new Error(`Unsafe storage key: ${String(key).slice(0, 64)}`);
+  }
+  const filePath = path.join(localRoot, clean);
+  const rootPrefix = localRoot.endsWith(path.sep) ? localRoot : localRoot + path.sep;
+  if (!filePath.startsWith(rootPrefix)) {
+    throw new Error(`Storage key escapes uploads root: ${clean}`);
+  }
+  return clean;
+}
+
 async function putLocal(key, buffer, _contentType) {
-  const filePath = path.join(localRoot, key);
+  const filePath = path.join(localRoot, assertLocalKey(key));
   await fsp.mkdir(path.dirname(filePath), { recursive: true });
   await fsp.writeFile(filePath, buffer);
 }
 
 async function getLocal(key) {
-  const filePath = path.join(localRoot, key);
+  const filePath = path.join(localRoot, assertLocalKey(key));
   return fsp.readFile(filePath);
 }
 
 async function removeLocal(key) {
-  const filePath = path.join(localRoot, key);
+  const filePath = path.join(localRoot, assertLocalKey(key));
   await fsp.rm(filePath, { force: true });
 }
 

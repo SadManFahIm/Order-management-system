@@ -48,7 +48,6 @@ const appEnv = {
 };
 
 let exitCode = 1;
-let aborted = false;
 const adminClient = new pg.Client({ connectionString: ADMIN_URL });
 
 try {
@@ -69,7 +68,6 @@ try {
   );
   if (migrate.status !== 0) {
     console.error('[pg-local] migrations failed — aborting.');
-    aborted = true;
   } else {
     phase('migrations applied');
 
