@@ -186,7 +186,7 @@ pub/sub layer can slot in without changing callers.
 | Quality gates | ESLint 9 (backend + frontend) · `npm audit` · coverage thresholds · gitleaks · CodeQL · Dependency Review |
 | DevOps | Docker · docker-compose · nginx · GitHub Actions (7-job pipeline) |
 
-Version floor: Node **20** (`.nvmrc`, backend `engines`). PostgreSQL **16** is
+Version floor: Node **20** (backend `engines`). PostgreSQL **16** is
 the tested production database (CI tier + docker-compose).
 
 ## Project Structure
@@ -367,7 +367,7 @@ Dependabot.
 
 ## Local Development
 
-Prerequisites: Node.js **20** (`.nvmrc`), npm, and optionally Docker for the
+Prerequisites: Node.js **20**, npm, and optionally Docker for the
 PostgreSQL service.
 
 Fastest path — one command from the repo root (backend `:4000` + frontend
@@ -449,7 +449,7 @@ process refuses to start with a missing `JWT_SECRET` or a malformed value.
 Never commit real values.
 
 - Root `.env` — used by docker-compose (`JWT_SECRET`, `CORS_ORIGINS`,
-  optional PostgreSQL overrides). Template: [`.env.example`](.env.example).
+  optional PostgreSQL overrides). Key variables are listed below.
 - `backend/.env` — the API's full surface: database, CORS, storage (local or
   S3-compatible), SMTP, payment gateways (SSLCommerz/Stripe/bKash), and
   billing webhook. Template: [`backend/.env.example`](backend/.env.example)
@@ -516,7 +516,7 @@ three services:
 | `frontend` | multi-stage build → `nginx:alpine` | Serves the SPA, proxies `/api` `/uploads` `/ws` to the backend; CSP and cache headers set in `nginx.conf` |
 
 ```bash
-cp .env.example .env       # root .env for compose secrets
+# create a root .env with JWT_SECRET etc. (see Environment Variables)
 docker compose up --build
 ```
 
@@ -593,7 +593,7 @@ Quick start:
    PostgreSQL 16 tier, Playwright E2E, gateway sandbox, S3/MinIO, frontend
    lint/build/audit, CodeQL, gitleaks, dependency review) — all must pass.
 5. Never commit `.env` files, databases, or real credentials; template new
-   configuration in the appropriate `.env.example`.
+   configuration in the README Environment Variables section.
 
 ## Security
 
