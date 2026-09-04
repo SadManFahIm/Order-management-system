@@ -33,8 +33,8 @@ restaurant ordering SaaS. Please read the [README](README.md) first, then
 ## Development setup
 
 See **Local Development** in the [README](README.md): Node, Docker Compose for
-PostgreSQL, `.env` files from the `.env.example` templates, and the seed
-commands. Never commit `.env` files, databases, or real credentials.
+PostgreSQL, `.env` files from the documented environment variables
+(README → Environment Variables), and the seed commands. Never commit `.env` files, databases, or real credentials.
 
 ## Branching & release notes
 
