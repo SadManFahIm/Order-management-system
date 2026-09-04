@@ -74,7 +74,7 @@ export async function runV1ToV2Migration({
   try {
     await source.authenticate();
   } catch (error) {
-    throw new Error(`Cannot open v1 source database "${sourcePath}": ${error.message}`);
+    throw new Error(`Cannot open v1 source database "${sourcePath}": ${error.message}`, { cause: error });
   }
 
   // Refuse to copy a database onto itself.

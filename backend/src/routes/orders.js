@@ -849,7 +849,7 @@ async function placeStaffOrder(req, {
     }
 
     // Outlet validation (Phase 8) — if provided, must belong to this tenant.
-    let resolvedOutletId = null;
+    let resolvedOutletId;
     if (outlet_id != null) {
       const outlet = await Outlet.findOne({
         where: { id: outlet_id, tenant_id: req.tenant.id, status: 'active' },
