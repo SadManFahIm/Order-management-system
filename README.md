@@ -576,18 +576,22 @@ migrations, tests on SQLite **and** PostgreSQL, and a UI.
 
 ## Contributing
 
-Outside contributions are currently by invitation only. For invited
-contributors:
+Contributions are welcome — please read [CONTRIBUTING.md](CONTRIBUTING.md)
+and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) before opening a pull request.
 
-1. Branch from `master` — never commit to it directly.
-2. Match existing conventions (ESLint configs, `docs/` updates for new
-   behavior, migrations for schema changes).
+Quick start:
+
+1. Fork the repository and open a pull request against `master` (protected:
+   PRs only, all required checks must pass).
+2. Follow the existing conventions: ESLint configs, versioned migrations for
+   schema changes (tests on SQLite **and** PostgreSQL), `docs/` updates for
+   new behavior, en/bn i18n for user-facing text.
 3. Run the quality gates before opening a PR:
    - `cd backend && npm run lint && npm test`
    - `cd frontend && npm run lint && npm run build`
-4. CI runs seven jobs on every PR (including the PostgreSQL tier and the
-   secret scan) — all must pass. Coverage is enforced by thresholds in
-   `backend/vitest.config.js`.
+4. CI runs every required check on the PR (backend lint/test/audit, the
+   PostgreSQL 16 tier, Playwright E2E, gateway sandbox, S3/MinIO, frontend
+   lint/build/audit, CodeQL, gitleaks, dependency review) — all must pass.
 5. Never commit `.env` files, databases, or real credentials; template new
    configuration in the appropriate `.env.example`.
 
@@ -600,9 +604,8 @@ reporting process.
 
 ## License
 
-**All rights reserved.** The repository carries no license file, so no rights
-to copy, modify, or redistribute are granted — this project is not open
-source.
+Released under the [MIT License](LICENSE) — see the [LICENSE](LICENSE) file
+for the full text.
 
 ## Author
 
