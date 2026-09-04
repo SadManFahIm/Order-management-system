@@ -572,6 +572,7 @@ migrations, tests on SQLite **and** PostgreSQL, and a UI.
   theming, and the component system
 - [`docs/07-analytics.md`](docs/07-analytics.md) — analytics filters, funnel,
   rider SLA, anomaly alerts, CSV export
+- [`docs/08-development-plan.md`](docs/08-development-plan.md) — role-based ongoing development plan: verified current-state snapshot, 90-day sequence, role-by-role next steps, and the per-PR definition of done
 
 ## Contributing
 
