@@ -55,11 +55,12 @@ jobs:
         # — fails the build when a change drags coverage below the floor.
         run: npm run test:coverage
       - name: Dependency audit
-        # Graceful audit gate: fails on real high/critical findings, but
-        # tolerates npm's retiring legacy audit endpoint (503 / "Invalid
-        # package tree" / timeouts), which would otherwise fail CI at random.
-        # Vulnerability coverage continues via Dependabot + dependency-review.
-        run: node scripts/ci-audit.mjs
+        # Shared graceful audit gate (scripts/ci-audit.mjs): fails on real
+        # high/critical findings, but tolerates npm's retiring legacy audit
+        # endpoint (503 / "Invalid package tree" / timeouts), which would
+        # otherwise fail CI at random. Vulnerability coverage continues via
+        # Dependabot + dependency-review.
+        run: node ../scripts/ci-audit.mjs
 
   security:
     # Secret scan — gitleaks flags accidental credentials/API keys across the
@@ -308,8 +309,9 @@ jobs:
       - name: Build
         run: npm run build
       - name: Dependency audit
-        # Informational: react-router 7.18.x reports an RSC-mode CSRF advisory
-        # that does not apply to this declarative-mode SPA (no server actions).
-        # Re-enable as a hard gate once a patched release exists.
-        run: npm audit --audit-level=high
-        continue-on-error: true
+        # Shared graceful audit gate (scripts/ci-audit.mjs), same as backend.
+        # The react-router RSC-mode CSRF advisory that kept this step
+        # informational is no longer flagged on react-router 7.18.3, and the
+        # last reported high (nanoid < 3.3.18, GHSA-2v37-7h3g-55p8) is closed
+        # by the nanoid override — so the gate is a hard failure again.
+        run: node ../scripts/ci-audit.mjs
