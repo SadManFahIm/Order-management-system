@@ -275,6 +275,13 @@ export const up = async (qi, transaction) => {
     { transaction }
   );
 
+  // SQLite has no native JSON type — JSON columns are TEXT, and the dialect
+  // refuses raw object values in bulkInsert. PostgreSQL accepts the JSON
+  // string just as well, but keep PG behavior untouched and only stringify
+  // on SQLite.
+  const isSqlite = qi.sequelize.getDialect() === 'sqlite';
+  const j = (v) => (isSqlite ? JSON.stringify(v) : v);
+
   for (const { id: tenantId } of tenants) {
     await qi.bulkInsert(
       'outlets',
@@ -286,8 +293,8 @@ export const up = async (qi, transaction) => {
           slug: 'main',
           status: 'active',
           timezone: 'Asia/Dhaka',
-          opening_hours: {},
-          settings: {},
+          opening_hours: j({}),
+          settings: j({}),
           created_at: new Date(),
           updated_at: new Date(),
         },
