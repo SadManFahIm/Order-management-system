@@ -37,9 +37,11 @@ async function attemptAudit({ timeoutMs = 180_000 }) {
       // .cmd shims cannot be spawned directly on Windows (spawn EINVAL), and
       // `shell: true` with an argv array triggers DEP0190 (unescaped
       // concatenation). Run the static command line through cmd.exe instead:
-      // no shell option, and nothing in it is user-controlled.
+      // no shell option, and nothing in it is user-controlled. cmd.exe is
+      // resolved via the standard executable search path (System32 is always
+      // on it), so no environment variable is consulted.
       const cmd = [
-        process.env.ComSpec || 'cmd.exe',
+        'cmd.exe',
         '/d',
         '/s',
         '/c',
