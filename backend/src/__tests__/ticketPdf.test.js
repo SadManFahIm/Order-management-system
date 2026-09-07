@@ -50,10 +50,10 @@ describe('renderTicketPdf', () => {
     expect(buf.length).toBeGreaterThan(1000);
   });
 
-  it('escapes hostile order numbers into safe filenames upstream', () => {
+  it('escapes hostile order numbers into safe filenames upstream', async () => {
     // The filename sanitizer lives in orderConfirmation; here we only pin
     // that the PDF itself never throws on odd inputs.
-    expect(
+    await expect(
       renderTicketPdf(sample({ orderNo: '<script>alert(1)</script>', customerName: '<b>x</b>' }))
     ).resolves.toBeInstanceOf(Buffer);
   });
