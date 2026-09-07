@@ -105,6 +105,8 @@ const parseEnumFilter = (raw, allowed, label) => {
  *   timezone    — optional IANA override
  *   channel     — pos | storefront | all
  *   order_type  — pickup | delivery | scheduled_pickup | scheduled_delivery | all
+ *   outlet_id   — positive integer (branch id); existence + user scope is
+ *                 enforced at the route layer (INVALID_OUTLET / FORBIDDEN)
  *
  * Returns the filter plus resolved UTC bounds [startUtc, endUtc) and the
  * zero-filled day-key axis every series shares.
@@ -136,13 +138,25 @@ export function parseAnalyticsFilters(query = {}, tenant = null) {
   const channel = parseEnumFilter(query.channel, CHANNELS, 'channel');
   const orderType = parseEnumFilter(query.order_type, ORDER_TYPES, 'order_type');
 
+  let outletId = null;
+  if (query.outlet_id !== undefined && query.outlet_id !== '' && query.outlet_id !== 'all') {
+    if (!/^\d+$/.test(String(query.outlet_id))) {
+      throw new AppError(400, 'VALIDATION_ERROR', '`outlet_id` must be a positive integer');
+    }
+    const n = Number(query.outlet_id);
+    if (!Number.isSafeInteger(n) || n <= 0) {
+      throw new AppError(400, 'VALIDATION_ERROR', '`outlet_id` must be a positive integer');
+    }
+    outletId = n;
+  }
+
   const [fy, fm, fd] = from.split('-').map(Number);
   const endKey = addDays(to, 1);
   const [ey, em, ed] = endKey.split('-').map(Number);
   const startUtc = wallToUtc({ year: fy, month: fm, day: fd, hour: 0, minute: 0 }, timezone);
   const endUtc = wallToUtc({ year: ey, month: em, day: ed, hour: 0, minute: 0 }, timezone);
 
-  return { from, to, timezone, channel, orderType, startUtc, endUtc, dayKeys: dayKeysBetween(from, to) };
+  return { from, to, timezone, channel, orderType, outletId, startUtc, endUtc, dayKeys: dayKeysBetween(from, to) };
 }
 
 /** Serialized form of the filters echoed back in every response. */
@@ -153,10 +167,11 @@ export function serializeFilters(filters) {
     timezone: filters.timezone,
     channel: filters.channel || 'all',
     orderType: filters.orderType || 'all',
+    outlet: filters.outletId || 'all',
   };
 }
 
-/** Tenant-scoped window where-clause with channel/order-type applied. */
+/** Tenant-scoped window where-clause with channel/order-type/outlet applied. */
 export function analyticsOrderWhere(tenantId, filters, extra = {}) {
   const where = {
     tenant_id: tenantId,
@@ -165,6 +180,7 @@ export function analyticsOrderWhere(tenantId, filters, extra = {}) {
   };
   if (filters.channel) where.channel = filters.channel;
   if (filters.orderType) where.type = filters.orderType;
+  if (filters.outletId) where.outlet_id = filters.outletId;
   return where;
 }
 
@@ -184,7 +200,7 @@ export const safePct = (numerator, denominator) =>
  */
 export async function buildSummary(tenantId, filters) {
   const paymentInclude =
-    filters.channel || filters.orderType
+    filters.channel || filters.orderType || filters.outletId
       ? [
           {
             model: Order,
@@ -192,6 +208,7 @@ export async function buildSummary(tenantId, filters) {
             where: {
               ...(filters.channel ? { channel: filters.channel } : {}),
               ...(filters.orderType ? { type: filters.orderType } : {}),
+              ...(filters.outletId ? { outlet_id: filters.outletId } : {}),
             },
           },
         ]
@@ -489,8 +506,18 @@ export const FUNNEL_STAGES = [
  *     empty funnel; channel=storefront/all behave identically upstream.
  *   • order_type can only apply to the Paid stage (earlier stages have no
  *     order yet).
+ *   • outlet_id is rejected (400): storefront funnel events are not
+ *     outlet-attributed, so an outlet-scoped funnel would silently mix
+ *     tenant-wide Browse/Cart with branch-level Paid.
  */
 export async function buildFunnel(tenantId, filters) {
+  if (filters.outletId != null) {
+    throw new AppError(
+      400,
+      'VALIDATION_ERROR',
+      'Outlet filtering is not supported for the funnel — storefront sessions are not outlet-attributed'
+    );
+  }
   const sessionsByStage = new Map(FUNNEL_STAGES.map((s) => [s.key, new Set()]));
   let paidSessions = new Set();
 
