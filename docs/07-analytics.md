@@ -27,9 +27,28 @@ All endpoints accept the shared filter params:
 | `timezone`   | valid IANA zone                               | tenant `settings.timezone` → `Asia/Dhaka` |
 | `channel`    | `pos` \| `storefront`                         | both                             |
 | `order_type` | `pickup` \| `delivery` \| `scheduled_pickup` \| `scheduled_delivery` | all |
+| `outlet_id`  | positive integer (branch id)                  | all outlets (workspace-wide)     |
 
 Range spans are capped at `ANALYTICS_MAX_RANGE_DAYS` (env, default **366**); invalid
 input returns `400 VALIDATION_ERROR`.
+
+### Outlet-level analytics (Sector 3, Phase 8 multi-outlet)
+
+The order-based endpoints (`summary`, `riders`, `categories`, `top-items`,
+`peak-hours`, `retention` and their CSV exports) accept `outlet_id` to scope every
+metric — revenue/orders series, payment-method mix, category share, best-sellers,
+retention and rider on-time math — to a single branch, including payment rows linked
+to that branch's orders. Tenant isolation is enforced (`Outlet ${id} does not exist
+in this workspace` → `400 INVALID_OUTLET`); a viewer without `manage:outlets` is
+limited to branches they hold an `OutletMembership` in (`403 FORBIDDEN`). The
+dashboard's filter bar gains an outlet selector; exports always echo the active
+filters, so "what you see is what you export".
+
+**Not outlet-attributed:** the funnel and revenue-anomaly endpoints **reject**
+`outlet_id` (`400 VALIDATION_ERROR`). Storefront funnel events carry no stable
+outlet, and persisted anomaly alerts are written workspace-wide — silently mixing
+tenant-level Browse/Cart into a branch funnel would mislead, so the API is explicit
+instead. The exports strip drops `funnel`/`anomalies` when a branch is selected.
 
 | Method | Path                  | Returns                                                                 |
 | ------ | --------------------- | ----------------------------------------------------------------------- |
@@ -54,6 +73,8 @@ input returns `400 VALIDATION_ERROR`.
   as `null` (POS has no browsing journey). The Paid stage counts **only orders that
   carry an `analytics_session`**, so storefront conversion can never exceed 100% by
   mixing in POS orders.
+- `outlet_id` is rejected (`400`): funnel events are not outlet-attributed, so an
+  outlet-scoped funnel would compare tenant-wide event stages to branch-level Paid.
 
 ### Rider performance
 

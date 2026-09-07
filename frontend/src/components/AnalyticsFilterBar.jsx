@@ -31,7 +31,7 @@ const selectStyle = {
   fontWeight: 600,
 };
 
-export default function AnalyticsFilterBar({ filters, onChange, error }) {
+export default function AnalyticsFilterBar({ filters, onChange, error, outlets = [] }) {
   const set = (patch) => onChange({ ...filters, ...patch });
   const hasRange = Boolean(filters.from && filters.to);
 
@@ -92,9 +92,24 @@ export default function AnalyticsFilterBar({ filters, onChange, error }) {
           </option>
         ))}
       </select>
+      {outlets.length > 0 && (
+        <select
+          aria-label="Outlet"
+          value={filters.outlet ?? 'all'}
+          onChange={(e) => set({ outlet: e.target.value })}
+          style={{ ...selectStyle, minWidth: 140 }}
+        >
+          <option value="all">All outlets</option>
+          {outlets.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name}
+            </option>
+          ))}
+        </select>
+      )}
       {hasRange && (
         <button
-          onClick={() => onChange({ from: '', to: '', channel: 'all', orderType: 'all' })}
+          onClick={() => onChange({ from: '', to: '', channel: 'all', orderType: 'all', outlet: 'all' })}
           style={{
             padding: '8px 12px',
             borderRadius: 10,
