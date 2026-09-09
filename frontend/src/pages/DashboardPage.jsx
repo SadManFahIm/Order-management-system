@@ -10,7 +10,7 @@ import ExportCsvButton from '../components/ExportCsvButton';
 
 const fmtTaka = (n) => `৳ ${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
-const DEFAULT_FILTERS = { from: '', to: '', channel: 'all', orderType: 'all' };
+const DEFAULT_FILTERS = { from: '', to: '', channel: 'all', orderType: 'all', outlet: 'all' };
 
 export default function DashboardPage() {
   const { t } = useI18n();
@@ -30,9 +30,11 @@ export default function DashboardPage() {
   // Phase 7: custom-range analytics (from/to/channel/order_type) served by
   // the /api/analytics/* endpoints. Null while loading or when the viewer
   // lacks view:analytics (cashiers see the legacy dashboard only).
+  // Sector 3: an outlet selector scopes every analytics chart to one branch.
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [analytics, setAnalytics] = useState(null);
   const [analyticsError, setAnalyticsError] = useState(null);
+  const [outlets, setOutlets] = useState([]);
   const hasRange = Boolean(filters.from && filters.to);
   const filterParams = hasRange
     ? {
@@ -40,8 +42,22 @@ export default function DashboardPage() {
         to: filters.to,
         ...(filters.channel !== 'all' ? { channel: filters.channel } : {}),
         ...(filters.orderType !== 'all' ? { order_type: filters.orderType } : {}),
+        ...(filters.outlet !== 'all' ? { outlet_id: filters.outlet } : {}),
       }
     : {};
+
+  // Sector 3: the branch list (managers see all; scoped members see their
+  // own branches). Currently only the tenant's analytics exports/selector.
+  useEffect(() => {
+    api
+      .get('/outlets', { params: { limit: 100 } })
+      .then((res) => {
+        if (mounted.current) setOutlets(Array.isArray(res.data) ? res.data : []);
+      })
+      .catch(() => {
+        /* the filter bar simply renders without an outlet selector */
+      });
+  }, []);
 
   useEffect(() => {
     mounted.current = true;
@@ -94,7 +110,7 @@ export default function DashboardPage() {
         }
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.from, filters.to, filters.channel, filters.orderType]);
+  }, [filters.from, filters.to, filters.channel, filters.orderType, filters.outlet]);
 
   if (error) {
     return (
@@ -210,6 +226,7 @@ export default function DashboardPage() {
             filters={filters}
             onChange={setFilters}
             error={analyticsError}
+            outlets={outlets}
           />
         </div>
       )}
@@ -671,7 +688,12 @@ export default function DashboardPage() {
       {analytics !== null && (
         <Card title={t('dash.exports')} subtitle={t('dash.exportsSub')} style={{ marginTop: 16 }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {['revenue', 'methods', 'categories', 'status', 'top-items', 'peak-hours', 'retention', 'funnel', 'riders', 'anomalies'].map((type) => (
+            {(
+              filters.outlet === 'all'
+                ? ['revenue', 'methods', 'categories', 'status', 'top-items', 'peak-hours', 'retention', 'funnel', 'riders', 'anomalies']
+                // Sector 3: funnel + anomaly exports are workspace-only.
+                : ['revenue', 'methods', 'categories', 'status', 'top-items', 'peak-hours', 'retention', 'riders']
+            ).map((type) => (
               <ExportCsvButton key={type} type={type} params={filterParams} label={type} />
             ))}
           </div>
