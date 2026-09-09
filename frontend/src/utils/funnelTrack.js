@@ -29,7 +29,7 @@ function randomPart() {
 
 export function getSessionId(slug) {
   const key = `${KEY_PREFIX}${slug}`;
-  let id = null;
+  let id;
   try {
     id = localStorage.getItem(key);
   } catch {
