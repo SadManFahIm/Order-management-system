@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import bcrypt from 'bcryptjs';
-import forge from 'node-forge';
 import crypto from 'node:crypto';
 import { inflateRawSync } from 'node:zlib';
 import app from '../app.js';
@@ -21,6 +20,7 @@ import {
   ensureSpConfig,
   buildSloInitUrl,
 } from '../services/samlService.js';
+import { generateSelfSignedCert } from '../services/samlPki.js';
 import {
   getBillingMeter,
   reportTenantMeter,
@@ -40,22 +40,9 @@ let ownerToken;
 let platformToken;
 let idpKeyPem;
 
-/** Generate a self-signed IdP certificate (node-forge, PKCS#1 private key). */
-function makeIdpCert(commonName = 'idp.example.com') {
-  const keys = forge.pki.rsa.generateKeyPair(2048);
-  const cert = forge.pki.createCertificate();
-  cert.publicKey = keys.publicKey;
-  cert.serialNumber = crypto.randomBytes(8).toString('hex');
-  cert.validity.notBefore = new Date(Date.now() - 86400000);
-  cert.validity.notAfter = new Date(Date.now() + 365 * 86400000);
-  const attrs = [{ name: 'commonName', value: commonName }];
-  cert.setSubject(attrs);
-  cert.setIssuer(attrs);
-  cert.sign(keys.privateKey, forge.md.sha256.create());
-  return {
-    certPem: forge.pki.certificateToPem(cert),
-    keyPem: forge.pki.privateKeyToPem(keys.privateKey, { usePkcs8: false }),
-  };
+/** Generate a self-signed IdP certificate (PKCS#1 private key). */
+async function makeIdpCert(commonName = 'idp.example.com') {
+  return generateSelfSignedCert({ commonName, notAfterDays: 365 });
 }
 
 /** Signs a SAML message (LogoutRequest / LogoutResponse) with a key pair. */
@@ -129,7 +116,7 @@ beforeAll(async () => {
     .send({ email: 'sso2admin@example.com', password: PASSWORD });
   platformToken = adminLogin.body.accessToken;
 
-  const idp = makeIdpCert();
+  const idp = await makeIdpCert();
   idpKeyPem = idp.keyPem;
   await TenantSamlConfig.create({
     tenant_id: tenant.id,
@@ -223,7 +210,7 @@ describe('SLO round trip', () => {
   });
 
   it('rejects a LogoutResponse signed with the wrong certificate', async () => {
-    const evil = makeIdpCert('evil.example.com');
+    const evil = await makeIdpCert('evil.example.com');
     const xml = buildSignedLogoutResponse({ keyPem: evil.keyPem });
     const res = await request(app)
       .post('/api/auth/saml/slo')

@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import bcrypt from 'bcryptjs';
-import forge from 'node-forge';
 import crypto from 'node:crypto';
 import app from '../app.js';
 import sequelize from '../config/db.js';
@@ -19,6 +18,7 @@ import {
   buildSsoInitUrl,
   serializeSamlConfig,
 } from '../services/samlService.js';
+import { generateSelfSignedCert } from '../services/samlPki.js';
 import { runTrialExpirySweep } from '../services/trialService.js';
 import { notifyQuotaIfCrossed } from '../services/planService.js';
 
@@ -34,22 +34,9 @@ let samlConfig;
 let idpCertPem;
 let idpKeyPem;
 
-/** Generate a self-signed IdP certificate (node-forge, PKCS#1 private key). */
-function makeIdpCert(commonName = 'idp.example.com') {
-  const keys = forge.pki.rsa.generateKeyPair(2048);
-  const cert = forge.pki.createCertificate();
-  cert.publicKey = keys.publicKey;
-  cert.serialNumber = crypto.randomBytes(8).toString('hex');
-  cert.validity.notBefore = new Date(Date.now() - 86400000);
-  cert.validity.notAfter = new Date(Date.now() + 365 * 86400000);
-  const attrs = [{ name: 'commonName', value: commonName }];
-  cert.setSubject(attrs);
-  cert.setIssuer(attrs);
-  cert.sign(keys.privateKey, forge.md.sha256.create());
-  return {
-    certPem: forge.pki.certificateToPem(cert),
-    keyPem: forge.pki.privateKeyToPem(keys.privateKey, { usePkcs8: false }),
-  };
+/** Generate a self-signed IdP certificate (PKCS#1 private key). */
+async function makeIdpCert(commonName = 'idp.example.com') {
+  return generateSelfSignedCert({ commonName, notAfterDays: 365 });
 }
 
 /** Build a signed SAMLResponse (IdP side) for the given email. */
@@ -133,7 +120,7 @@ beforeAll(async () => {
   });
   await UserTenant.create({ user_id: owner.id, tenant_id: tenant.id, role: 'owner' });
 
-  const idp = makeIdpCert();
+  const idp = await makeIdpCert();
   idpCertPem = idp.certPem;
   idpKeyPem = idp.keyPem;
   samlConfig = await TenantSamlConfig.create({
@@ -229,7 +216,7 @@ describe('SAML SSO', () => {
   });
 
   it('rejects a response signed with the wrong certificate (key confusion)', async () => {
-    const evil = makeIdpCert('evil.example.com');
+    const evil = await makeIdpCert('evil.example.com');
     const xml = buildSignedSamlResponse({
       email: 'evil@example.com',
       certPem: evil.certPem,

@@ -1,6 +1,5 @@
 import crypto from 'node:crypto';
 import { deflateRawSync, inflateRawSync } from 'node:zlib';
-import forge from 'node-forge';
 import { parseStringPromise } from 'xml2js';
 import { DOMParser } from '@xmldom/xmldom';
 import * as xpath from 'xpath';
@@ -17,6 +16,7 @@ import {
 } from '../models/index.js';
 import { audit } from './auditService.js';
 import { issueSession, sha256, REFRESH_COOKIE_NAME } from './authService.js';
+import { generateSelfSignedCert } from './samlPki.js';
 
 /**
  * SAML 2.0 SSO (enterprise auth, Phase 3).
@@ -269,32 +269,28 @@ const SP_ENTITY_ID = 'orderly.app';
 
 /**
  * Ensures the SP signing identity exists (singleton `saml_sp_config`).
- * Generates a self-signed 2048-bit RSA key + cert once, at first use, with
- * node-forge. The private key is stored only in the DB row — it never
- * leaves the server — and is what signs LogoutRequests.
+ * Generates a self-signed 2048-bit RSA key + cert once, at first use
+ * (WebCrypto + @peculiar/x509 — node-forge was archived upstream and has
+ * an unresolved PKCS#1 signature-verification advisory). The private key
+ * is stored only in the DB row — it never leaves the server — and is what
+ * signs LogoutRequests.
  */
 export async function ensureSpConfig() {
   const existing = await SamlSpConfig.findByPk(1);
   if (existing) return existing;
 
-  const keys = forge.pki.rsa.generateKeyPair(2048);
-  const cert = forge.pki.createCertificate();
-  cert.publicKey = keys.publicKey;
-  cert.serialNumber = crypto.randomBytes(8).toString('hex');
-  cert.validity.notBefore = new Date(Date.now() - 86400000);
-  cert.validity.notAfter = new Date(Date.now() + 3650 * 86400000); // 10 years
-  const attrs = [{ name: 'commonName', value: SP_ENTITY_ID }];
-  cert.setSubject(attrs);
-  cert.setIssuer(attrs);
-  cert.sign(keys.privateKey, forge.md.sha256.create());
+  const { certPem, keyPem } = await generateSelfSignedCert({
+    commonName: SP_ENTITY_ID,
+    notAfterDays: 3650,
+  });
 
   return SamlSpConfig.findOrCreate({
     where: { id: 1 },
     defaults: {
       id: 1,
       entity_id: SP_ENTITY_ID,
-      cert: forge.pki.certificateToPem(cert),
-      private_key: forge.pki.privateKeyToPem(keys.privateKey, { usePkcs8: false }),
+      cert: certPem,
+      private_key: keyPem,
     },
   }).then(([row]) => row);
 }
