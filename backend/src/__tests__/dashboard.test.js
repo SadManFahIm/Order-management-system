@@ -260,8 +260,17 @@ describe('GET /api/dashboard', () => {
     expect(peakHours.days).toEqual(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']);
     expect(peakHours.grid).toHaveLength(7);
     for (const row of peakHours.grid) expect(row).toHaveLength(24);
-    // Every cell carries day/hour/orders/revenue.
-    expect(peakHours.grid[0][0]).toMatchObject({ day: 0, hour: 0, orders: 0, revenue: 0 });
+    // Every cell is a complete numeric slot, aligned to grid indices. The grid
+    // must NOT assume any wall-clock cell is empty — the seeded orders land in
+    // whatever Dhaka day/hour it currently is.
+    peakHours.grid.forEach((row, d) =>
+      row.forEach((cell, h) => {
+        expect(cell.day).toBe(d);
+        expect(cell.hour).toBe(h);
+        expect(Number.isInteger(cell.orders) && cell.orders >= 0).toBe(true);
+        expect(Number.isInteger(cell.revenue) && cell.revenue >= 0).toBe(true);
+      }),
+    );
 
     // Grid totals must reconcile with the closeout trend (3 orders / 700).
     const gridOrders = peakHours.grid.flat().reduce((s, c) => s + c.orders, 0);
