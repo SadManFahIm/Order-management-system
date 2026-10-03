@@ -4,7 +4,7 @@
  *
  *   npm run dev
  *
- * Backend  → http://localhost:4000   (nodemon, auto-restarts on change)
+ * Backend  → http://localhost:4000   (node --watch, auto-restarts on change)
  * Frontend → http://localhost:5173   (Vite, proxies /api to :4000)
  *
  * Ctrl+C stops both. If either process exits, the other is stopped too so
